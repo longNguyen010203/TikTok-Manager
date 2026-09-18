@@ -210,3 +210,35 @@ Requirements:
 
 Acceptance criteria:
 - all integration tests pass
+
+---
+
+## TIK-008
+Status: TODO
+Owner: Codex
+Type: Backend / Database
+
+Title:
+Add Alembic database migrations
+
+Dependencies:
+- TIK-003
+- TIK-004
+- TIK-007
+
+Scope:
+- backend/
+- docs/
+
+Requirements:
+- add Alembic
+- configure it to use the existing SQLAlchemy metadata
+- create an initial migration for the accounts table
+- document local migration commands
+- development database must be creatable using migrations
+- do not modify frontend/
+
+Acceptance criteria:
+- `alembic upgrade head` creates the accounts table
+- `alembic current` reports the latest revision
+- existing backend tests still pass
