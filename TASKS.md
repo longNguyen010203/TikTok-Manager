@@ -328,3 +328,35 @@ Acceptance criteria:
 - Runtime CRUD works from UI
 - Account runtime assignment works from UI
 - build and lint pass
+
+---
+
+## TIK-011
+Status: TODO
+Owner: Codex
+Type: Backend / Job System
+
+Title:
+Add Job execution foundation
+
+Dependencies:
+- TIK-009
+- TIK-010
+
+Scope:
+- backend/
+- docs/
+
+Phases:
+1. Job model + migration
+2. Job CRUD API
+3. Job claiming + lifecycle
+4. Retry + logs + failure handling
+5. Full verification
+
+Acceptance criteria:
+- jobs can be created and persisted
+- jobs can target an account/runtime
+- job lifecycle is tracked
+- retries and failures are represented safely
+- full backend test suite passes
