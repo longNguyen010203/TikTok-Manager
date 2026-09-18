@@ -301,3 +301,30 @@ Acceptance criteria:
 - account can reference a runtime
 - deleting an assigned runtime is handled safely
 - full backend test suite passes
+
+---
+
+## TIK-010
+Status: TODO
+Owner: Antigravity
+Type: Frontend
+
+Title:
+Build Device and Runtime Management UI
+
+Dependencies:
+- TIK-009
+
+Scope:
+- frontend/
+
+Phases:
+1. Device dashboard
+2. Runtime dashboard
+3. Account ↔ Runtime assignment UI
+
+Acceptance criteria:
+- Device CRUD works from UI
+- Runtime CRUD works from UI
+- Account runtime assignment works from UI
+- build and lint pass
