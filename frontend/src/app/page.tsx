@@ -1,4 +1,5 @@
 import React from "react";
+import Link from "next/link";
 import {
   Users,
   Video,
@@ -186,12 +187,12 @@ export default function Home() {
                 Active profiles registered for automated & scheduled operations.
               </p>
             </div>
-            <button
-              type="button"
+            <Link
+              href="/accounts"
               className="text-xs text-rose-600 font-medium hover:text-rose-700"
             >
-              View all
-            </button>
+              View all &rarr;
+            </Link>
           </div>
 
           <div className="overflow-x-auto">
