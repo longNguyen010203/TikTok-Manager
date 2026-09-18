@@ -360,3 +360,32 @@ Acceptance criteria:
 - job lifecycle is tracked
 - retries and failures are represented safely
 - full backend test suite passes
+
+---
+
+## TIK-012
+Status: TODO
+Owner: Antigravity
+Type: Frontend / Job Queue
+
+Title:
+Build Job Queue dashboard
+
+Dependencies:
+- TIK-011
+
+Scope:
+- frontend/
+
+Phases:
+1. Job list + filters + pagination
+2. Job detail + logs
+3. Retry + cancel actions
+4. Final verification
+
+Acceptance criteria:
+- jobs can be viewed and filtered
+- job details and logs are visible
+- failed jobs can be retried
+- eligible jobs can be cancelled
+- build and lint pass
