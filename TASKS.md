@@ -52,3 +52,161 @@ Requirements:
 Acceptance criteria:
 - npm run build passes
 - development server starts
+
+---
+
+## TIK-003
+Status: TODO
+Owner: Codex
+Type: Backend
+
+Title:
+Create account database model
+
+Scope:
+- backend/
+- docs/
+
+Requirements:
+- add Account model
+- fields:
+  - id
+  - name
+  - username
+  - platform
+  - status
+  - notes
+  - created_at
+  - updated_at
+- add database configuration
+- use SQLAlchemy
+- use SQLite for local development initially
+- document schema in docs/database.md
+
+Acceptance criteria:
+- database initializes successfully
+- Account table can be created
+- model tests pass
+
+---
+
+## TIK-004
+Status: TODO
+Owner: Codex
+Type: Backend
+
+Title:
+Create Account CRUD API
+
+Dependencies:
+- TIK-003
+
+Scope:
+- backend/
+- docs/API_CONTRACT.md
+
+Requirements:
+- GET /accounts
+- GET /accounts/{id}
+- POST /accounts
+- PATCH /accounts/{id}
+- DELETE /accounts/{id}
+- validation with Pydantic
+- pagination for list endpoint
+- status filtering
+- proper 404 responses
+
+Acceptance criteria:
+- all endpoints work
+- API tests pass
+- API contract is documented
+
+---
+
+## TIK-005
+Status: TODO
+Owner: Antigravity
+Type: Frontend
+
+Title:
+Build Account Management dashboard
+
+Dependencies:
+- TIK-004
+
+Scope:
+- frontend/
+
+Requirements:
+- accounts table
+- columns:
+  - name
+  - username
+  - platform
+  - status
+  - updated_at
+- search input
+- status filter
+- pagination UI
+- create account button
+- loading state
+- empty state
+- error state
+- responsive layout
+
+Acceptance criteria:
+- npm run build passes
+- lint passes
+- dashboard works with mock API data
+
+---
+
+## TIK-006
+Status: TODO
+Owner: Antigravity
+Type: Frontend Integration
+
+Dependencies:
+- TIK-004
+- TIK-005
+
+Scope:
+- frontend/
+
+Requirements:
+- replace mock account data with backend API
+- GET /accounts integration
+- create account form
+- update account
+- delete account
+- handle API errors
+
+Acceptance criteria:
+- frontend communicates successfully with backend
+- CRUD flow works through UI
+- npm run build passes
+
+---
+
+## TIK-007
+Status: TODO
+Owner: Codex
+Type: Integration
+
+Dependencies:
+- TIK-004
+- TIK-006
+
+Scope:
+- backend/
+- tests/
+
+Requirements:
+- integration tests for account CRUD
+- test pagination
+- test status filtering
+- test invalid input
+- test missing account
+
+Acceptance criteria:
+- all integration tests pass
