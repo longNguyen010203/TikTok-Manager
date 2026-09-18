@@ -242,3 +242,62 @@ Acceptance criteria:
 - `alembic upgrade head` creates the accounts table
 - `alembic current` reports the latest revision
 - existing backend tests still pass
+
+---
+
+## TIK-009
+Status: TODO
+Owner: Codex
+Type: Backend / Database
+
+Title:
+Add Device and Runtime management foundation
+
+Dependencies:
+- TIK-008
+
+Scope:
+- backend/
+- docs/
+
+Requirements:
+- add Device model
+- add Runtime model
+- define relationship:
+  - one Device can have multiple Runtime records
+  - one Account may optionally be assigned to one Runtime
+- add fields for Device:
+  - id
+  - name
+  - device_type
+  - platform
+  - os_version
+  - status
+  - notes
+  - created_at
+  - updated_at
+- add fields for Runtime:
+  - id
+  - device_id
+  - name
+  - runtime_type
+  - status
+  - last_seen_at
+  - created_at
+  - updated_at
+- add optional runtime_id to Account
+- create Alembic migration
+- add CRUD API for Device
+- add CRUD API for Runtime
+- add tests
+- update docs/database.md
+- update docs/API_CONTRACT.md
+- do not modify frontend/
+
+Acceptance criteria:
+- migrations apply successfully
+- device CRUD works
+- runtime CRUD works
+- account can reference a runtime
+- deleting an assigned runtime is handled safely
+- full backend test suite passes
