@@ -389,3 +389,37 @@ Acceptance criteria:
 - failed jobs can be retried
 - eligible jobs can be cancelled
 - build and lint pass
+
+---
+
+## TIK-013
+Status: TODO
+Owner: Codex
+Type: Backend / Worker System
+
+Title:
+Add Worker Execution Layer
+
+Dependencies:
+- TIK-011
+- TIK-012
+
+Scope:
+- backend/
+- workers/
+- docs/
+
+Phases:
+1. Worker skeleton + polling loop
+2. Job handler registry
+3. Success/failure reporting
+4. Retry/backoff integration
+5. Final verification
+
+Acceptance criteria:
+- worker can poll and claim jobs
+- jobs are dispatched to handlers
+- success/failure updates lifecycle correctly
+- logs are written
+- retry rules are respected
+- worker shuts down cleanly
