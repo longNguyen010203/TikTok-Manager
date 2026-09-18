@@ -1,30 +1,53 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Account, CreateAccountInput } from "@/types/account";
-import { accountService, MockAccountService } from "@/services/accountService";
+import {
+  Account,
+  CreateAccountInput,
+  UpdateAccountInput,
+  formatApiError,
+} from "@/types/account";
+import { accountService } from "@/services/accountService";
 import { AccountToolbar } from "@/components/accounts/AccountToolbar";
 import { AccountTable } from "@/components/accounts/AccountTable";
 import { AccountPagination } from "@/components/accounts/AccountPagination";
 import { AccountCreateModal } from "@/components/accounts/AccountCreateModal";
-import { Users, CheckCircle2, PauseCircle, AlertCircle, RefreshCw } from "lucide-react";
+import { AccountEditModal } from "@/components/accounts/AccountEditModal";
+import { AccountDeleteDialog } from "@/components/accounts/AccountDeleteDialog";
+import {
+  Users,
+  CheckCircle2,
+  PauseCircle,
+  AlertCircle,
+  RefreshCw,
+  Server,
+} from "lucide-react";
 
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [total, setTotal] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(5);
+  const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Modals & Dialogs state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [simulateError, setSimulateError] = useState(false);
-  const [successBanner, setSuccessBanner] = useState<string | null>(null);
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  const [deletingAccount, setDeletingAccount] = useState<Account | null>(null);
+
+  // Notifications
+  const [bannerMessage, setBannerMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
 
   const [refreshIndex, setRefreshIndex] = useState(0);
+  const apiBaseUrl = accountService.getBaseUrl();
 
-  // Fetch accounts from accountService
+  // Fetch accounts from FastAPI backend
   useEffect(() => {
     let ignore = false;
 
@@ -33,7 +56,6 @@ export default function AccountsPage() {
         page: currentPage,
         page_size: pageSize,
         status: status === "all" ? undefined : status,
-        search: search || undefined,
       })
       .then((res) => {
         if (!ignore) {
@@ -45,10 +67,14 @@ export default function AccountsPage() {
       })
       .catch((err: unknown) => {
         if (!ignore) {
-          const msg =
-            err instanceof Error
-              ? err.message
-              : "An unexpected error occurred while loading accounts.";
+          let msg = formatApiError(err);
+          // Helpful guidance if connection refused
+          if (
+            msg.toLowerCase().includes("failed to fetch") ||
+            msg.toLowerCase().includes("networkerror")
+          ) {
+            msg = `Unable to connect to FastAPI backend at ${apiBaseUrl}. Ensure the backend server is running.`;
+          }
           setError(msg);
           setAccounts([]);
           setTotal(0);
@@ -59,7 +85,7 @@ export default function AccountsPage() {
     return () => {
       ignore = true;
     };
-  }, [currentPage, pageSize, status, search, refreshIndex]);
+  }, [currentPage, pageSize, status, refreshIndex, apiBaseUrl]);
 
   const handleRefresh = () => {
     setIsLoading(true);
@@ -68,7 +94,6 @@ export default function AccountsPage() {
 
   // Reset page when search or status filter changes
   const handleSearchChange = (value: string) => {
-    setIsLoading(true);
     setSearch(value);
     setCurrentPage(1);
   };
@@ -97,24 +122,63 @@ export default function AccountsPage() {
     setCurrentPage(1);
   };
 
-  const handleToggleSimulateError = () => {
-    const nextState = !simulateError;
-    setSimulateError(nextState);
-    if (accountService instanceof MockAccountService) {
-      accountService.setSimulateError(nextState);
+  // CRUD actions
+  const handleCreateAccount = async (input: CreateAccountInput) => {
+    try {
+      const created = await accountService.createAccount(input);
+      setBannerMessage({
+        type: "success",
+        text: `Account "@${created.username}" created successfully!`,
+      });
+      setTimeout(() => setBannerMessage(null), 5000);
+      setCurrentPage(1);
+      handleRefresh();
+    } catch (err: unknown) {
+      throw err; // Re-throw to be handled by modal
     }
-    handleRefresh();
   };
 
-  const handleCreateAccount = async (input: CreateAccountInput) => {
-    await accountService.createAccount(input);
-    setSuccessBanner(`Account "@${input.username}" successfully added!`);
-    setTimeout(() => setSuccessBanner(null), 4000);
-    // Reset to page 1 and refresh
-    setIsLoading(true);
-    setCurrentPage(1);
-    setRefreshIndex((idx) => idx + 1);
+  const handleUpdateAccount = async (
+    id: number,
+    input: UpdateAccountInput
+  ) => {
+    try {
+      const updated = await accountService.updateAccount(id, input);
+      setBannerMessage({
+        type: "success",
+        text: `Account "@${updated.username}" updated successfully!`,
+      });
+      setTimeout(() => setBannerMessage(null), 5000);
+      handleRefresh();
+    } catch (err: unknown) {
+      throw err; // Re-throw to be handled by modal
+    }
   };
+
+  const handleDeleteAccount = async (id: number) => {
+    try {
+      await accountService.deleteAccount(id);
+      setBannerMessage({
+        type: "success",
+        text: `Account ID #${id} deleted successfully.`,
+      });
+      setTimeout(() => setBannerMessage(null), 5000);
+      handleRefresh();
+    } catch (err: unknown) {
+      throw err; // Re-throw to be handled by dialog
+    }
+  };
+
+  // Client-side search filtering across current items
+  const displayedAccounts = search.trim()
+    ? accounts.filter((acc) => {
+        const q = search.trim().toLowerCase();
+        return (
+          acc.name.toLowerCase().includes(q) ||
+          acc.username.toLowerCase().includes(q)
+        );
+      })
+    : accounts;
 
   const isFiltered = search.trim().length > 0 || status !== "all";
 
@@ -128,37 +192,67 @@ export default function AccountsPage() {
             <span>Account Management</span>
           </h2>
           <p className="text-sm text-slate-500 mt-1">
-            Monitor registered TikTok profiles, view sync health, and configure account credentials.
+            Connected to FastAPI backend • Real-time CRUD and state synchronization.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleRefresh}
-          disabled={isLoading}
-          className="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-200 text-xs font-medium rounded-lg text-slate-700 bg-white hover:bg-slate-50 transition-colors shadow-2xs self-start sm:self-auto disabled:opacity-50"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
-          <span>Refresh</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={isLoading}
+            className="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-200 text-xs font-medium rounded-lg text-slate-700 bg-white hover:bg-slate-50 transition-colors shadow-2xs disabled:opacity-50"
+          >
+            <RefreshCw
+              className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`}
+            />
+            <span>Refresh</span>
+          </button>
+        </div>
       </div>
 
-      {/* Success Banner */}
-      {successBanner && (
-        <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center justify-between animate-in fade-in slide-in-from-top-2 duration-200">
+      {/* Banner Notifications */}
+      {bannerMessage && (
+        <div
+          className={`p-3.5 rounded-xl border text-xs flex items-center justify-between animate-in fade-in slide-in-from-top-2 duration-200 ${
+            bannerMessage.type === "success"
+              ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+              : "bg-rose-50 border-rose-200 text-rose-800"
+          }`}
+        >
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span className="font-medium">{successBanner}</span>
+            {bannerMessage.type === "success" ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            )}
+            <span className="font-medium">{bannerMessage.text}</span>
           </div>
           <button
             type="button"
-            onClick={() => setSuccessBanner(null)}
-            className="text-emerald-700 hover:text-emerald-900 font-bold ml-2"
+            onClick={() => setBannerMessage(null)}
+            className="font-bold ml-2 hover:opacity-75"
           >
             &times;
           </button>
         </div>
       )}
+
+      {/* Backend Connection Status Banner */}
+      <div className="p-3.5 rounded-xl border border-slate-200/80 bg-slate-100/60 text-slate-700 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shadow-2xs">
+        <div className="flex items-center gap-2">
+          <Server className="w-4 h-4 text-slate-500 shrink-0" />
+          <span className="font-medium text-slate-800">
+            Backend Endpoint:
+          </span>
+          <code className="px-1.5 py-0.5 rounded bg-white border border-slate-200 font-mono text-[11px] text-slate-700">
+            {apiBaseUrl}
+          </code>
+        </div>
+        <span className="text-[11px] text-slate-500">
+          Configured via <code className="font-mono">NEXT_PUBLIC_API_BASE_URL</code>
+        </span>
+      </div>
 
       {/* Overview Stat Chips */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -211,26 +305,27 @@ export default function AccountsPage() {
 
       {/* Main Table Card */}
       <div className="bg-white rounded-xl border border-slate-200/80 shadow-2xs overflow-hidden">
-        {/* Toolbar: Search, Status Filter, Create Account Button, Simulated Error */}
+        {/* Toolbar: Search, Status Filter, Create Account Button */}
         <AccountToolbar
           search={search}
           onSearchChange={handleSearchChange}
           status={status}
           onStatusChange={handleStatusChange}
           onCreateClick={() => setIsCreateModalOpen(true)}
-          simulateError={simulateError}
-          onToggleSimulateError={handleToggleSimulateError}
+          apiBaseUrl={apiBaseUrl}
         />
 
-        {/* Account Table */}
+        {/* Account Table with Edit and Delete actions */}
         <AccountTable
-          accounts={accounts}
+          accounts={displayedAccounts}
           isLoading={isLoading}
           error={error}
           onRetry={handleRefresh}
           isFiltered={isFiltered}
           onClearFilters={handleClearFilters}
           onCreateAccount={() => setIsCreateModalOpen(true)}
+          onEditAccount={(acc) => setEditingAccount(acc)}
+          onDeleteAccount={(acc) => setDeletingAccount(acc)}
         />
 
         {/* Pagination UI */}
@@ -250,6 +345,22 @@ export default function AccountsPage() {
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         onSubmit={handleCreateAccount}
+      />
+
+      {/* Edit Account Modal */}
+      <AccountEditModal
+        account={editingAccount}
+        isOpen={editingAccount !== null}
+        onClose={() => setEditingAccount(null)}
+        onSubmit={handleUpdateAccount}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <AccountDeleteDialog
+        account={deletingAccount}
+        isOpen={deletingAccount !== null}
+        onClose={() => setDeletingAccount(null)}
+        onConfirm={handleDeleteAccount}
       />
     </div>
   );

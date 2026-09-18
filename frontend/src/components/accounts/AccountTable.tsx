@@ -4,7 +4,7 @@ import { AccountStatusBadge } from "./AccountStatusBadge";
 import { AccountLoadingState } from "./AccountLoadingState";
 import { AccountEmptyState } from "./AccountEmptyState";
 import { AccountErrorState } from "./AccountErrorState";
-import { User, Calendar, Sparkles } from "lucide-react";
+import { User, Calendar, Sparkles, Pencil, Trash2 } from "lucide-react";
 
 interface AccountTableProps {
   accounts: Account[];
@@ -14,6 +14,8 @@ interface AccountTableProps {
   isFiltered: boolean;
   onClearFilters: () => void;
   onCreateAccount: () => void;
+  onEditAccount?: (account: Account) => void;
+  onDeleteAccount?: (account: Account) => void;
 }
 
 export function AccountTable({
@@ -24,6 +26,8 @@ export function AccountTable({
   isFiltered,
   onClearFilters,
   onCreateAccount,
+  onEditAccount,
+  onDeleteAccount,
 }: AccountTableProps) {
   // Format ISO date string
   const formatDate = (isoString: string) => {
@@ -73,6 +77,9 @@ export function AccountTable({
               </th>
               <th scope="col" className="py-3 px-6">
                 Updated At
+              </th>
+              <th scope="col" className="py-3 px-6 text-right">
+                Actions
               </th>
             </tr>
           </thead>
@@ -124,6 +131,34 @@ export function AccountTable({
                   <div className="flex items-center gap-1.5">
                     <Calendar className="w-3.5 h-3.5 text-slate-400" />
                     <span>{formatDate(acc.updated_at)}</span>
+                  </div>
+                </td>
+
+                {/* Actions: Edit and Delete */}
+                <td className="py-4 px-6 text-right whitespace-nowrap">
+                  <div className="flex items-center justify-end gap-1.5">
+                    {onEditAccount && (
+                      <button
+                        type="button"
+                        onClick={() => onEditAccount(acc)}
+                        className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                        title={`Edit account @${acc.username}`}
+                        aria-label={`Edit account @${acc.username}`}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {onDeleteAccount && (
+                      <button
+                        type="button"
+                        onClick={() => onDeleteAccount(acc)}
+                        className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                        title={`Delete account @${acc.username}`}
+                        aria-label={`Delete account @${acc.username}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>

@@ -1,29 +1,34 @@
 "use client";
 
 import React, { useState } from "react";
-import { X, Loader2, Sparkles } from "lucide-react";
-import { CreateAccountInput, formatApiError } from "@/types/account";
+import { X, Loader2, Edit3 } from "lucide-react";
+import { Account, UpdateAccountInput, formatApiError } from "@/types/account";
 
-interface AccountCreateModalProps {
+interface AccountEditModalProps {
+  account: Account | null;
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (input: CreateAccountInput) => Promise<void>;
+  onSubmit: (id: number, input: UpdateAccountInput) => Promise<void>;
 }
 
-export function AccountCreateModal({
-  isOpen,
+interface AccountEditModalContentProps {
+  account: Account;
+  onClose: () => void;
+  onSubmit: (id: number, input: UpdateAccountInput) => Promise<void>;
+}
+
+function AccountEditModalContent({
+  account,
   onClose,
   onSubmit,
-}: AccountCreateModalProps) {
-  const [name, setName] = useState("");
-  const [username, setUsername] = useState("");
-  const [platform, setPlatform] = useState("tiktok");
-  const [status, setStatus] = useState("active");
-  const [notes, setNotes] = useState("");
+}: AccountEditModalContentProps) {
+  const [name, setName] = useState(account.name);
+  const [username, setUsername] = useState(account.username);
+  const [platform, setPlatform] = useState(account.platform);
+  const [status, setStatus] = useState(account.status);
+  const [notes, setNotes] = useState(account.notes || "");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-
-  if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,20 +49,13 @@ export function AccountCreateModal({
 
     try {
       setIsSubmitting(true);
-      await onSubmit({
+      await onSubmit(account.id, {
         name: trimmedName,
         username: trimmedUsername,
         platform: platform.trim() || "tiktok",
         status,
         notes: notes.trim() || null,
       });
-
-      // Reset form on success
-      setName("");
-      setUsername("");
-      setPlatform("tiktok");
-      setStatus("active");
-      setNotes("");
       onClose();
     } catch (err: unknown) {
       setFormError(formatApiError(err));
@@ -72,27 +70,32 @@ export function AccountCreateModal({
         className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden transition-all animate-in fade-in zoom-in-95 duration-150"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="modal-headline"
+        aria-labelledby="edit-modal-title"
       >
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-rose-50 text-rose-600">
-              <Sparkles className="w-4 h-4" />
+            <div className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600">
+              <Edit3 className="w-4 h-4" />
             </div>
-            <h3
-              id="modal-headline"
-              className="text-sm font-semibold text-slate-900"
-            >
-              Add New TikTok Account
-            </h3>
+            <div>
+              <h3
+                id="edit-modal-title"
+                className="text-sm font-semibold text-slate-900"
+              >
+                Edit Account Details
+              </h3>
+              <p className="text-[11px] text-slate-400 font-mono">
+                ID #{account.id} • @{account.username}
+              </p>
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
             disabled={isSubmitting}
             className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors disabled:opacity-50"
-            aria-label="Close modal"
+            aria-label="Close edit modal"
           >
             <X className="w-4 h-4" />
           </button>
@@ -101,34 +104,33 @@ export function AccountCreateModal({
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs">
           {formError && (
-            <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700">
+            <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 leading-relaxed break-words">
               {formError}
             </div>
           )}
 
-          {/* Account Name */}
+          {/* Name */}
           <div className="space-y-1">
             <label
-              htmlFor="accName"
+              htmlFor="editAccName"
               className="block font-medium text-slate-700"
             >
               Account Display Name <span className="text-rose-500">*</span>
             </label>
             <input
-              id="accName"
+              id="editAccName"
               type="text"
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Acme Brand Official"
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500"
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
             />
           </div>
 
           {/* Username */}
           <div className="space-y-1">
             <label
-              htmlFor="accUsername"
+              htmlFor="editAccUsername"
               className="block font-medium text-slate-700"
             >
               TikTok Username <span className="text-rose-500">*</span>
@@ -138,13 +140,12 @@ export function AccountCreateModal({
                 @
               </span>
               <input
-                id="accUsername"
+                id="editAccUsername"
                 type="text"
                 required
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="handle_without_at"
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-7 pr-3 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500"
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-7 pr-3 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               />
             </div>
           </div>
@@ -153,16 +154,16 @@ export function AccountCreateModal({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <label
-                htmlFor="accPlatform"
+                htmlFor="editAccPlatform"
                 className="block font-medium text-slate-700"
               >
                 Platform
               </label>
               <select
-                id="accPlatform"
+                id="editAccPlatform"
                 value={platform}
                 onChange={(e) => setPlatform(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500"
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               >
                 <option value="tiktok">TikTok</option>
               </select>
@@ -170,16 +171,16 @@ export function AccountCreateModal({
 
             <div className="space-y-1">
               <label
-                htmlFor="accStatus"
+                htmlFor="editAccStatus"
                 className="block font-medium text-slate-700"
               >
-                Initial Status
+                Status
               </label>
               <select
-                id="accStatus"
+                id="editAccStatus"
                 value={status}
                 onChange={(e) => setStatus(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500"
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               >
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
@@ -191,18 +192,18 @@ export function AccountCreateModal({
           {/* Notes */}
           <div className="space-y-1">
             <label
-              htmlFor="accNotes"
+              htmlFor="editAccNotes"
               className="block font-medium text-slate-700"
             >
               Operational Notes (Optional)
             </label>
             <textarea
-              id="accNotes"
+              id="editAccNotes"
               rows={3}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="e.g. Channel purpose, assigned content creator, or campaign details..."
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 resize-none"
+              placeholder="Operational notes, channel purpose..."
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 resize-none"
             />
           </div>
 
@@ -219,14 +220,32 @@ export function AccountCreateModal({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-rose-600 text-white rounded-lg font-medium hover:bg-rose-700 transition-colors shadow-2xs disabled:opacity-70"
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors shadow-2xs disabled:opacity-70"
             >
               {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-              <span>Save Account</span>
+              <span>Update Account</span>
             </button>
           </div>
         </form>
       </div>
     </div>
+  );
+}
+
+export function AccountEditModal({
+  account,
+  isOpen,
+  onClose,
+  onSubmit,
+}: AccountEditModalProps) {
+  if (!isOpen || !account) return null;
+
+  return (
+    <AccountEditModalContent
+      key={account.id}
+      account={account}
+      onClose={onClose}
+      onSubmit={onSubmit}
+    />
   );
 }
