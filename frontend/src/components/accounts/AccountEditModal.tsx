@@ -1,11 +1,15 @@
 "use client";
 
 import React, { useState } from "react";
-import { X, Loader2, Edit3 } from "lucide-react";
+import { X, Loader2, Edit3, AlertCircle } from "lucide-react";
 import { Account, UpdateAccountInput, formatApiError } from "@/types/account";
+import { Runtime } from "@/types/runtime";
+import { Device } from "@/types/device";
 
 interface AccountEditModalProps {
   account: Account | null;
+  runtimes?: Runtime[];
+  devicesMap?: Record<number, Device>;
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (id: number, input: UpdateAccountInput) => Promise<void>;
@@ -13,12 +17,16 @@ interface AccountEditModalProps {
 
 interface AccountEditModalContentProps {
   account: Account;
+  runtimes: Runtime[];
+  devicesMap: Record<number, Device>;
   onClose: () => void;
   onSubmit: (id: number, input: UpdateAccountInput) => Promise<void>;
 }
 
 function AccountEditModalContent({
   account,
+  runtimes,
+  devicesMap,
   onClose,
   onSubmit,
 }: AccountEditModalContentProps) {
@@ -27,8 +35,15 @@ function AccountEditModalContent({
   const [platform, setPlatform] = useState(account.platform);
   const [status, setStatus] = useState(account.status);
   const [notes, setNotes] = useState(account.notes || "");
+  const [runtimeId, setRuntimeId] = useState<string>(
+    account.runtime_id !== null ? String(account.runtime_id) : ""
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const isCurrentRuntimeMissing =
+    account.runtime_id !== null &&
+    !runtimes.some((r) => r.id === account.runtime_id);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,6 +62,8 @@ function AccountEditModalContent({
       return;
     }
 
+    const parsedRuntimeId = runtimeId ? parseInt(runtimeId, 10) : null;
+
     try {
       setIsSubmitting(true);
       await onSubmit(account.id, {
@@ -55,6 +72,7 @@ function AccountEditModalContent({
         platform: platform.trim() || "tiktok",
         status,
         notes: notes.trim() || null,
+        runtime_id: parsedRuntimeId,
       });
       onClose();
     } catch (err: unknown) {
@@ -106,6 +124,19 @@ function AccountEditModalContent({
           {formError && (
             <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 leading-relaxed break-words">
               {formError}
+            </div>
+          )}
+
+          {/* Warning if currently assigned runtime is missing */}
+          {isCurrentRuntimeMissing && (
+            <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold">Assigned Runtime Missing</p>
+                <p className="mt-0.5 text-[11px]">
+                  The previously assigned runtime (ID #{account.runtime_id}) was deleted or cannot be found. Select an active runtime below or leave Unassigned to clear.
+                </p>
+              </div>
             </div>
           )}
 
@@ -189,6 +220,41 @@ function AccountEditModalContent({
             </div>
           </div>
 
+          {/* Runtime Selector */}
+          <div className="space-y-1">
+            <label
+              htmlFor="editAccRuntime"
+              className="block font-medium text-slate-700"
+            >
+              Assigned Runtime
+            </label>
+            <select
+              id="editAccRuntime"
+              value={runtimeId}
+              onChange={(e) => setRuntimeId(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+            >
+              <option value="">Unassigned (No runtime)</option>
+              {isCurrentRuntimeMissing && (
+                <option value={account.runtime_id!} disabled>
+                  Runtime #{account.runtime_id} (Missing / Deleted)
+                </option>
+              )}
+              {runtimes.map((rt) => {
+                const dev = devicesMap[rt.device_id];
+                const devLabel = dev ? dev.name : `Device #${rt.device_id}`;
+                return (
+                  <option key={rt.id} value={rt.id}>
+                    {rt.name} ({devLabel} • {rt.status} • ID #{rt.id})
+                  </option>
+                );
+              })}
+            </select>
+            <p className="text-[11px] text-slate-400">
+              Select an execution runtime or leave unassigned.
+            </p>
+          </div>
+
           {/* Notes */}
           <div className="space-y-1">
             <label
@@ -199,7 +265,7 @@ function AccountEditModalContent({
             </label>
             <textarea
               id="editAccNotes"
-              rows={3}
+              rows={2}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Operational notes, channel purpose..."
@@ -234,6 +300,8 @@ function AccountEditModalContent({
 
 export function AccountEditModal({
   account,
+  runtimes = [],
+  devicesMap = {},
   isOpen,
   onClose,
   onSubmit,
@@ -244,6 +312,8 @@ export function AccountEditModal({
     <AccountEditModalContent
       key={account.id}
       account={account}
+      runtimes={runtimes}
+      devicesMap={devicesMap}
       onClose={onClose}
       onSubmit={onSubmit}
     />

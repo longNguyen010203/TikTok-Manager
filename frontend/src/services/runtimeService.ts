@@ -1,35 +1,33 @@
 import {
-  Account,
-  AccountListParams,
-  AccountListResponse,
-  CreateAccountInput,
-  UpdateAccountInput,
+  Runtime,
+  RuntimeListParams,
+  RuntimeListResponse,
+  CreateRuntimeInput,
+  UpdateRuntimeInput,
   ApiError,
   ValidationErrorDetail,
-} from "@/types/account";
+} from "@/types/runtime";
 
-export interface IAccountService {
-  getAccounts(params?: AccountListParams): Promise<AccountListResponse>;
-  getAccount(id: number): Promise<Account>;
-  createAccount(input: CreateAccountInput): Promise<Account>;
-  updateAccount(id: number, input: UpdateAccountInput): Promise<Account>;
-  deleteAccount(id: number): Promise<void>;
+export interface IRuntimeService {
+  getRuntimes(params?: RuntimeListParams): Promise<RuntimeListResponse>;
+  getRuntime(id: number): Promise<Runtime>;
+  createRuntime(input: CreateRuntimeInput): Promise<Runtime>;
+  updateRuntime(id: number, input: UpdateRuntimeInput): Promise<Runtime>;
+  deleteRuntime(id: number): Promise<void>;
   getBaseUrl(): string;
 }
 
 /**
- * Real FastAPI backend implementation connecting to NEXT_PUBLIC_API_BASE_URL
+ * Real FastAPI backend client for Runtime endpoints (/runtimes)
  */
-export class FastApiAccountService implements IAccountService {
+export class FastApiRuntimeService implements IRuntimeService {
   private baseUrl: string;
 
   constructor(baseUrl?: string) {
-    // Priority: parameter > env variable > default local backend
     const rawUrl =
       baseUrl ||
       process.env.NEXT_PUBLIC_API_BASE_URL ||
       "http://127.0.0.1:8000";
-    // Remove trailing slash if present
     this.baseUrl = rawUrl.replace(/\/+$/, "");
   }
 
@@ -42,14 +40,14 @@ export class FastApiAccountService implements IAccountService {
     try {
       detailData = await response.json();
     } catch {
-      // Body is not JSON
+      // Not JSON
     }
 
     const status = response.status;
     const detail = detailData?.detail;
 
     if (status === 404) {
-      const msg = typeof detail === "string" ? detail : "Account not found";
+      const msg = typeof detail === "string" ? detail : "Resource not found";
       return new ApiError(404, msg, detail);
     }
 
@@ -76,8 +74,8 @@ export class FastApiAccountService implements IAccountService {
     return new ApiError(status, fallbackMsg, detail);
   }
 
-  async getAccounts(params?: AccountListParams): Promise<AccountListResponse> {
-    const url = new URL(`${this.baseUrl}/accounts`);
+  async getRuntimes(params?: RuntimeListParams): Promise<RuntimeListResponse> {
+    const url = new URL(`${this.baseUrl}/runtimes`);
 
     const page = params?.page && params.page > 0 ? params.page : 1;
     const pageSize =
@@ -85,10 +83,6 @@ export class FastApiAccountService implements IAccountService {
 
     url.searchParams.set("page", page.toString());
     url.searchParams.set("page_size", pageSize.toString());
-
-    if (params?.status && params.status !== "all") {
-      url.searchParams.set("status", params.status);
-    }
 
     const response = await fetch(url.toString(), {
       method: "GET",
@@ -101,12 +95,12 @@ export class FastApiAccountService implements IAccountService {
       throw await this.parseError(response);
     }
 
-    const data: AccountListResponse = await response.json();
+    const data: RuntimeListResponse = await response.json();
     return data;
   }
 
-  async getAccount(id: number): Promise<Account> {
-    const response = await fetch(`${this.baseUrl}/accounts/${id}`, {
+  async getRuntime(id: number): Promise<Runtime> {
+    const response = await fetch(`${this.baseUrl}/runtimes/${id}`, {
       method: "GET",
       headers: {
         Accept: "application/json",
@@ -117,21 +111,20 @@ export class FastApiAccountService implements IAccountService {
       throw await this.parseError(response);
     }
 
-    const data: Account = await response.json();
+    const data: Runtime = await response.json();
     return data;
   }
 
-  async createAccount(input: CreateAccountInput): Promise<Account> {
+  async createRuntime(input: CreateRuntimeInput): Promise<Runtime> {
     const payload = {
+      device_id: Number(input.device_id),
       name: input.name.trim(),
-      username: input.username.replace(/^@/, "").trim(),
-      platform: input.platform.trim() || "tiktok",
-      status: input.status,
-      notes: input.notes && input.notes.trim() ? input.notes.trim() : null,
-      runtime_id: input.runtime_id ? Number(input.runtime_id) : null,
+      runtime_type: input.runtime_type.trim(),
+      status: input.status.trim(),
+      last_seen_at: input.last_seen_at || null,
     };
 
-    const response = await fetch(`${this.baseUrl}/accounts`, {
+    const response = await fetch(`${this.baseUrl}/runtimes`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -144,30 +137,26 @@ export class FastApiAccountService implements IAccountService {
       throw await this.parseError(response);
     }
 
-    const created: Account = await response.json();
+    const created: Runtime = await response.json();
     return created;
   }
 
-  async updateAccount(
+  async updateRuntime(
     id: number,
-    input: UpdateAccountInput
-  ): Promise<Account> {
+    input: UpdateRuntimeInput
+  ): Promise<Runtime> {
     const payload: Record<string, unknown> = {};
 
+    if (input.device_id !== undefined)
+      payload.device_id = Number(input.device_id);
     if (input.name !== undefined) payload.name = input.name.trim();
-    if (input.username !== undefined)
-      payload.username = input.username.replace(/^@/, "").trim();
-    if (input.platform !== undefined) payload.platform = input.platform.trim();
-    if (input.status !== undefined) payload.status = input.status;
-    if (input.notes !== undefined) {
-      payload.notes =
-        input.notes && input.notes.trim() ? input.notes.trim() : null;
-    }
-    if (input.runtime_id !== undefined) {
-      payload.runtime_id = input.runtime_id ? Number(input.runtime_id) : null;
-    }
+    if (input.runtime_type !== undefined)
+      payload.runtime_type = input.runtime_type.trim();
+    if (input.status !== undefined) payload.status = input.status.trim();
+    if (input.last_seen_at !== undefined)
+      payload.last_seen_at = input.last_seen_at;
 
-    const response = await fetch(`${this.baseUrl}/accounts/${id}`, {
+    const response = await fetch(`${this.baseUrl}/runtimes/${id}`, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
@@ -180,12 +169,12 @@ export class FastApiAccountService implements IAccountService {
       throw await this.parseError(response);
     }
 
-    const updated: Account = await response.json();
+    const updated: Runtime = await response.json();
     return updated;
   }
 
-  async deleteAccount(id: number): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/accounts/${id}`, {
+  async deleteRuntime(id: number): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/runtimes/${id}`, {
       method: "DELETE",
       headers: {
         Accept: "application/json",
@@ -198,5 +187,4 @@ export class FastApiAccountService implements IAccountService {
   }
 }
 
-// Active default service instance pointing to FastAPI backend
-export const accountService: IAccountService = new FastApiAccountService();
+export const runtimeService: IRuntimeService = new FastApiRuntimeService();

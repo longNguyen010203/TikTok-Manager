@@ -14,6 +14,8 @@ import {
   Menu,
   X,
   Sparkles,
+  Smartphone,
+  Cpu,
 } from "lucide-react";
 
 interface NavItem {
@@ -26,6 +28,8 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Accounts", href: "/accounts", icon: Users, badge: "3" },
+  { label: "Devices", href: "/devices", icon: Smartphone },
+  { label: "Runtimes", href: "/runtimes", icon: Cpu },
   { label: "Content & Posts", href: "/content", icon: Video },
   { label: "Analytics", href: "/analytics", icon: BarChart3 },
   { label: "Job Queue", href: "/jobs", icon: CheckSquare, badge: "Active" },

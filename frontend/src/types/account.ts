@@ -11,6 +11,7 @@ export interface Account {
   platform: string;
   status: AccountStatus;
   notes: string | null;
+  runtime_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -35,6 +36,7 @@ export interface CreateAccountInput {
   platform: string;
   status: AccountStatus;
   notes?: string | null;
+  runtime_id?: number | null;
 }
 
 export interface UpdateAccountInput {
@@ -43,6 +45,7 @@ export interface UpdateAccountInput {
   platform?: string;
   status?: AccountStatus;
   notes?: string | null;
+  runtime_id?: number | null;
 }
 
 export interface ValidationErrorDetail {
