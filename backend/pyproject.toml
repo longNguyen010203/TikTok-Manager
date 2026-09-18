@@ -9,6 +9,7 @@ description = "Backend API for TikTok Manager"
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115,<1.0",
+    "sqlalchemy>=2.0,<3.0",
     "uvicorn>=0.30,<1.0",
 ]
 
@@ -19,4 +20,5 @@ test = [
 ]
 
 [tool.pytest.ini_options]
+addopts = ["-p", "no:cacheprovider"]
 testpaths = ["tests"]
