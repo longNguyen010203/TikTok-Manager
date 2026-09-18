@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Account
+from app.models import Account, Runtime
 from app.schemas.account import (
     AccountCreate,
     AccountList,
@@ -24,6 +24,11 @@ def _get_account_or_404(account_id: int, session: Session) -> Account:
     if account is None:
         raise HTTPException(status_code=404, detail="Account not found")
     return account
+
+
+def _validate_runtime_id(runtime_id: int | None, session: Session) -> None:
+    if runtime_id is not None and session.get(Runtime, runtime_id) is None:
+        raise HTTPException(status_code=404, detail="Runtime not found")
 
 
 @router.get("", response_model=AccountList)
@@ -66,6 +71,7 @@ def get_account(account_id: int, session: DatabaseSession) -> Account:
 @router.post("", response_model=AccountRead, status_code=status.HTTP_201_CREATED)
 def create_account(payload: AccountCreate, session: DatabaseSession) -> Account:
     """Create an account."""
+    _validate_runtime_id(payload.runtime_id, session)
     account = Account(**payload.model_dump())
     session.add(account)
     session.commit()
@@ -79,7 +85,10 @@ def update_account(
 ) -> Account:
     """Update fields supplied for an account."""
     account = _get_account_or_404(account_id, session)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    update_data = payload.model_dump(exclude_unset=True)
+    if "runtime_id" in update_data:
+        _validate_runtime_id(update_data["runtime_id"], session)
+    for field, value in update_data.items():
         setattr(account, field, value)
 
     session.commit()

@@ -1,4 +1,4 @@
-"""Pydantic schemas for account endpoints."""
+"""Pydantic schemas for device endpoints."""
 
 from datetime import datetime
 from typing import Any
@@ -6,36 +6,38 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class AccountFields(BaseModel):
-    """Fields shared by account creation and response payloads."""
+class DeviceFields(BaseModel):
+    """Fields shared by device creation and response payloads."""
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     name: str = Field(min_length=1, max_length=255)
-    username: str = Field(min_length=1, max_length=255)
+    device_type: str = Field(min_length=1, max_length=50)
     platform: str = Field(min_length=1, max_length=50)
+    os_version: str = Field(min_length=1, max_length=100)
     status: str = Field(min_length=1, max_length=50)
     notes: str | None = None
-    runtime_id: int | None = Field(default=None, gt=0)
 
 
-class AccountCreate(AccountFields):
-    """Payload for creating an account."""
+class DeviceCreate(DeviceFields):
+    """Payload for creating a device."""
 
 
-class AccountUpdate(BaseModel):
-    """Payload for partially updating an account."""
+class DeviceUpdate(BaseModel):
+    """Payload for partially updating a device."""
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
-    username: str | None = Field(default=None, min_length=1, max_length=255)
+    device_type: str | None = Field(default=None, min_length=1, max_length=50)
     platform: str | None = Field(default=None, min_length=1, max_length=50)
+    os_version: str | None = Field(default=None, min_length=1, max_length=100)
     status: str | None = Field(default=None, min_length=1, max_length=50)
     notes: str | None = None
-    runtime_id: int | None = Field(default=None, gt=0)
 
-    @field_validator("name", "username", "platform", "status", mode="before")
+    @field_validator(
+        "name", "device_type", "platform", "os_version", "status", mode="before"
+    )
     @classmethod
     def required_fields_cannot_be_null(cls, value: Any) -> Any:
         if value is None:
@@ -43,8 +45,8 @@ class AccountUpdate(BaseModel):
         return value
 
 
-class AccountRead(AccountFields):
-    """Account representation returned by the API."""
+class DeviceRead(DeviceFields):
+    """Device representation returned by the API."""
 
     model_config = ConfigDict(
         extra="forbid", from_attributes=True, str_strip_whitespace=True
@@ -55,10 +57,10 @@ class AccountRead(AccountFields):
     updated_at: datetime
 
 
-class AccountList(BaseModel):
-    """Paginated account collection."""
+class DeviceList(BaseModel):
+    """Paginated device collection."""
 
-    items: list[AccountRead]
+    items: list[DeviceRead]
     total: int
     page: int
     page_size: int
