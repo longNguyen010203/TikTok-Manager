@@ -103,6 +103,49 @@ Fields:
 - created_at: UTC datetime, set when the row is created
 - updated_at: UTC datetime, set when the row is created and updated by the ORM
 
+## Job
+
+The SQL table name is `jobs`. A job is a durable unit of work and may target an
+Account, a Runtime, both, or neither.
+
+Fields:
+
+- id: integer primary key
+- job_type: string (maximum 100 characters, required)
+- status: string (maximum 50 characters, required, defaults to `pending`)
+- account_id: nullable foreign key to `accounts.id`; deleting the referenced
+  account sets this field to null
+- runtime_id: nullable foreign key to `runtimes.id`; deleting the referenced
+  runtime sets this field to null
+- payload: nullable JSON request data
+- result: nullable JSON result data
+- error_message: nullable text
+- attempt_count: non-negative integer, defaults to 0
+- max_attempts: positive integer, defaults to 3
+- scheduled_at: nullable UTC datetime
+- started_at: nullable UTC datetime
+- completed_at: nullable UTC datetime
+- created_at: UTC datetime, set when the row is created
+- updated_at: UTC datetime, set when the row is created and updated by the ORM
+
+Allowed initial job statuses are `pending`, `running`, `succeeded`, `failed`,
+`retrying`, and `cancelled`. A database check constraint rejects other values.
+
+## JobLog
+
+The SQL table name is `job_logs`. Job logs are append-only records used to
+preserve lifecycle and failure history independently of the Job's current
+state.
+
+Fields:
+
+- id: integer primary key
+- job_id: required foreign key to `jobs.id`
+- level: string (maximum 20 characters, required)
+- message: required text
+- metadata: nullable JSON containing event-specific details
+- created_at: UTC datetime, set when the row is created
+
 ## Relationships
 
 - One Device has zero or more Runtime records. Deleting a Device cascades to its
@@ -111,3 +154,9 @@ Fields:
 - One Runtime may have zero or more Account records assigned to it.
 - One Account may reference one Runtime through nullable `runtime_id`. Deleting
   that Runtime preserves the Account and sets `runtime_id` to null.
+- One Account may be targeted by zero or more Jobs. Deleting the Account
+  preserves its Jobs and sets their `account_id` to null.
+- One Runtime may be targeted by zero or more Jobs. Deleting the Runtime
+  preserves its Jobs and sets their `runtime_id` to null.
+- One Job has zero or more JobLog records. Deleting the Job cascades to all of
+  its logs.

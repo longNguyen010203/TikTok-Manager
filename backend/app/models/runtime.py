@@ -12,6 +12,7 @@ from app.models.timestamps import utc_now
 if TYPE_CHECKING:
     from app.models.account import Account
     from app.models.device import Device
+    from app.models.job import Job
 
 
 class Runtime(Base):
@@ -37,3 +38,4 @@ class Runtime(Base):
     )
     device: Mapped["Device"] = relationship(back_populates="runtimes")
     accounts: Mapped[list["Account"]] = relationship(back_populates="runtime")
+    jobs: Mapped[list["Job"]] = relationship(back_populates="runtime")

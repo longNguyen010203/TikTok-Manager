@@ -10,6 +10,7 @@ from app.database import Base
 from app.models.timestamps import utc_now
 
 if TYPE_CHECKING:
+    from app.models.job import Job
     from app.models.runtime import Runtime
 
 
@@ -34,3 +35,4 @@ class Account(Base):
         DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
     )
     runtime: Mapped["Runtime | None"] = relationship(back_populates="accounts")
+    jobs: Mapped[list["Job"]] = relationship(back_populates="account")

@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers.accounts import router as accounts_router
 from app.routers.devices import router as devices_router
 from app.routers.health import router as health_router
+from app.routers.jobs import router as jobs_router
 from app.routers.runtimes import router as runtimes_router
 
 
@@ -22,6 +23,7 @@ def create_app() -> FastAPI:
     application.include_router(health_router)
     application.include_router(accounts_router)
     application.include_router(devices_router)
+    application.include_router(jobs_router)
     application.include_router(runtimes_router)
     return application
 
