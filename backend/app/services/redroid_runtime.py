@@ -5,6 +5,13 @@ from __future__ import annotations
 import subprocess
 import time
 from collections.abc import Sequence
+from enum import Enum
+
+
+class _AdbTransportState(Enum):
+    DEVICE = "device"
+    MISSING = "missing"
+    UNAVAILABLE = "unavailable"
 
 
 class RedroidRuntimeError(RuntimeError):
@@ -173,10 +180,7 @@ class RedroidRuntimeAdapter:
     def check_adb(self, adb_serial: str) -> bool:
         """Return whether ADB reports the target serial in the ``device`` state."""
         adb_serial = self._require_value(adb_serial, "adb_serial")
-        result = self._run(
-            ["adb", "-s", adb_serial, "get-state"], raise_on_nonzero=False
-        )
-        return result.returncode == 0 and result.stdout.strip() == "device"
+        return self._get_adb_transport_state(adb_serial) is _AdbTransportState.DEVICE
 
     def connect_adb(self, adb_serial: str) -> str:
         """Ask the local ADB server to connect to a Redroid target."""
@@ -197,10 +201,12 @@ class RedroidRuntimeAdapter:
             raise RedroidConfigurationError(
                 "timeout must be greater than or equal to zero"
             )
-        if self.check_adb(adb_serial):
+        transport_state = self._get_adb_transport_state(adb_serial)
+        if transport_state is _AdbTransportState.DEVICE:
             return True
 
-        self.disconnect_adb(adb_serial)
+        if transport_state is not _AdbTransportState.MISSING:
+            self.disconnect_adb(adb_serial)
         self.connect_adb(adb_serial)
         deadline = time.monotonic() + timeout
         while True:
@@ -210,6 +216,18 @@ class RedroidRuntimeAdapter:
             if remaining <= 0:
                 raise RedroidAdbTimeoutError(adb_serial, timeout)
             time.sleep(min(self.boot_poll_interval, remaining))
+
+    def _get_adb_transport_state(self, adb_serial: str) -> _AdbTransportState:
+        result = self._run(
+            ["adb", "-s", adb_serial, "get-state"], raise_on_nonzero=False
+        )
+        if result.returncode == 0 and result.stdout.strip() == "device":
+            return _AdbTransportState.DEVICE
+
+        output = f"{result.stdout}\n{result.stderr}".lower()
+        if "no such device" in output or "not found" in output:
+            return _AdbTransportState.MISSING
+        return _AdbTransportState.UNAVAILABLE
 
     def _container_action(self, action: str, container_name: str) -> str:
         container_name = self._require_value(container_name, "container_name")

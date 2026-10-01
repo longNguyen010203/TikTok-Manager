@@ -263,6 +263,67 @@ def test_wait_for_adb_reconnects_stale_transport(mock_run, mock_sleep) -> None:
     mock_sleep.assert_called_once()
 
 
+@patch("app.services.redroid_runtime.time.sleep")
+@patch("app.services.redroid_runtime.subprocess.run")
+def test_wait_for_adb_connects_missing_transport(mock_run, mock_sleep) -> None:
+    mock_run.side_effect = [
+        completed_process(
+            [],
+            returncode=1,
+            stderr="adb: no such device 'localhost:5555'\n",
+        ),
+        completed_process([], stdout="connected to localhost:5555\n"),
+        completed_process([], stdout="device\n"),
+    ]
+
+    assert (
+        RedroidRuntimeAdapter().wait_for_adb("localhost:5555", timeout=5) is True
+    )
+    assert [item.args[0] for item in mock_run.call_args_list] == [
+        ["adb", "-s", "localhost:5555", "get-state"],
+        ["adb", "connect", "localhost:5555"],
+        ["adb", "-s", "localhost:5555", "get-state"],
+    ]
+    mock_sleep.assert_not_called()
+
+
+@patch("app.services.redroid_runtime.subprocess.run")
+def test_wait_for_adb_missing_transport_times_out(mock_run) -> None:
+    missing = completed_process(
+        [], returncode=1, stderr="adb: device 'localhost:5555' not found\n"
+    )
+    mock_run.side_effect = [
+        missing,
+        completed_process([], stdout="connected to localhost:5555\n"),
+        missing,
+    ]
+
+    with pytest.raises(RedroidAdbTimeoutError, match="within 0 seconds"):
+        RedroidRuntimeAdapter().wait_for_adb("localhost:5555", timeout=0)
+
+    assert [item.args[0] for item in mock_run.call_args_list] == [
+        ["adb", "-s", "localhost:5555", "get-state"],
+        ["adb", "connect", "localhost:5555"],
+        ["adb", "-s", "localhost:5555", "get-state"],
+    ]
+
+
+@patch("app.services.redroid_runtime.subprocess.run")
+def test_wait_for_adb_keeps_existing_device_transport(mock_run) -> None:
+    mock_run.return_value = completed_process([], stdout="device\n")
+
+    assert (
+        RedroidRuntimeAdapter().wait_for_adb("localhost:5555", timeout=5) is True
+    )
+    mock_run.assert_called_once_with(
+        ["adb", "-s", "localhost:5555", "get-state"],
+        shell=False,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
 @patch("app.services.redroid_runtime.subprocess.run")
 def test_wait_for_adb_times_out(mock_run) -> None:
     mock_run.side_effect = [
