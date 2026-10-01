@@ -423,3 +423,76 @@ Acceptance criteria:
 - logs are written
 - retry rules are respected
 - worker shuts down cleanly
+
+---
+
+## TIK-014
+Status: DONE
+Owner: Codex
+Type: Backend / Device Runtime
+
+Title:
+Integrate Redroid Device Runtime
+
+Dependencies:
+- TIK-009
+- TIK-013
+
+Scope:
+- backend/
+- docs/
+
+Phases:
+1. Redroid Runtime Adapter
+2. Runtime Configuration
+3. Device Lifecycle API
+4. Real Redroid Integration Test
+5. Final verification
+
+Acceptance criteria:
+- Redroid container status can be inspected
+- Redroid containers can be started, stopped, and restartedgit merge main
+- Android boot readiness can be detected
+- ADB readiness can be verified
+- Runtime records can store Redroid connection/configuration data
+- Device lifecycle endpoints control real Redroid runtimes
+- stop does not delete persistent device data
+- real redroid-device-01 integration test passes
+- backend tests pass
+
+---
+
+## TIK-015
+Status: IN PROGRESS
+Owner: Antigravity
+Type: Frontend / Device Management
+
+Title:
+Add Real Device Lifecycle Controls
+
+Dependencies:
+- TIK-010
+- TIK-014
+
+Scope:
+- frontend/
+
+Phases:
+1. Real device status + refresh
+2. Start / stop / restart controls
+3. Runtime information + UX polish
+4. Final verification
+
+Acceptance criteria:
+- real device lifecycle status is visible
+- container state is visible
+- Android boot state is visible
+- ADB state is visible
+- device readiness is clearly shown
+- device status can be refreshed manually
+- devices can be started from the UI
+- devices can be stopped from the UI
+- devices can be restarted from the UI
+- lifecycle action loading and error states are handled
+- existing search, filter, and pagination continue to work
+- frontend build and lint pass
