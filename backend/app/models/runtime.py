@@ -26,6 +26,12 @@ class Runtime(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     runtime_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    docker_container_name: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, unique=True
+    )
+    adb_serial: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, unique=True
+    )
     status: Mapped[str] = mapped_column(String(50), nullable=False)
     last_seen_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

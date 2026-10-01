@@ -64,3 +64,18 @@ class DeviceList(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class DeviceLifecycleStatus(BaseModel):
+    """Observed and reconciled state for a Device's Redroid runtime."""
+
+    device_id: int
+    runtime_id: int
+    docker_container_name: str
+    adb_serial: str
+    container_status: str
+    boot_completed: bool
+    adb_state: str
+    ready: bool
+    runtime_status: str
+    device_status: str

@@ -147,7 +147,9 @@ Error cases:
   "id": 1,
   "device_id": 1,
   "name": "TikTok Runtime 1",
-  "runtime_type": "emulator",
+  "runtime_type": "redroid",
+  "docker_container_name": "redroid-device-01",
+  "adb_serial": "localhost:5555",
   "status": "running",
   "last_seen_at": "2026-09-18T10:00:00Z",
   "created_at": "2026-09-18T10:00:00",
@@ -157,8 +159,11 @@ Error cases:
 
 `device_id` is a positive integer referencing an existing Device. `name` is a
 non-empty string with a maximum length of 255. `runtime_type` and `status` are
-non-empty strings with a maximum length of 50. `last_seen_at` is an ISO 8601
-datetime string or `null`.
+non-empty strings with a maximum length of 50; `redroid` identifies a
+Redroid-backed runtime. `docker_container_name` and `adb_serial` are non-empty
+strings with a maximum length of 255, or `null`. Each non-null Docker container
+name and ADB serial must be unique across Runtime records. `last_seen_at` is an
+ISO 8601 datetime string or `null`.
 
 ## List runtimes
 
@@ -195,25 +200,28 @@ Error cases:
 - Method: `POST`
 - Path: `/runtimes`
 - Request body: `device_id`, `name`, `runtime_type`, and `status` are required.
-  `last_seen_at` is optional and defaults to `null`.
+  `docker_container_name`, `adb_serial`, and `last_seen_at` are optional and
+  default to `null`.
 - Success: `201 Created` with the created Runtime object.
 
 Error cases:
 
 - `404 Not Found` with `{"detail": "Device not found"}` when `device_id`
   references a missing Device.
+- `409 Conflict` when a non-null `docker_container_name` or `adb_serial` is
+  already assigned to another Runtime.
 - `422 Unprocessable Entity` for a missing, unknown, or invalid field.
 
 ## Update runtime
 
 - Method: `PATCH`
 - Path: `/runtimes/{id}`
-- Request body: any subset of `device_id`, `name`, `runtime_type`, `status`, and
-  `last_seen_at`.
+- Request body: any subset of `device_id`, `name`, `runtime_type`,
+  `docker_container_name`, `adb_serial`, `status`, and `last_seen_at`.
 - Success: `200 OK` with the updated Runtime object.
 
-An empty object is accepted as a no-op. `last_seen_at` may be set to `null`; the
-other fields may not be `null`.
+An empty object is accepted as a no-op. `docker_container_name`, `adb_serial`,
+and `last_seen_at` may be set to `null`; the other fields may not be `null`.
 
 Error cases:
 
@@ -221,6 +229,8 @@ Error cases:
   does not exist.
 - `404 Not Found` with `{"detail": "Device not found"}` when `device_id`
   references a missing Device.
+- `409 Conflict` when a non-null `docker_container_name` or `adb_serial` is
+  already assigned to another Runtime.
 - `422 Unprocessable Entity` for an invalid field or ID.
 
 ## Delete runtime
@@ -549,6 +559,84 @@ Error cases:
 - `404 Not Found` with `{"detail": "Device not found"}` when the ID does not
   exist.
 - `422 Unprocessable Entity` when `id` is not an integer.
+
+## Device lifecycle status object
+
+```json
+{
+  "device_id": 1,
+  "runtime_id": 1,
+  "docker_container_name": "redroid-device-01",
+  "adb_serial": "localhost:5555",
+  "container_status": "running",
+  "boot_completed": true,
+  "adb_state": "device",
+  "ready": true,
+  "runtime_status": "running",
+  "device_status": "online"
+}
+```
+
+`container_status`, `boot_completed`, and `adb_state` report state observed from
+local Docker and ADB. `ready` is true only when Docker reports `running`, Android
+reports boot complete, and ADB reports `device`. `runtime_status` and
+`device_status` are the values persisted after reconciliation.
+
+Lifecycle endpoints require exactly one Runtime belonging to the Device. That
+Runtime must have `runtime_type=redroid` and non-null `docker_container_name` and
+`adb_serial` values.
+
+Common lifecycle errors:
+
+- `404 Not Found` with `{"detail": "Device not found"}` for a missing Device.
+- `409 Conflict` when there is no Runtime, more than one Runtime, a non-Redroid
+  Runtime, or incomplete Redroid configuration.
+- `502 Bad Gateway` when Docker/ADB execution fails or ADB does not become ready.
+- `504 Gateway Timeout` when Android does not boot before the adapter timeout.
+- `422 Unprocessable Entity` when `id` is not an integer.
+
+## Get Device lifecycle status
+
+- Method: `GET`
+- Path: `/devices/{id}/status`
+- Request body: none.
+- Success: `200 OK` with a Device lifecycle status object.
+
+The backend inspects the container, checks Android boot state when the container
+is running, checks ADB state, and persists the reconciled Runtime and Device
+statuses before returning.
+
+## Start Device
+
+- Method: `POST`
+- Path: `/devices/{id}/start`
+- Request body: none.
+- Success: `200 OK` with a Device lifecycle status object.
+
+The backend starts the existing container, waits for Android boot completion,
+connects ADB when it is not already ready, verifies ADB state, and persists the
+ready state. It does not create or replace the container.
+
+## Stop Device
+
+- Method: `POST`
+- Path: `/devices/{id}/stop`
+- Request body: none.
+- Success: `200 OK` with a Device lifecycle status object.
+
+The backend stops the existing container, observes its resulting Docker and ADB
+state, and reconciles database statuses. It does not delete the container or its
+persistent data.
+
+## Restart Device
+
+- Method: `POST`
+- Path: `/devices/{id}/restart`
+- Request body: none.
+- Success: `200 OK` with a Device lifecycle status object.
+
+The backend restarts the existing container, waits for Android boot completion,
+reconnects ADB when needed, verifies ADB state, and persists the ready state.
 
 ## Create device
 

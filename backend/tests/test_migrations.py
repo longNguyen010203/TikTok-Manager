@@ -12,7 +12,9 @@ from sqlalchemy.engine import URL
 INITIAL_REVISION = "20260918_0001"
 PRE_JOB_REVISION = "20260918_0002"
 PRE_JOB_LOG_REVISION = "20260918_0003"
-LATEST_REVISION = "20260918_0004"
+PRE_REDROID_CONFIG_REVISION = "20260918_0004"
+PRE_UNIQUE_CONFIG_REVISION = "20261001_0005"
+LATEST_REVISION = "20261001_0006"
 
 
 def test_upgrade_head_creates_accounts_table(
@@ -36,6 +38,18 @@ def test_upgrade_head_creates_accounts_table(
             column["name"] for column in inspector.get_columns("accounts")
         }
         assert "runtime_id" in account_columns
+        runtime_columns = {
+            column["name"]: column
+            for column in inspector.get_columns("runtimes")
+        }
+        assert runtime_columns["docker_container_name"]["nullable"] is True
+        assert runtime_columns["adb_serial"]["nullable"] is True
+        runtime_unique_constraints = {
+            tuple(constraint["column_names"])
+            for constraint in inspector.get_unique_constraints("runtimes")
+        }
+        assert ("docker_container_name",) in runtime_unique_constraints
+        assert ("adb_serial",) in runtime_unique_constraints
         job_columns = {
             column["name"]: column for column in inspector.get_columns("jobs")
         }
@@ -254,6 +268,64 @@ def test_job_log_migration_preserves_existing_job(
             current_revision = migration_context.get_current_revision()
 
         assert row == ("existing_job", "failed", 1, "Existing failure")
+        assert current_revision == LATEST_REVISION
+    finally:
+        test_engine.dispose()
+
+
+def test_redroid_config_migration_preserves_existing_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database_path = tmp_path / "pre-redroid-config.db"
+    database_url = URL.create(drivername="sqlite", database=str(database_path))
+    monkeypatch.setenv("DATABASE_URL", database_url.render_as_string(hide_password=False))
+    config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
+
+    command.upgrade(config, PRE_REDROID_CONFIG_REVISION)
+    test_engine = create_engine(database_url)
+    try:
+        with test_engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO devices (
+                        id, name, device_type, platform, os_version, status,
+                        notes, created_at, updated_at
+                    ) VALUES (
+                        1, 'Existing Host', 'virtual', 'android', '14',
+                        'online', NULL, '2026-09-18 00:00:00',
+                        '2026-09-18 00:00:00'
+                    )
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO runtimes (
+                        id, device_id, name, runtime_type, status, last_seen_at,
+                        created_at, updated_at
+                    ) VALUES (
+                        1, 1, 'Existing Runtime', 'emulator', 'running', NULL,
+                        '2026-09-18 00:00:00', '2026-09-18 00:00:00'
+                    )
+                    """
+                )
+            )
+
+        command.upgrade(config, "head")
+
+        with test_engine.connect() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT name, runtime_type, docker_container_name, adb_serial "
+                    "FROM runtimes WHERE id = 1"
+                )
+            ).one()
+            migration_context = MigrationContext.configure(connection)
+            current_revision = migration_context.get_current_revision()
+
+        assert row == ("Existing Runtime", "emulator", None, None)
         assert current_revision == LATEST_REVISION
     finally:
         test_engine.dispose()

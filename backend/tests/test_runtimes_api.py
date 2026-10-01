@@ -89,6 +89,8 @@ def test_runtime_crud(runtime_api: TestClient) -> None:
     created = create_runtime(runtime_api, first_device["id"])
     runtime_id = created["id"]
     assert created["device_id"] == first_device["id"]
+    assert created["docker_container_name"] is None
+    assert created["adb_serial"] is None
     assert created["last_seen_at"]
 
     get_response = runtime_api.get(f"/runtimes/{runtime_id}")
@@ -112,6 +114,39 @@ def test_runtime_crud(runtime_api: TestClient) -> None:
     assert delete_response.status_code == 204
     assert delete_response.content == b""
     assert runtime_api.get(f"/runtimes/{runtime_id}").status_code == 404
+
+
+def test_redroid_configuration_can_be_created_updated_and_cleared(
+    runtime_api: TestClient,
+) -> None:
+    device = create_device(runtime_api)
+    create_response = runtime_api.post(
+        "/runtimes",
+        json=runtime_payload(device["id"])
+        | {
+            "runtime_type": "redroid",
+            "docker_container_name": "  redroid-device-01  ",
+            "adb_serial": "  localhost:5555  ",
+        },
+    )
+
+    assert create_response.status_code == 201
+    created = create_response.json()
+    assert created["runtime_type"] == "redroid"
+    assert created["docker_container_name"] == "redroid-device-01"
+    assert created["adb_serial"] == "localhost:5555"
+
+    update_response = runtime_api.patch(
+        f"/runtimes/{created['id']}",
+        json={
+            "docker_container_name": "redroid-device-02",
+            "adb_serial": None,
+        },
+    )
+
+    assert update_response.status_code == 200
+    assert update_response.json()["docker_container_name"] == "redroid-device-02"
+    assert update_response.json()["adb_serial"] is None
 
 
 def test_list_runtimes_supports_pagination(runtime_api: TestClient) -> None:
@@ -157,6 +192,49 @@ def test_runtime_validates_device_id(runtime_api: TestClient) -> None:
     )
     assert missing_update_device.status_code == 404
     assert missing_update_device.json() == {"detail": "Device not found"}
+
+
+@pytest.mark.parametrize("field", ["docker_container_name", "adb_serial"])
+def test_redroid_configuration_rejects_blank_and_oversized_values(
+    runtime_api: TestClient, field: str
+) -> None:
+    device = create_device(runtime_api)
+
+    blank_create = runtime_api.post(
+        "/runtimes", json=runtime_payload(device["id"]) | {field: "   "}
+    )
+    oversized_create = runtime_api.post(
+        "/runtimes", json=runtime_payload(device["id"]) | {field: "x" * 256}
+    )
+
+    assert blank_create.status_code == 422
+    assert oversized_create.status_code == 422
+
+
+@pytest.mark.parametrize("field", ["docker_container_name", "adb_serial"])
+def test_redroid_configuration_must_be_unique_when_present(
+    runtime_api: TestClient, field: str
+) -> None:
+    device = create_device(runtime_api)
+    value = (
+        "redroid-device-01"
+        if field == "docker_container_name"
+        else "localhost:5555"
+    )
+    first = runtime_api.post(
+        "/runtimes",
+        json=runtime_payload(device["id"], 1) | {field: value},
+    )
+    duplicate = runtime_api.post(
+        "/runtimes",
+        json=runtime_payload(device["id"], 2) | {field: value},
+    )
+
+    assert first.status_code == 201
+    assert duplicate.status_code == 409
+    assert duplicate.json() == {
+        "detail": "Docker container name and ADB serial must be unique"
+    }
 
 
 def test_account_runtime_assignment_is_validated(runtime_api: TestClient) -> None:

@@ -4,6 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -57,7 +58,7 @@ def create_runtime(payload: RuntimeCreate, session: DatabaseSession) -> Runtime:
     _validate_device_id(payload.device_id, session)
     runtime = Runtime(**payload.model_dump())
     session.add(runtime)
-    session.commit()
+    _commit_runtime(session)
     session.refresh(runtime)
     return runtime
 
@@ -73,7 +74,7 @@ def update_runtime(
         _validate_device_id(update_data["device_id"], session)
     for field, value in update_data.items():
         setattr(runtime, field, value)
-    session.commit()
+    _commit_runtime(session)
     session.refresh(runtime)
     return runtime
 
@@ -85,3 +86,14 @@ def delete_runtime(runtime_id: int, session: DatabaseSession) -> Response:
     session.delete(runtime)
     session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _commit_runtime(session: Session) -> None:
+    try:
+        session.commit()
+    except IntegrityError as error:
+        session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Docker container name and ADB serial must be unique",
+        ) from error

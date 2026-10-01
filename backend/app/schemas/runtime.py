@@ -14,6 +14,10 @@ class RuntimeFields(BaseModel):
     device_id: int = Field(gt=0)
     name: str = Field(min_length=1, max_length=255)
     runtime_type: str = Field(min_length=1, max_length=50)
+    docker_container_name: str | None = Field(
+        default=None, min_length=1, max_length=255
+    )
+    adb_serial: str | None = Field(default=None, min_length=1, max_length=255)
     status: str = Field(min_length=1, max_length=50)
     last_seen_at: datetime | None = None
 
@@ -30,6 +34,10 @@ class RuntimeUpdate(BaseModel):
     device_id: int | None = Field(default=None, gt=0)
     name: str | None = Field(default=None, min_length=1, max_length=255)
     runtime_type: str | None = Field(default=None, min_length=1, max_length=50)
+    docker_container_name: str | None = Field(
+        default=None, min_length=1, max_length=255
+    )
+    adb_serial: str | None = Field(default=None, min_length=1, max_length=255)
     status: str | None = Field(default=None, min_length=1, max_length=50)
     last_seen_at: datetime | None = None
 

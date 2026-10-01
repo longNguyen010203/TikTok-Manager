@@ -97,11 +97,19 @@ Fields:
 - id: integer primary key
 - device_id: required foreign key to `devices.id`
 - name: string (maximum 255 characters, required)
-- runtime_type: string (maximum 50 characters, required)
+- runtime_type: string (maximum 50 characters, required); use `redroid` for a
+  Redroid-backed runtime
+- docker_container_name: nullable, unique string (maximum 255 characters); local
+  Docker container identifier used by the Redroid runtime adapter
+- adb_serial: nullable, unique string (maximum 255 characters); ADB target
+  serial, such as `localhost:5555`
 - status: string (maximum 50 characters, required)
 - last_seen_at: nullable UTC datetime
 - created_at: UTC datetime, set when the row is created
 - updated_at: UTC datetime, set when the row is created and updated by the ORM
+
+Multiple null values are allowed for both Redroid identifiers so non-Redroid
+and not-yet-configured Runtime records remain backward-compatible.
 
 ## Job
 
