@@ -50,5 +50,18 @@ export interface UpdateDeviceInput {
   notes?: string | null;
 }
 
+export interface DeviceLifecycleStatus {
+  device_id: number;
+  runtime_id: number;
+  docker_container_name: string;
+  adb_serial: string;
+  container_status: string;
+  boot_completed: boolean;
+  adb_state: string;
+  ready: boolean;
+  runtime_status: string;
+  device_status: string;
+}
+
 export { ApiError, formatApiError };
 export type { ValidationErrorDetail };

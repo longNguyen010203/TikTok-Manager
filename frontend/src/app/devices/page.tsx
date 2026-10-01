@@ -5,6 +5,7 @@ import {
   Device,
   CreateDeviceInput,
   UpdateDeviceInput,
+  DeviceLifecycleStatus,
   formatApiError,
 } from "@/types/device";
 import { deviceService } from "@/services/deviceService";
@@ -14,6 +15,7 @@ import { DevicePagination } from "@/components/devices/DevicePagination";
 import { DeviceCreateModal } from "@/components/devices/DeviceCreateModal";
 import { DeviceEditModal } from "@/components/devices/DeviceEditModal";
 import { DeviceDeleteDialog } from "@/components/devices/DeviceDeleteDialog";
+import { DeviceStatusModal } from "@/components/devices/DeviceStatusModal";
 import {
   Smartphone,
   CheckCircle2,
@@ -37,6 +39,10 @@ export default function DevicesPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
   const [deletingDevice, setDeletingDevice] = useState<Device | null>(null);
+  const [statusModalDevice, setStatusModalDevice] = useState<Device | null>(null);
+  const [lifecycleStatuses, setLifecycleStatuses] = useState<
+    Record<number, DeviceLifecycleStatus>
+  >({});
 
   // Banner notifications
   const [bannerMessage, setBannerMessage] = useState<{
@@ -160,6 +166,21 @@ export default function DevicesPage() {
     } catch (err: unknown) {
       throw err;
     }
+  };
+
+  const handleStatusUpdated = (newStatus: DeviceLifecycleStatus) => {
+    setLifecycleStatuses((prev) => ({
+      ...prev,
+      [newStatus.device_id]: newStatus,
+    }));
+    // Update device status in state to match reconciled status
+    setDevices((prev) =>
+      prev.map((d) =>
+        d.id === newStatus.device_id
+          ? { ...d, status: newStatus.device_status }
+          : d
+      )
+    );
   };
 
   // Client-side filtering by status and search text
@@ -333,6 +354,8 @@ export default function DevicesPage() {
           onCreateDevice={() => setIsCreateModalOpen(true)}
           onEditDevice={(dev) => setEditingDevice(dev)}
           onDeleteDevice={(dev) => setDeletingDevice(dev)}
+          onViewStatus={(dev) => setStatusModalDevice(dev)}
+          lifecycleStatuses={lifecycleStatuses}
         />
 
         {/* Pagination UI */}
@@ -346,6 +369,15 @@ export default function DevicesPage() {
           />
         )}
       </div>
+
+      {/* Device Lifecycle Status Modal */}
+      <DeviceStatusModal
+        key={statusModalDevice ? statusModalDevice.id : "closed"}
+        device={statusModalDevice}
+        isOpen={statusModalDevice !== null}
+        onClose={() => setStatusModalDevice(null)}
+        onStatusUpdated={handleStatusUpdated}
+      />
 
       {/* Create Device Modal */}
       <DeviceCreateModal

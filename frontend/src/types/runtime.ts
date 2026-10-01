@@ -12,6 +12,8 @@ export interface Runtime {
   device_id: number;
   name: string;
   runtime_type: RuntimeType;
+  docker_container_name?: string | null;
+  adb_serial?: string | null;
   status: RuntimeStatus;
   last_seen_at: string | null;
   created_at: string;

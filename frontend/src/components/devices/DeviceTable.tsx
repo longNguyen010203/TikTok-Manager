@@ -1,10 +1,11 @@
 import React from "react";
-import { Device } from "@/types/device";
+import { Device, DeviceLifecycleStatus } from "@/types/device";
 import { DeviceStatusBadge } from "./DeviceStatusBadge";
+import { DeviceReadinessBadge } from "./DeviceReadinessBadge";
 import { DeviceLoadingState } from "./DeviceLoadingState";
 import { DeviceEmptyState } from "./DeviceEmptyState";
 import { DeviceErrorState } from "./DeviceErrorState";
-import { Smartphone, Calendar, Pencil, Trash2, Cpu, Layers } from "lucide-react";
+import { Smartphone, Calendar, Pencil, Trash2, Cpu, Layers, Activity } from "lucide-react";
 
 interface DeviceTableProps {
   devices: Device[];
@@ -16,6 +17,8 @@ interface DeviceTableProps {
   onCreateDevice: () => void;
   onEditDevice?: (device: Device) => void;
   onDeleteDevice?: (device: Device) => void;
+  onViewStatus?: (device: Device) => void;
+  lifecycleStatuses?: Record<number, DeviceLifecycleStatus>;
 }
 
 export function DeviceTable({
@@ -28,6 +31,8 @@ export function DeviceTable({
   onCreateDevice,
   onEditDevice,
   onDeleteDevice,
+  onViewStatus,
+  lifecycleStatuses,
 }: DeviceTableProps) {
   // Format ISO date string
   const formatDate = (isoString: string) => {
@@ -141,7 +146,42 @@ export function DeviceTable({
 
                 {/* Status */}
                 <td className="py-4 px-6">
-                  <DeviceStatusBadge status={dev.status} />
+                  {(() => {
+                    const cachedStatus = lifecycleStatuses?.[dev.id];
+                    return (
+                      <div className="flex flex-col items-start gap-1.5">
+                        <DeviceStatusBadge status={dev.status} />
+                        {cachedStatus ? (
+                          <div className="flex flex-col gap-1">
+                            <DeviceReadinessBadge
+                              ready={cachedStatus.ready}
+                              runtimeStatus={cachedStatus.runtime_status}
+                              size="sm"
+                            />
+                            <div
+                              className="text-[10px] text-slate-400 font-mono flex items-center gap-1.5"
+                              title={`Container: ${cachedStatus.docker_container_name} (${cachedStatus.container_status}) | Boot: ${cachedStatus.boot_completed ? "1" : "0"} | ADB: ${cachedStatus.adb_state}`}
+                            >
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                  cachedStatus.container_status === "running"
+                                    ? "bg-emerald-500"
+                                    : "bg-slate-400"
+                                }`}
+                              />
+                              <span className="truncate max-w-[130px]">
+                                {cachedStatus.docker_container_name}
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 italic">
+                            Uninspected
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </td>
 
                 {/* Updated At */}
@@ -152,9 +192,36 @@ export function DeviceTable({
                   </div>
                 </td>
 
-                {/* Actions: Edit and Delete */}
+                {/* Actions: Status, Edit, and Delete */}
                 <td className="py-4 px-6 text-right whitespace-nowrap">
                   <div className="flex items-center justify-end gap-1.5">
+                    {onViewStatus && (() => {
+                      const cachedStatus = lifecycleStatuses?.[dev.id];
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => onViewStatus(dev)}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors shadow-2xs border ${
+                            cachedStatus?.ready
+                              ? "text-emerald-700 bg-emerald-50 border-emerald-200/70 hover:bg-emerald-100"
+                              : cachedStatus
+                              ? "text-amber-700 bg-amber-50 border-amber-200/70 hover:bg-amber-100"
+                              : "text-indigo-700 bg-indigo-50 border border-indigo-200/60 hover:bg-indigo-100"
+                          }`}
+                          title={
+                            cachedStatus
+                              ? `Lifecycle: ${cachedStatus.runtime_status} (Ready: ${
+                                  cachedStatus.ready ? "Yes" : "No"
+                                }) - Click to inspect and manage`
+                              : `Inspect lifecycle status for ${dev.name}`
+                          }
+                          aria-label={`View lifecycle status for ${dev.name}`}
+                        >
+                          <Activity className="w-3.5 h-3.5" />
+                          <span>Status</span>
+                        </button>
+                      );
+                    })()}
                     {onEditDevice && (
                       <button
                         type="button"

@@ -4,6 +4,7 @@ import {
   DeviceListResponse,
   CreateDeviceInput,
   UpdateDeviceInput,
+  DeviceLifecycleStatus,
   ApiError,
   ValidationErrorDetail,
 } from "@/types/device";
@@ -11,6 +12,10 @@ import {
 export interface IDeviceService {
   getDevices(params?: DeviceListParams): Promise<DeviceListResponse>;
   getDevice(id: number): Promise<Device>;
+  getDeviceStatus(id: number): Promise<DeviceLifecycleStatus>;
+  startDevice(id: number): Promise<DeviceLifecycleStatus>;
+  stopDevice(id: number): Promise<DeviceLifecycleStatus>;
+  restartDevice(id: number): Promise<DeviceLifecycleStatus>;
   createDevice(input: CreateDeviceInput): Promise<Device>;
   updateDevice(id: number, input: UpdateDeviceInput): Promise<Device>;
   deleteDevice(id: number): Promise<void>;
@@ -112,6 +117,70 @@ export class FastApiDeviceService implements IDeviceService {
     }
 
     const data: Device = await response.json();
+    return data;
+  }
+
+  async getDeviceStatus(id: number): Promise<DeviceLifecycleStatus> {
+    const response = await fetch(`${this.baseUrl}/devices/${id}/status`, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      throw await this.parseError(response);
+    }
+
+    const data: DeviceLifecycleStatus = await response.json();
+    return data;
+  }
+
+  async startDevice(id: number): Promise<DeviceLifecycleStatus> {
+    const response = await fetch(`${this.baseUrl}/devices/${id}/start`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      throw await this.parseError(response);
+    }
+
+    const data: DeviceLifecycleStatus = await response.json();
+    return data;
+  }
+
+  async stopDevice(id: number): Promise<DeviceLifecycleStatus> {
+    const response = await fetch(`${this.baseUrl}/devices/${id}/stop`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      throw await this.parseError(response);
+    }
+
+    const data: DeviceLifecycleStatus = await response.json();
+    return data;
+  }
+
+  async restartDevice(id: number): Promise<DeviceLifecycleStatus> {
+    const response = await fetch(`${this.baseUrl}/devices/${id}/restart`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      throw await this.parseError(response);
+    }
+
+    const data: DeviceLifecycleStatus = await response.json();
     return data;
   }
 

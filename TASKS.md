@@ -463,7 +463,7 @@ Acceptance criteria:
 ---
 
 ## TIK-015
-Status: IN PROGRESS
+Status: DONE
 Owner: Antigravity
 Type: Frontend / Device Management
 
