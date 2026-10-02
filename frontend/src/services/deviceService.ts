@@ -6,9 +6,12 @@ import {
   UpdateDeviceInput,
   DeviceLifecycleStatus,
   DeviceScreenStatus,
+  RedroidProvisionRequest,
+  RedroidProvisioningStatus,
   ApiError,
   ValidationErrorDetail,
 } from "@/types/device";
+import { provisioningService } from "./provisioningService";
 
 export interface IDeviceService {
   getDevices(params?: DeviceListParams): Promise<DeviceListResponse>;
@@ -20,6 +23,13 @@ export interface IDeviceService {
   getDeviceScreenStatus(id: number): Promise<DeviceScreenStatus>;
   openDeviceScreen(id: number): Promise<DeviceScreenStatus>;
   closeDeviceScreen(id: number): Promise<DeviceScreenStatus>;
+  provisionRedroidDevice(
+    input: RedroidProvisionRequest,
+    idempotencyKey: string
+  ): Promise<RedroidProvisioningStatus>;
+  getRedroidProvisioning(
+    provisioningId: string
+  ): Promise<RedroidProvisioningStatus>;
   createDevice(input: CreateDeviceInput): Promise<Device>;
   updateDevice(id: number, input: UpdateDeviceInput): Promise<Device>;
   deleteDevice(id: number): Promise<void>;
@@ -234,6 +244,19 @@ export class FastApiDeviceService implements IDeviceService {
 
     const data: DeviceScreenStatus = await response.json();
     return data;
+  }
+
+  async provisionRedroidDevice(
+    input: RedroidProvisionRequest,
+    idempotencyKey: string
+  ): Promise<RedroidProvisioningStatus> {
+    return provisioningService.provisionDevice(input, idempotencyKey);
+  }
+
+  async getRedroidProvisioning(
+    provisioningId: string
+  ): Promise<RedroidProvisioningStatus> {
+    return provisioningService.getProvisioning(provisioningId);
   }
 
   async createDevice(input: CreateDeviceInput): Promise<Device> {

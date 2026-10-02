@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from "react";
 import {
   Device,
-  CreateDeviceInput,
   UpdateDeviceInput,
   DeviceLifecycleStatus,
   formatApiError,
@@ -122,19 +121,14 @@ export default function DevicesPage() {
   };
 
   // CRUD handlers
-  const handleCreateDevice = async (input: CreateDeviceInput) => {
-    try {
-      const created = await deviceService.createDevice(input);
-      setBannerMessage({
-        type: "success",
-        text: `Device "${created.name}" created successfully!`,
-      });
-      setTimeout(() => setBannerMessage(null), 5000);
-      setCurrentPage(1);
-      handleRefresh();
-    } catch (err: unknown) {
-      throw err;
-    }
+  const handleDeviceCreated = (info: { name: string; device_id?: number }) => {
+    setBannerMessage({
+      type: "success",
+      text: `Managed Redroid device "${info.name}" provisioned successfully!`,
+    });
+    setTimeout(() => setBannerMessage(null), 5000);
+    setCurrentPage(1);
+    handleRefresh();
   };
 
   const handleUpdateDevice = async (
@@ -383,7 +377,7 @@ export default function DevicesPage() {
       <DeviceCreateModal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
-        onSubmit={handleCreateDevice}
+        onDeviceCreated={handleDeviceCreated}
       />
 
       {/* Edit Device Modal */}
