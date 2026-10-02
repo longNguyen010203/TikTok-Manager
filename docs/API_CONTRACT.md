@@ -638,6 +638,62 @@ persistent data.
 The backend restarts the existing container, waits for Android boot completion,
 reconnects ADB when needed, verifies ADB state, and persists the ready state.
 
+## Device screen status object
+
+```json
+{
+  "device_id": 1,
+  "runtime_id": 1,
+  "adb_serial": "localhost:5555",
+  "status": "open",
+  "process_id": 4321
+}
+```
+
+`status` is `open` when the backend has a live tracked scrcpy process for the
+Device and `closed` otherwise. `process_id` is the scrcpy process ID while open
+and `null` while closed. Screen endpoints require the same single, fully
+configured Redroid Runtime as Device lifecycle endpoints.
+
+Common screen-control errors:
+
+- `404 Not Found` with `{"detail": "Device not found"}` for a missing Device.
+- `409 Conflict` when there is no Runtime, more than one Runtime, a non-Redroid
+  Runtime, or incomplete Redroid configuration.
+- `502 Bad Gateway` when scrcpy cannot be launched or terminated.
+- `422 Unprocessable Entity` when `id` is not an integer.
+
+## Open Device screen
+
+- Method: `POST`
+- Path: `/devices/{id}/screen/open`
+- Request body: none.
+- Success: `200 OK` with a Device screen status object.
+
+The backend launches `scrcpy --serial <adb_serial>` as a non-blocking child
+process. If that Device already has a live tracked scrcpy process, the existing
+session is returned and no duplicate process is launched.
+
+## Close Device screen
+
+- Method: `POST`
+- Path: `/devices/{id}/screen/close`
+- Request body: none.
+- Success: `200 OK` with a closed Device screen status object.
+
+Closing is idempotent. It terminates only the tracked scrcpy process and does
+not stop or otherwise modify the Redroid container or Device lifecycle state.
+
+## Get Device screen status
+
+- Method: `GET`
+- Path: `/devices/{id}/screen/status`
+- Request body: none.
+- Success: `200 OK` with a Device screen status object.
+
+The backend checks the tracked child process. A process that has already exited
+is removed from tracking and reported as closed.
+
 ## Create device
 
 - Method: `POST`

@@ -14,11 +14,18 @@ from app.schemas.device import (
     DeviceLifecycleStatus,
     DeviceList,
     DeviceRead,
+    DeviceScreenStatus,
     DeviceUpdate,
 )
 from app.services.device_lifecycle import (
     DeviceLifecycleError,
     DeviceLifecycleService,
+    get_redroid_target,
+)
+from app.services.device_screen import (
+    DeviceScreenError,
+    ScreenProcessManager,
+    ScreenProcessState,
 )
 from app.services.redroid_runtime import (
     RedroidBootTimeoutError,
@@ -38,6 +45,16 @@ def get_redroid_runtime_adapter() -> RedroidRuntimeAdapter:
 RuntimeAdapter = Annotated[
     RedroidRuntimeAdapter, Depends(get_redroid_runtime_adapter)
 ]
+
+screen_process_manager = ScreenProcessManager()
+
+
+def get_screen_process_manager() -> ScreenProcessManager:
+    """Provide the process-local scrcpy session registry."""
+    return screen_process_manager
+
+
+ScreenManager = Annotated[ScreenProcessManager, Depends(get_screen_process_manager)]
 
 
 def _get_device_or_404(device_id: int, session: Session) -> Device:
@@ -112,6 +129,39 @@ def restart_device(
     return _execute_lifecycle(lambda: service.restart(device))
 
 
+@router.post("/{device_id}/screen/open", response_model=DeviceScreenStatus)
+def open_device_screen(
+    device_id: int, session: DatabaseSession, manager: ScreenManager
+) -> DeviceScreenStatus:
+    """Launch scrcpy for a Device without waiting for it to exit."""
+    device = _get_device_or_404(device_id, session)
+    return _execute_screen(
+        lambda: _open_screen(device, manager)
+    )
+
+
+@router.post("/{device_id}/screen/close", response_model=DeviceScreenStatus)
+def close_device_screen(
+    device_id: int, session: DatabaseSession, manager: ScreenManager
+) -> DeviceScreenStatus:
+    """Terminate only the tracked scrcpy process for a Device."""
+    device = _get_device_or_404(device_id, session)
+    return _execute_screen(
+        lambda: _close_screen(device, manager)
+    )
+
+
+@router.get("/{device_id}/screen/status", response_model=DeviceScreenStatus)
+def get_device_screen_status(
+    device_id: int, session: DatabaseSession, manager: ScreenManager
+) -> DeviceScreenStatus:
+    """Return the state of a Device's tracked scrcpy process."""
+    device = _get_device_or_404(device_id, session)
+    return _execute_screen(
+        lambda: _screen_status(device, manager)
+    )
+
+
 @router.post("", response_model=DeviceRead, status_code=status.HTTP_201_CREATED)
 def create_device(payload: DeviceCreate, session: DatabaseSession) -> Device:
     """Create a device."""
@@ -155,3 +205,45 @@ def _execute_lifecycle(
         raise HTTPException(status_code=502, detail=str(error)) from error
     except DeviceLifecycleError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+def _open_screen(device: Device, manager: ScreenProcessManager) -> DeviceScreenStatus:
+    target = get_redroid_target(device)
+    return _screen_response(
+        manager.open(device.id, target.runtime.id, target.adb_serial)
+    )
+
+
+def _close_screen(device: Device, manager: ScreenProcessManager) -> DeviceScreenStatus:
+    target = get_redroid_target(device)
+    return _screen_response(
+        manager.close(device.id, target.runtime.id, target.adb_serial)
+    )
+
+
+def _screen_status(device: Device, manager: ScreenProcessManager) -> DeviceScreenStatus:
+    target = get_redroid_target(device)
+    return _screen_response(
+        manager.status(device.id, target.runtime.id, target.adb_serial)
+    )
+
+
+def _screen_response(state: ScreenProcessState) -> DeviceScreenStatus:
+    return DeviceScreenStatus(
+        device_id=state.device_id,
+        runtime_id=state.runtime_id,
+        adb_serial=state.adb_serial,
+        status="open" if state.is_open else "closed",
+        process_id=state.process_id,
+    )
+
+
+def _execute_screen(
+    operation: Callable[[], DeviceScreenStatus],
+) -> DeviceScreenStatus:
+    try:
+        return operation()
+    except DeviceLifecycleError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except DeviceScreenError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error

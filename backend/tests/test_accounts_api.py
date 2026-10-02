@@ -11,7 +11,7 @@ from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import get_db, init_db
-from app.main import create_app
+from tests.app_factory import create_test_app
 
 
 @pytest.fixture
@@ -27,7 +27,7 @@ def api_client(tmp_path: Path) -> Iterator[TestClient]:
     )
     init_db(test_engine)
 
-    application: FastAPI = create_app()
+    application: FastAPI = create_test_app()
 
     def override_get_db() -> Iterator[Session]:
         with testing_session() as session:

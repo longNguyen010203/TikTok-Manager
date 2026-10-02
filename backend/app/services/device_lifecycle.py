@@ -55,12 +55,12 @@ class DeviceLifecycleService:
 
     def status(self, device: Device) -> DeviceLifecycleStatus:
         """Inspect external state and reconcile it into the database."""
-        target = self._get_target(device)
+        target = get_redroid_target(device)
         return self._observe_and_reconcile(device, target)
 
     def start(self, device: Device) -> DeviceLifecycleStatus:
         """Start the container and wait until Android and ADB are ready."""
-        target = self._get_target(device)
+        target = get_redroid_target(device)
         self.adapter.start_container(target.container_name)
         self._wait_for_readiness(target)
         return self._reconcile(
@@ -73,13 +73,13 @@ class DeviceLifecycleService:
 
     def stop(self, device: Device) -> DeviceLifecycleStatus:
         """Stop the container without deleting its persistent state."""
-        target = self._get_target(device)
+        target = get_redroid_target(device)
         self.adapter.stop_container(target.container_name)
         return self._observe_and_reconcile(device, target)
 
     def restart(self, device: Device) -> DeviceLifecycleStatus:
         """Restart the container and wait until Android and ADB are ready."""
-        target = self._get_target(device)
+        target = get_redroid_target(device)
         self.adapter.restart_container(target.container_name)
         self._wait_for_readiness(target)
         return self._reconcile(
@@ -149,27 +149,29 @@ class DeviceLifecycleService:
             device_status=device_status,
         )
 
-    @staticmethod
-    def _get_target(device: Device) -> RedroidTarget:
-        if not device.runtimes:
-            raise RuntimeAssignmentError("Device has no assigned Runtime")
-        if len(device.runtimes) > 1:
-            raise RuntimeAssignmentError(
-                "Device lifecycle requires exactly one assigned Runtime"
-            )
 
-        runtime = device.runtimes[0]
-        if runtime.runtime_type != "redroid":
-            raise UnsupportedRuntimeError("Assigned Runtime is not Redroid-backed")
-        if not runtime.docker_container_name:
-            raise RuntimeConfigurationError(
-                "Assigned Runtime is missing docker_container_name"
-            )
-        if not runtime.adb_serial:
-            raise RuntimeConfigurationError("Assigned Runtime is missing adb_serial")
 
-        return RedroidTarget(
-            runtime=runtime,
-            container_name=runtime.docker_container_name,
-            adb_serial=runtime.adb_serial,
+def get_redroid_target(device: Device) -> RedroidTarget:
+    """Return the Device's single, fully configured Redroid target."""
+    if not device.runtimes:
+        raise RuntimeAssignmentError("Device has no assigned Runtime")
+    if len(device.runtimes) > 1:
+        raise RuntimeAssignmentError(
+            "Device lifecycle requires exactly one assigned Runtime"
         )
+
+    runtime = device.runtimes[0]
+    if runtime.runtime_type != "redroid":
+        raise UnsupportedRuntimeError("Assigned Runtime is not Redroid-backed")
+    if not runtime.docker_container_name:
+        raise RuntimeConfigurationError(
+            "Assigned Runtime is missing docker_container_name"
+        )
+    if not runtime.adb_serial:
+        raise RuntimeConfigurationError("Assigned Runtime is missing adb_serial")
+
+    return RedroidTarget(
+        runtime=runtime,
+        container_name=runtime.docker_container_name,
+        adb_serial=runtime.adb_serial,
+    )

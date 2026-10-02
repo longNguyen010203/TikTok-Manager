@@ -62,6 +62,16 @@ Backend:
 - FastAPI
 - Python
 
+Manager host lifecycle:
+- `STOP_MANAGED_DEVICES_ON_SHUTDOWN` controls whether managed Redroid
+  containers are stopped when the API shuts down.
+- The default is `true`. Use this for the normal TikTok Manager runtime so
+  managed devices are stopped cleanly.
+- Set it to `false` during development with `uvicorn --reload`. Reload shutdown
+  still closes tracked scrcpy sessions but leaves Redroid containers running.
+- Shutdown never deletes containers, persistent `/data`, Device records, or
+  Runtime records.
+
 Database:
 - PostgreSQL
 

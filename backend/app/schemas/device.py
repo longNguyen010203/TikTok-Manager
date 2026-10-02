@@ -79,3 +79,13 @@ class DeviceLifecycleStatus(BaseModel):
     ready: bool
     runtime_status: str
     device_status: str
+
+
+class DeviceScreenStatus(BaseModel):
+    """State of the scrcpy process associated with a Device."""
+
+    device_id: int
+    runtime_id: int
+    adb_serial: str
+    status: str
+    process_id: int | None

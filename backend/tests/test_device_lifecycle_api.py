@@ -12,7 +12,7 @@ from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import get_db, init_db
-from app.main import create_app
+from tests.app_factory import create_test_app
 from app.models import Device, Runtime
 from app.routers.devices import get_redroid_runtime_adapter
 from app.services.redroid_runtime import (
@@ -42,7 +42,7 @@ def lifecycle_api(tmp_path: Path) -> Iterator[LifecycleApiEnvironment]:
         bind=test_engine, autoflush=False, expire_on_commit=False
     )
     init_db(test_engine)
-    application = create_app()
+    application = create_test_app()
     adapter = MagicMock(spec=RedroidRuntimeAdapter)
 
     def override_get_db() -> Iterator[Session]:

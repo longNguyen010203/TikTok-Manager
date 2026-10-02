@@ -2,11 +2,11 @@
 
 from fastapi.testclient import TestClient
 
-from app.main import app
+from tests.app_factory import create_test_app
 
 
 def test_health() -> None:
-    with TestClient(app) as client:
+    with TestClient(create_test_app()) as client:
         response = client.get("/health")
 
     assert response.status_code == 200
