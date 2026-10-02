@@ -496,3 +496,41 @@ Acceptance criteria:
 - lifecycle action loading and error states are handled
 - existing search, filter, and pagination continue to work
 - frontend build and lint pass
+
+---
+
+## TIK-016
+Status: IN PROGRESS
+Owner: Codex + Antigravity
+Type: Device Host Lifecycle / Screen Control
+
+Title:
+Add Device Screen Control and Manager Host Lifecycle
+
+Dependencies:
+- TIK-014
+- TIK-015
+
+Scope:
+- backend/
+- frontend/
+- docs/
+
+Phases:
+1. Screen Control Backend
+2. Manager Startup / Shutdown Lifecycle
+3. Screen Control Frontend
+4. Real Integration Test
+5. Final Verification
+
+Acceptance criteria:
+- a Redroid device screen can be opened with scrcpy from TikTok Manager
+- duplicate screen sessions are handled safely
+- closing scrcpy does not stop the device
+- TikTok Manager startup verifies Docker availability
+- Redroid containers are not automatically started on manager startup
+- graceful TikTok Manager shutdown stops managed Redroid containers
+- stopping the manager never deletes persistent device data
+- frontend exposes Open Screen / View Device
+- existing lifecycle controls continue to work
+- backend tests, frontend lint, and frontend build pass
