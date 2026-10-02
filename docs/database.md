@@ -5,6 +5,21 @@ SQLite, configured by default as `sqlite:///./tiktok_manager.db` relative to the
 backend process working directory. Set `DATABASE_URL` to override the connection
 URL.
 
+## Operational host database
+
+Real host operations must not use the relative development URL because each Git
+worktree resolves it to a different SQLite file. The verified local host runtime
+uses this explicit database outside every worktree:
+
+```text
+sqlite:////home/longnguyen/.local/share/tiktok-manager/tiktok_manager.db
+```
+
+Set that exact `DATABASE_URL` before starting the backend for real Docker/device
+operations. The database and its backups are operational state and must never be
+committed to Git. The pre-Device-03 backup is stored under
+`/home/longnguyen/.local/share/tiktok-manager/backups/`.
+
 Database schema changes are managed by Alembic. Application import does not
 create database files or tables automatically. `app.database.init_db()` remains
 available for isolated tests, while local and deployed databases should use the
@@ -110,6 +125,28 @@ Fields:
 
 Multiple null values are allowed for both Redroid identifiers so non-Redroid
 and not-yet-configured Runtime records remain backward-compatible.
+
+## RedroidProvisioning
+
+The SQL table name is `redroid_provisionings`. It is a durable allocation and
+recovery manifest for Redroid resources created by TikTok Manager. Legacy
+Redroid Runtime rows are not implicitly owned by this table.
+
+The record stores a unique idempotency key, request fingerprint, ownership
+token, installation ID, provisioning state, device number, container name and
+ID, ADB host port and serial, persistent data path, network name and ID,
+immutable image reference, nullable resulting Device/Runtime IDs, explicit
+resource-created flags, nullable error details, and timestamps.
+
+Device number, container name, ADB port, ADB serial, data path, network name,
+ownership token, idempotency key, Device ID, and Runtime ID are unique. Device
+and Runtime references use `ON DELETE SET NULL` so provisioning history remains
+available if application records are removed.
+
+Provisioning states are `requested`, `preflighting`, `reserved`,
+`data_created`, `network_created`, `container_created`, `inspected`,
+`completed`, `rolling_back`, `rolled_back`, `failed`, `rollback_failed`, and
+`inconsistent`.
 
 ## Job
 

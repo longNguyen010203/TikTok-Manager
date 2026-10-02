@@ -738,3 +738,83 @@ Error cases:
 - `404 Not Found` with `{"detail": "Device not found"}` when the ID does not
   exist.
 - `422 Unprocessable Entity` when `id` is not an integer.
+
+## Managed Redroid provisioning status object
+
+```json
+{
+  "provisioning_id": "2e2bc741-61e8-4e2f-bc38-d9c5cc42d949",
+  "state": "completed",
+  "device_number": 3,
+  "container_name": "redroid-device-03",
+  "adb_serial": "localhost:5557",
+  "data_path": "/home/longnguyen/redroid-test/device-03-data",
+  "network_name": "redroid-device-03-net",
+  "image_reference": "redroid/redroid@sha256:a6c464bbedcf1dcb67dbf91f329fbb19bee5b50631f0ca6bda6ed7c41b0e64e2",
+  "device_id": 5,
+  "runtime_id": 5,
+  "data_directory_created": true,
+  "network_created": true,
+  "container_created": true,
+  "error_code": null,
+  "error_message": null,
+  "created_at": "2026-10-02T16:00:00",
+  "updated_at": "2026-10-02T16:00:01"
+}
+```
+
+Provisioning errors returned by these endpoints are sanitized. Docker command
+output, host paths other than the allocated data path, and Python stack traces
+are not exposed.
+
+## Provision managed Redroid device
+
+- Method: `POST`
+- Path: `/redroid-provisionings`
+- Required header: `Idempotency-Key`, 1–255 characters matching
+  `[A-Za-z0-9][A-Za-z0-9._:-]*`.
+- Request body:
+
+```json
+{
+  "name": "Redroid Device 03",
+  "notes": null,
+  "profile": "android-12-redroid"
+}
+```
+
+The backend derives the device number, Docker names, ADB port and serial, data
+path, network, image, labels, and container options. Supplying any of those as
+additional request fields returns `422 Unprocessable Entity`.
+
+- Completed synchronously: `201 Created` with a provisioning status object.
+- Existing attempt still active or locked by another request: `202 Accepted`
+  with the same durable provisioning status object.
+- Same idempotency key and request: returns the existing attempt without
+  allocating a second resource tuple.
+
+Error cases:
+
+- `409 Conflict` for an idempotency-key fingerprint mismatch, allocation or
+  resource conflict, or inconsistent recovery state.
+- `422 Unprocessable Entity` for a missing/invalid header, request, or profile.
+- `503 Service Unavailable` when provisioning configuration or host preflight
+  is unavailable.
+- `500 Internal Server Error` for an unexpected durable failure. When an
+  attempt exists, the sanitized detail includes its provisioning ID.
+
+This is a host-administration endpoint. It must remain accessible only from a
+trusted/local deployment until administrator authentication and authorization
+are implemented.
+
+## Get managed Redroid provisioning status
+
+- Method: `GET`
+- Path: `/redroid-provisionings/{provisioning_id}`
+- Request body: none.
+- Success: `200 OK` with the durable provisioning status object.
+
+Error cases:
+
+- `404 Not Found` with `{"detail": "Provisioning attempt not found"}` when the
+  ID is unknown.

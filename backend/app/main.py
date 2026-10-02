@@ -10,6 +10,7 @@ from app.routers.accounts import router as accounts_router
 from app.routers.devices import router as devices_router, screen_process_manager
 from app.routers.health import router as health_router
 from app.routers.jobs import router as jobs_router
+from app.routers.redroid_provisionings import router as redroid_provisionings_router
 from app.routers.runtimes import router as runtimes_router
 from app.services.host_lifecycle import (
     ApplicationLifecycle,
@@ -55,6 +56,7 @@ def create_app(
     application.include_router(devices_router)
     application.include_router(jobs_router)
     application.include_router(runtimes_router)
+    application.include_router(redroid_provisionings_router)
     return application
 
 

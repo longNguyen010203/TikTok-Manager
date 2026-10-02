@@ -14,7 +14,8 @@ PRE_JOB_REVISION = "20260918_0002"
 PRE_JOB_LOG_REVISION = "20260918_0003"
 PRE_REDROID_CONFIG_REVISION = "20260918_0004"
 PRE_UNIQUE_CONFIG_REVISION = "20261001_0005"
-LATEST_REVISION = "20261001_0006"
+PRE_PROVISIONING_REVISION = "20261001_0006"
+LATEST_REVISION = "20261002_0007"
 
 
 def test_upgrade_head_creates_accounts_table(
@@ -30,7 +31,14 @@ def test_upgrade_head_creates_accounts_table(
     test_engine = create_engine(database_url)
     try:
         inspector = inspect(test_engine)
-        assert {"accounts", "devices", "job_logs", "jobs", "runtimes"}.issubset(
+        assert {
+            "accounts",
+            "devices",
+            "job_logs",
+            "jobs",
+            "redroid_provisionings",
+            "runtimes",
+        }.issubset(
             inspector.get_table_names()
         )
         assert "alembic_version" in inspector.get_table_names()
@@ -50,6 +58,31 @@ def test_upgrade_head_creates_accounts_table(
         }
         assert ("docker_container_name",) in runtime_unique_constraints
         assert ("adb_serial",) in runtime_unique_constraints
+        provisioning_columns = {
+            column["name"]
+            for column in inspector.get_columns("redroid_provisionings")
+        }
+        assert provisioning_columns == {
+            "id", "idempotency_key", "request_fingerprint", "ownership_token",
+            "installation_id", "state", "device_number", "container_name",
+            "docker_container_id", "adb_host_port", "adb_serial", "data_path",
+            "network_name", "docker_network_id", "image_reference", "device_id",
+            "runtime_id", "data_directory_created", "network_created",
+            "container_created", "error_code", "error_message", "created_at",
+            "updated_at",
+        }
+        provisioning_uniques = {
+            tuple(constraint["column_names"])
+            for constraint in inspector.get_unique_constraints(
+                "redroid_provisionings"
+            )
+        }
+        for column in (
+            "idempotency_key", "ownership_token", "device_number",
+            "container_name", "adb_host_port", "adb_serial", "data_path",
+            "network_name", "device_id", "runtime_id",
+        ):
+            assert (column,) in provisioning_uniques
         job_columns = {
             column["name"]: column for column in inspector.get_columns("jobs")
         }

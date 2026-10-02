@@ -17,6 +17,70 @@ paths from the host binderfs into managed containers. Redroid creates the Binder
 devices it needs in the container's private mount namespace. The host bootstrap
 only verifies that Binder kernel support is ready.
 
+## Automated provisioning foundation
+
+Automated provisioning uses a durable `redroid_provisionings` manifest before
+creating Docker or filesystem resources. Allocation is serialized briefly in
+the database and never derives a device number from Device/Runtime primary keys.
+Every device number remains reserved after failure or rollback.
+
+Required trusted configuration is supplied by the backend environment:
+
+- `TIKTOK_MANAGER_INSTALLATION_ID`: stable safe identifier; never generated at startup
+- `REDROID_PROVISIONING_IMAGE`: immutable `image@sha256:<64 hex>` reference
+- `REDROID_PROVISIONING_DATA_ROOT`: absolute non-root directory
+- `REDROID_PROVISIONING_BASE_ADB_PORT`: optional; defaults to `5554`
+- `REDROID_PROVISIONING_NETWORK_PREFIX`: optional; defaults to `redroid-device`
+- `REDROID_PROVISIONING_PROFILE`: optional; defaults to `android-12-redroid`
+
+The provisioning adapter passes argument arrays to Docker with `shell=False`,
+publishes ADB on `127.0.0.1` only, creates no Binder mappings, and leaves the
+container stopped. Container, network, and filesystem rollback requires the
+recorded resource ID plus matching installation/provisioning/ownership labels
+or marker. A name alone is never authority to delete a resource.
+
+Existing Device 01 and Device 02 remain legacy managed runtimes. They are not
+automatically adopted into the provisioning manifest and cannot be removed by
+the provisioning rollback path.
+
+Provisioning is exposed internally through `POST /redroid-provisionings` and
+`GET /redroid-provisionings/{provisioning_id}`. POST requires an
+`Idempotency-Key`; retries reuse the same durable attempt and allocation. A
+nonblocking `flock` file keyed by the provisioning UUID prevents multiple
+backend processes on the same host from advancing one attempt simultaneously.
+The short allocation lock remains database-backed (`BEGIN IMMEDIATE` on
+SQLite), and neither lock is held while another request owns the attempt.
+
+These endpoints control privileged Docker resources and are host-administration
+capabilities. Keep the backend bound to a trusted/local interface and do not
+publish the endpoint without administrator authentication and authorization.
+
+## Device 03 API provisioning verification
+
+Device 03 was provisioned through `POST /redroid-provisionings` on 2026-10-02
+using the explicit operational database documented in `docs/database.md` and:
+
+- installation ID `tiktok-manager-longnguyen-host-01`
+- profile `android-12-redroid`
+- base ADB port `5554`
+- data root `/home/longnguyen/redroid-test`
+- image `redroid/redroid@sha256:a6c464bbedcf1dcb67dbf91f329fbb19bee5b50631f0ca6bda6ed7c41b0e64e2`
+
+Docker reported that exact value as both the installed image ID and RepoDigest.
+The API allocated Device number 3, container `redroid-device-03`, ADB serial
+`localhost:5557`, data directory `device-03-data`, and network
+`redroid-device-03-net`. Pre-boot inspection confirmed the container had never
+started, ADB was published only on `127.0.0.1:5557`, no Binder devices were
+mapped, `/data` used the dedicated bind source, and restart/auto-remove were
+disabled.
+
+An identical idempotent replay returned the original completed attempt without
+creating another resource. A changed request under the same key returned
+`409 Conflict`. The first lifecycle-API boot reached ready in 5.699 seconds.
+Subsequent stop/start, screen open/close, and persistence checks left all three
+devices ready; Device 03 retained its Android ID, container ID, data path,
+ownership labels, and marker hash.
+
 ## Device 02
 
 Device 02 is defined in `deploy/redroid-devices.compose.yml` with:
