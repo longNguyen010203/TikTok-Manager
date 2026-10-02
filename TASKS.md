@@ -577,3 +577,46 @@ Acceptance criteria:
 - No persistent device data is deleted.
 - Existing single-device behavior remains unchanged.
 - Full backend tests pass.
+
+---
+
+## TIK-018
+Status: IN PROGRESS
+Owner: Codex + Antigravity
+Type: Backend / Device Provisioning
+
+Title:
+Automate Managed Redroid Device Provisioning
+
+Dependencies:
+- TIK-014
+- TIK-016
+- TIK-017
+
+Scope:
+- backend/
+- frontend/
+- deploy/
+- docs/
+
+Phases:
+1. Provisioning architecture and allocation design
+2. Backend provisioning service
+3. Provisioning API and rollback safety
+4. Real Device 03 provisioning test
+5. Frontend Create Device flow
+6. Delete / deprovision flow
+7. Final verification
+
+Acceptance criteria:
+- TikTok Manager can create a new managed Redroid device without manual docker commands.
+- Container name, ADB port, data path, and network are allocated uniquely.
+- Provisioning validates conflicts before creating resources.
+- Device and Runtime database records are created consistently.
+- Failed provisioning rolls back partial resources safely.
+- Persistent data is never deleted without explicit destructive confirmation.
+- Provisioned devices use loopback-only ADB.
+- Each device gets isolated persistent storage and network configuration.
+- Existing Device 01 and Device 02 remain unchanged.
+- Frontend can create a managed Redroid device.
+- Full backend tests, frontend lint, and frontend build pass.
