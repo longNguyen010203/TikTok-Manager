@@ -534,3 +534,46 @@ Acceptance criteria:
 - frontend exposes Open Screen / View Device
 - existing lifecycle controls continue to work
 - backend tests, frontend lint, and frontend build pass
+
+---
+
+## TIK-017
+Status: IN PROGRESS
+Owner: Codex
+Type: Backend / Multi-Device Runtime
+
+Title:
+Validate Multi-Device Redroid Isolation
+
+Dependencies:
+- TIK-014
+- TIK-015
+- TIK-016
+
+Scope:
+- backend/
+- scripts/
+- docs/
+
+Phases:
+1. Multi-device provisioning design
+2. Device 02 provisioning
+3. Lifecycle and screen isolation
+4. Storage, media, and network isolation
+5. Manager lifecycle with multiple devices
+6. Final verification
+
+Acceptance criteria:
+- Two Redroid containers can coexist and run independently.
+- Each device has a unique Docker container name.
+- Each device has a unique ADB endpoint.
+- Each device has its own persistent /data directory.
+- Starting, stopping, or restarting one device does not affect the other.
+- Screen sessions are independent.
+- Device storage and media do not cross between devices.
+- Device network configuration can be isolated independently.
+- Manager startup reconciles both devices correctly.
+- Manager shutdown safely stops all managed Redroid devices.
+- No persistent device data is deleted.
+- Existing single-device behavior remains unchanged.
+- Full backend tests pass.
