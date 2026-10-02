@@ -261,6 +261,78 @@ def test_stop_preserves_runtime_and_reconciles_stopped_state(
         assert session.get(Runtime, int(runtime["id"])) is not None
 
 
+def test_lifecycle_actions_only_mutate_the_target_device(
+    lifecycle_api: LifecycleApiEnvironment,
+) -> None:
+    device_01 = create_device(lifecycle_api)
+    runtime_01 = create_runtime(lifecycle_api, int(device_01["id"]))
+    device_02 = create_device(lifecycle_api)
+    runtime_02 = create_runtime(
+        lifecycle_api,
+        int(device_02["id"]),
+        docker_container_name="redroid-device-02",
+        adb_serial="localhost:5556",
+        name="Redroid Runtime 02",
+    )
+    with Session(lifecycle_api.engine) as session:
+        for device_id, runtime_id in (
+            (int(device_01["id"]), int(runtime_01["id"])),
+            (int(device_02["id"]), int(runtime_02["id"])),
+        ):
+            device = session.get(Device, device_id)
+            runtime = session.get(Runtime, runtime_id)
+            assert device is not None and runtime is not None
+            device.status = "online"
+            runtime.status = "running"
+        session.commit()
+
+    lifecycle_api.adapter.get_container_status.return_value = "exited"
+    lifecycle_api.adapter.check_adb.return_value = False
+    stopped = lifecycle_api.client.post(f"/devices/{device_02['id']}/stop")
+
+    assert stopped.status_code == 200
+    lifecycle_api.adapter.stop_container.assert_called_once_with(
+        "redroid-device-02"
+    )
+    assert_persisted_status(
+        lifecycle_api,
+        int(device_01["id"]),
+        int(runtime_01["id"]),
+        device_status="online",
+        runtime_status="running",
+    )
+    assert_persisted_status(
+        lifecycle_api,
+        int(device_02["id"]),
+        int(runtime_02["id"]),
+        device_status="offline",
+        runtime_status="stopped",
+    )
+
+    lifecycle_api.adapter.reset_mock()
+    lifecycle_api.adapter.wait_for_boot.return_value = True
+    lifecycle_api.adapter.wait_for_adb.return_value = True
+    restarted = lifecycle_api.client.post(f"/devices/{device_01['id']}/restart")
+
+    assert restarted.status_code == 200
+    lifecycle_api.adapter.restart_container.assert_called_once_with(
+        "redroid-device-01"
+    )
+    lifecycle_api.adapter.wait_for_boot.assert_called_once_with(
+        "redroid-device-01", 120
+    )
+    lifecycle_api.adapter.wait_for_adb.assert_called_once_with(
+        "localhost:5555", 30
+    )
+    assert_persisted_status(
+        lifecycle_api,
+        int(device_02["id"]),
+        int(runtime_02["id"]),
+        device_status="offline",
+        runtime_status="stopped",
+    )
+
+
 @pytest.mark.parametrize(
     ("runtime_options", "detail"),
     [

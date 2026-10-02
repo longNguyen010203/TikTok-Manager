@@ -538,7 +538,7 @@ Acceptance criteria:
 ---
 
 ## TIK-017
-Status: IN PROGRESS
+Status: DONE
 Owner: Codex
 Type: Backend / Multi-Device Runtime
 

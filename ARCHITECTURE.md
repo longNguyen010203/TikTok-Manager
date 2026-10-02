@@ -76,6 +76,14 @@ Manager host lifecycle:
   still closes tracked scrcpy sessions but leaves Redroid containers running.
 - Shutdown never deletes containers, persistent `/data`, Device records, or
   Runtime records.
+- Each managed Redroid lifecycle target uses one Device record with exactly one
+  Runtime record. Container name, ADB endpoint, persistent `/data` directory,
+  and Docker network are unique per target.
+- Redroid containers use private Binder mounts. Host Binder device nodes must
+  not be bind-mounted into multiple containers.
+- Reproducible Redroid definitions and provisioning steps are documented in
+  `deploy/redroid-devices.compose.yml` and
+  `docs/REDROID_DEVICE_PROVISIONING.md`.
 
 Database:
 - PostgreSQL

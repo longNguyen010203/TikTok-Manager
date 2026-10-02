@@ -8,6 +8,10 @@ is initialized during boot before Redroid is used.
 The bootstrap only prepares Binder. It does not start Docker, TikTok Manager,
 or any Redroid container, and it does not modify container data.
 
+Each Redroid container must use Binder devices from its private mount namespace.
+Do not bind the same host Binder device nodes into multiple containers. See
+`docs/REDROID_DEVICE_PROVISIONING.md` for the managed multi-device layout.
+
 ## Install
 
 Run these commands from the repository root:

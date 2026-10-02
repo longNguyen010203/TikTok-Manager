@@ -149,6 +149,75 @@ def test_open_status_duplicate_and_close_screen(
 
 
 @patch("app.services.device_screen.subprocess.Popen")
+def test_two_device_screen_sessions_are_independent(
+    mock_popen, screen_api: ScreenApiEnvironment
+) -> None:
+    device_01 = create_device(screen_api)
+    runtime_01 = create_runtime(screen_api, int(device_01["id"]))
+    device_02 = create_device(screen_api)
+    runtime_02 = create_runtime(
+        screen_api,
+        int(device_02["id"]),
+        docker_container_name="redroid-device-02",
+        adb_serial="localhost:5556",
+    )
+    process_01 = screen_process(1001)
+    process_02 = screen_process(1002)
+    replacement_01 = screen_process(1003)
+    mock_popen.side_effect = [process_01, process_02, replacement_01]
+
+    opened_01 = screen_api.client.post(
+        f"/devices/{device_01['id']}/screen/open"
+    )
+    opened_02 = screen_api.client.post(
+        f"/devices/{device_02['id']}/screen/open"
+    )
+
+    assert opened_01.json()["process_id"] == 1001
+    assert opened_01.json()["adb_serial"] == "localhost:5555"
+    assert opened_02.json()["process_id"] == 1002
+    assert opened_02.json()["adb_serial"] == "localhost:5556"
+    assert mock_popen.call_args_list[0].args[0] == [
+        "scrcpy",
+        "--serial",
+        "localhost:5555",
+    ]
+    assert mock_popen.call_args_list[1].args[0] == [
+        "scrcpy",
+        "--serial",
+        "localhost:5556",
+    ]
+
+    closed_01 = screen_api.client.post(
+        f"/devices/{device_01['id']}/screen/close"
+    )
+    still_open_02 = screen_api.client.get(
+        f"/devices/{device_02['id']}/screen/status"
+    )
+    assert closed_01.json()["status"] == "closed"
+    assert still_open_02.json()["status"] == "open"
+    process_01.terminate.assert_called_once_with()
+    process_02.terminate.assert_not_called()
+
+    reopened_01 = screen_api.client.post(
+        f"/devices/{device_01['id']}/screen/open"
+    )
+    assert reopened_01.json()["process_id"] == 1003
+    process_02.poll.return_value = 0
+
+    reaped_02 = screen_api.client.get(
+        f"/devices/{device_02['id']}/screen/status"
+    )
+    unaffected_01 = screen_api.client.get(
+        f"/devices/{device_01['id']}/screen/status"
+    )
+    assert reaped_02.json()["status"] == "closed"
+    assert unaffected_01.json()["status"] == "open"
+    assert unaffected_01.json()["runtime_id"] == runtime_01["id"]
+    assert reaped_02.json()["runtime_id"] == runtime_02["id"]
+
+
+@patch("app.services.device_screen.subprocess.Popen")
 def test_status_reaps_exited_process_and_allows_reopen(
     mock_popen, screen_api: ScreenApiEnvironment
 ) -> None:

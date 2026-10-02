@@ -159,6 +159,9 @@ Fields:
 - One Device has zero or more Runtime records. Deleting a Device cascades to its
   Runtime records.
 - One Runtime belongs to exactly one Device.
+- Although the general schema permits several Runtime records per Device, a
+  managed Redroid Device must have exactly one Runtime. Device lifecycle and
+  screen operations reject zero or multiple Runtime assignments.
 - One Runtime may have zero or more Account records assigned to it.
 - One Account may reference one Runtime through nullable `runtime_id`. Deleting
   that Runtime preserves the Account and sets `runtime_id` to null.

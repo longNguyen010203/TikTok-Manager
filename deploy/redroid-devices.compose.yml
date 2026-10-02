@@ -1,0 +1,39 @@
+name: tiktok-manager-redroid
+
+services:
+  redroid-device-02:
+    image: redroid/redroid@sha256:a6c464bbedcf1dcb67dbf91f329fbb19bee5b50631f0ca6bda6ed7c41b0e64e2
+    pull_policy: missing
+    container_name: redroid-device-02
+    privileged: true
+    security_opt:
+      - label=disable
+    stdin_open: true
+    tty: true
+    restart: "no"
+    stop_grace_period: 30s
+    ports:
+      - name: adb
+        target: 5555
+        published: "5556"
+        host_ip: 127.0.0.1
+        protocol: tcp
+    volumes:
+      - type: bind
+        source: /home/longnguyen/redroid-test/device-02-data
+        target: /data
+        bind:
+          propagation: rprivate
+    networks:
+      - device-02
+    labels:
+      com.tiktok-manager.managed: "true"
+      com.tiktok-manager.device: "02"
+      com.tiktok-manager.runtime: redroid
+
+networks:
+  device-02:
+    name: redroid-device-02-net
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_icc: "false"
