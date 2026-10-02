@@ -1,0 +1,14 @@
+[Unit]
+Description=Initialize Linux Binder devices for Redroid
+Documentation=file:/usr/local/share/tiktok-manager/REDROID_HOST_BOOTSTRAP.md
+After=systemd-modules-load.service
+Before=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/redroid-host-bootstrap
+RemainAfterExit=yes
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target

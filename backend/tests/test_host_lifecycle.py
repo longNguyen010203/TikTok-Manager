@@ -17,8 +17,10 @@ from app.models import Device, Runtime
 from app.services.device_screen import ScreenCleanupResult, ScreenProcessManager
 from app.services.host_lifecycle import (
     STOP_MANAGED_DEVICES_ON_SHUTDOWN,
+    BinderHostPaths,
     HostDependencyError,
     HostLifecycleManager,
+    check_binder_readiness,
     stop_managed_devices_on_shutdown_from_environment,
 )
 from app.services.redroid_runtime import RedroidCommandError, RedroidRuntimeAdapter
@@ -39,6 +41,7 @@ def host_manager(
     adapter: MagicMock | None = None,
     screens: MagicMock | ScreenProcessManager | None = None,
     stop_managed_devices_on_shutdown: bool = True,
+    binder_readiness_check=None,
 ) -> HostLifecycleManager:
     runtime_adapter = adapter or MagicMock(spec=RedroidRuntimeAdapter)
     screen_manager = screens or MagicMock(spec=ScreenProcessManager)
@@ -49,7 +52,83 @@ def host_manager(
         runtime_adapter,
         screen_manager,
         stop_managed_devices_on_shutdown=stop_managed_devices_on_shutdown,
+        binder_readiness_check=binder_readiness_check or (lambda: ()),
     )
+
+
+def binder_paths(tmp_path: Path) -> BinderHostPaths:
+    return BinderHostPaths(
+        module=tmp_path / "sys/module/binder_linux",
+        mount_point=tmp_path / "dev/binderfs",
+        mountinfo=tmp_path / "proc/self/mountinfo",
+        endpoints=(
+            tmp_path / "dev/binderfs/binder",
+            tmp_path / "dev/binderfs/hwbinder",
+            tmp_path / "dev/binderfs/vndbinder",
+        ),
+    )
+
+
+def test_binder_readiness_accepts_loaded_module_mount_and_endpoints(
+    tmp_path: Path,
+) -> None:
+    paths = binder_paths(tmp_path)
+    paths.module.mkdir(parents=True)
+    paths.mount_point.mkdir(parents=True)
+    paths.mountinfo.parent.mkdir(parents=True)
+    paths.mountinfo.write_text(
+        f"31 24 0:28 / {paths.mount_point} rw - binder binder rw\n",
+        encoding="utf-8",
+    )
+    for endpoint in paths.endpoints:
+        endpoint.parent.mkdir(parents=True, exist_ok=True)
+        endpoint.touch()
+
+    assert check_binder_readiness(paths) == ()
+
+
+def test_binder_readiness_reports_missing_module_mount_and_endpoints(
+    tmp_path: Path,
+) -> None:
+    paths = binder_paths(tmp_path)
+    paths.mountinfo.parent.mkdir(parents=True)
+    paths.mountinfo.write_text("", encoding="utf-8")
+
+    failures = check_binder_readiness(paths)
+
+    assert any("binder_linux kernel module is not loaded" in item for item in failures)
+    assert any("Binder mount point is missing" in item for item in failures)
+    assert any("binderfs is not mounted" in item for item in failures)
+    for endpoint in paths.endpoints:
+        assert f"Binder endpoint is missing: {endpoint}" in failures
+
+
+@patch("app.services.host_lifecycle.shutil.which")
+@patch("app.services.host_lifecycle.subprocess.run")
+def test_startup_fails_clearly_when_binder_is_not_ready(
+    mock_run, mock_which, tmp_path: Path
+) -> None:
+    factory, engine = session_factory(tmp_path)
+    manager = host_manager(
+        factory,
+        binder_readiness_check=lambda: (
+            "binder_linux kernel module is not loaded; install or repair "
+            "redroid-binder.service",
+        ),
+    )
+    mock_run.return_value = subprocess.CompletedProcess(
+        [], 0, stdout="27.3.1\n", stderr=""
+    )
+    mock_which.side_effect = lambda name: f"/usr/bin/{name}"
+
+    with pytest.raises(HostDependencyError, match="redroid-binder.service"):
+        manager.startup()
+
+    manager.runtime_adapter.start_container.assert_not_called()
+    manager.runtime_adapter.stop_container.assert_not_called()
+    manager.runtime_adapter.restart_container.assert_not_called()
+    manager.screen_manager.open.assert_not_called()
+    engine.dispose()
 
 
 def test_managed_device_shutdown_configuration_defaults_true_and_accepts_false(

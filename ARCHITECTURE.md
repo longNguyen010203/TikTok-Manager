@@ -63,6 +63,11 @@ Backend:
 - Python
 
 Manager host lifecycle:
+- Ubuntu boot initializes Redroid's Binder kernel support through the root-owned
+  `redroid-binder.service` oneshot unit. The service does not start Docker,
+  TikTok Manager, or Redroid containers.
+- Backend startup only verifies that `binder_linux`, binderfs, and the Binder
+  endpoints are ready. It never attempts privileged Binder repair.
 - `STOP_MANAGED_DEVICES_ON_SHUTDOWN` controls whether managed Redroid
   containers are stopped when the API shuts down.
 - The default is `true`. Use this for the normal TikTok Manager runtime so

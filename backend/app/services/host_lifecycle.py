@@ -7,7 +7,8 @@ import os
 import shutil
 import subprocess
 from dataclasses import dataclass
-from typing import Protocol
+from pathlib import Path
+from typing import Callable, Protocol
 
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -20,6 +21,66 @@ from app.services.redroid_runtime import RedroidRuntimeAdapter
 
 logger = logging.getLogger(__name__)
 STOP_MANAGED_DEVICES_ON_SHUTDOWN = "STOP_MANAGED_DEVICES_ON_SHUTDOWN"
+
+
+@dataclass(frozen=True)
+class BinderHostPaths:
+    """Host paths used to validate Redroid Binder readiness."""
+
+    module: Path = Path("/sys/module/binder_linux")
+    mount_point: Path = Path("/dev/binderfs")
+    mountinfo: Path = Path("/proc/self/mountinfo")
+    endpoints: tuple[Path, ...] = (
+        Path("/dev/binderfs/binder"),
+        Path("/dev/binderfs/hwbinder"),
+        Path("/dev/binderfs/vndbinder"),
+    )
+
+
+def check_binder_readiness(paths: BinderHostPaths = BinderHostPaths()) -> tuple[str, ...]:
+    """Return host Binder readiness failures without attempting repair."""
+    failures: list[str] = []
+    if not paths.module.is_dir():
+        failures.append(
+            "binder_linux kernel module is not loaded; install or repair "
+            "redroid-binder.service"
+        )
+
+    if not paths.mount_point.is_dir():
+        failures.append(f"Binder mount point is missing: {paths.mount_point}")
+
+    try:
+        mountinfo = paths.mountinfo.read_text(encoding="utf-8")
+    except OSError as error:
+        failures.append(f"Unable to inspect Binder mounts: {error}")
+    else:
+        binderfs_mounted = False
+        expected_mount = str(paths.mount_point)
+        for line in mountinfo.splitlines():
+            fields = line.split()
+            try:
+                separator = fields.index("-")
+            except ValueError:
+                continue
+            if (
+                len(fields) > separator + 1
+                and len(fields) > 4
+                and fields[4] == expected_mount
+                and fields[separator + 1] == "binder"
+            ):
+                binderfs_mounted = True
+                break
+        if not binderfs_mounted:
+            failures.append(
+                f"binderfs is not mounted at {paths.mount_point}; install or repair "
+                "redroid-binder.service"
+            )
+
+    for endpoint in paths.endpoints:
+        if not endpoint.exists():
+            failures.append(f"Binder endpoint is missing: {endpoint}")
+
+    return tuple(failures)
 
 
 class ApplicationLifecycle(Protocol):
@@ -57,11 +118,13 @@ class HostLifecycleManager:
         screen_manager: ScreenProcessManager,
         *,
         stop_managed_devices_on_shutdown: bool = True,
+        binder_readiness_check: Callable[[], tuple[str, ...]] = check_binder_readiness,
     ) -> None:
         self.session_factory = session_factory
         self.runtime_adapter = runtime_adapter
         self.screen_manager = screen_manager
         self.stop_managed_devices_on_shutdown = stop_managed_devices_on_shutdown
+        self.binder_readiness_check = binder_readiness_check
 
     def startup(self) -> HostCapabilities:
         """Validate host dependencies and reconcile managed runtime state."""
@@ -70,6 +133,13 @@ class HostLifecycleManager:
         docker_version = self._check_docker(failures)
         adb_path = self._check_executable("adb", failures)
         scrcpy_path = self._check_executable("scrcpy", failures)
+        binder_failures = self.binder_readiness_check()
+        failures.extend(binder_failures)
+        if binder_failures:
+            for failure in binder_failures:
+                logger.error("Host capability Binder: unavailable (%s)", failure)
+        else:
+            logger.info("Host capability Binder: ready")
 
         if failures:
             message = "Required host dependencies unavailable: " + "; ".join(failures)
