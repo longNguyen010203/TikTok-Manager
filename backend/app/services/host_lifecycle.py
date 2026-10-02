@@ -14,6 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import Runtime
+from app.services.device_lifecycle import DeviceLifecycleService
 from app.services.device_screen import ScreenProcessManager
 from app.services.redroid_runtime import RedroidRuntimeAdapter
 
@@ -63,7 +64,7 @@ class HostLifecycleManager:
         self.stop_managed_devices_on_shutdown = stop_managed_devices_on_shutdown
 
     def startup(self) -> HostCapabilities:
-        """Fail startup unless Docker, ADB, and scrcpy are available."""
+        """Validate host dependencies and reconcile managed runtime state."""
         failures: list[str] = []
 
         docker_version = self._check_docker(failures)
@@ -90,7 +91,10 @@ class HostLifecycleManager:
             "Managed-device shutdown policy: %s",
             "enabled" if self.stop_managed_devices_on_shutdown else "disabled",
         )
-        logger.info("Startup leaves Redroid containers and screens unchanged")
+        self._reconcile_redroid_runtimes()
+        logger.info(
+            "Startup reconciliation leaves Redroid containers and screens unchanged"
+        )
         return capabilities
 
     def shutdown(self) -> None:
@@ -158,6 +162,70 @@ class HostLifecycleManager:
             "Shutdown screen cleanup complete: closed=%s failed=%s",
             len(result.closed_device_ids),
             len(result.failures),
+        )
+
+    def _reconcile_redroid_runtimes(self) -> None:
+        """Persist observed Docker/Android/ADB state for managed runtimes."""
+        try:
+            with self.session_factory() as session:
+                runtime_ids = session.scalars(
+                    select(Runtime.id)
+                    .where(Runtime.runtime_type == "redroid")
+                    .order_by(Runtime.id)
+                ).all()
+        except SQLAlchemyError:
+            logger.exception("Startup could not load managed Redroid runtimes")
+            return
+
+        reconciled = 0
+        failed = 0
+        skipped = 0
+        for runtime_id in runtime_ids:
+            try:
+                with self.session_factory() as session:
+                    runtime = session.get(Runtime, runtime_id)
+                    if runtime is None:
+                        skipped += 1
+                        logger.warning(
+                            "Startup skipped Redroid Runtime %s: record no longer exists",
+                            runtime_id,
+                        )
+                        continue
+                    if not runtime.docker_container_name or not runtime.adb_serial:
+                        skipped += 1
+                        logger.warning(
+                            "Startup skipped Redroid Runtime %s: incomplete "
+                            "docker_container_name/adb_serial configuration",
+                            runtime.id,
+                        )
+                        continue
+
+                    status = DeviceLifecycleService(
+                        session, self.runtime_adapter
+                    ).status(runtime.device)
+                    reconciled += 1
+                    logger.info(
+                        "Startup reconciled Redroid Runtime %s container=%s "
+                        "runtime_status=%s device_status=%s",
+                        runtime.id,
+                        status.container_status,
+                        status.runtime_status,
+                        status.device_status,
+                    )
+            except Exception as error:
+                failed += 1
+                logger.error(
+                    "Startup failed to reconcile Redroid Runtime %s: %s",
+                    runtime_id,
+                    error,
+                )
+
+        logger.info(
+            "Startup Redroid reconciliation complete: reconciled=%s failed=%s "
+            "skipped=%s",
+            reconciled,
+            failed,
+            skipped,
         )
 
     def _stop_redroid_containers(self) -> None:

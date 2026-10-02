@@ -91,7 +91,210 @@ def test_startup_succeeds_when_host_dependencies_are_available(
     )
     assert adapter.method_calls == []
     assert screens.method_calls == []
-    assert "Startup leaves Redroid containers and screens unchanged" in caplog.text
+    assert (
+        "Startup reconciliation leaves Redroid containers and screens unchanged"
+        in caplog.text
+    )
+    engine.dispose()
+
+
+@patch("app.services.host_lifecycle.shutil.which")
+@patch("app.services.host_lifecycle.subprocess.run")
+def test_startup_reconciles_exited_container_to_stopped_and_offline(
+    mock_run, mock_which, tmp_path: Path
+) -> None:
+    factory, engine = session_factory(tmp_path)
+    with factory() as session:
+        device = Device(
+            name="Stopped Device",
+            device_type="virtual",
+            platform="android",
+            os_version="14",
+            status="online",
+        )
+        session.add(device)
+        session.flush()
+        session.add(
+            Runtime(
+                device_id=device.id,
+                name="Stopped Redroid",
+                runtime_type="redroid",
+                docker_container_name="redroid-device-01",
+                adb_serial="localhost:5555",
+                status="running",
+            )
+        )
+        session.commit()
+
+    adapter = MagicMock(spec=RedroidRuntimeAdapter)
+    adapter.get_container_status.return_value = "exited"
+    adapter.check_adb.return_value = False
+    mock_run.return_value = subprocess.CompletedProcess(
+        [], 0, stdout="27.3.1\n", stderr=""
+    )
+    mock_which.side_effect = lambda name: f"/usr/bin/{name}"
+
+    host_manager(factory, adapter=adapter).startup()
+
+    adapter.get_container_status.assert_called_once_with("redroid-device-01")
+    adapter.check_boot.assert_not_called()
+    adapter.check_adb.assert_called_once_with("localhost:5555")
+    adapter.start_container.assert_not_called()
+    adapter.stop_container.assert_not_called()
+    adapter.restart_container.assert_not_called()
+    with factory() as session:
+        runtime = session.scalar(select(Runtime))
+        device = session.scalar(select(Device))
+        assert runtime is not None and runtime.status == "stopped"
+        assert device is not None and device.status == "offline"
+
+    engine.dispose()
+
+
+@patch("app.services.host_lifecycle.shutil.which")
+@patch("app.services.host_lifecycle.subprocess.run")
+def test_startup_reconciles_ready_container_to_running_and_online(
+    mock_run, mock_which, tmp_path: Path
+) -> None:
+    factory, engine = session_factory(tmp_path)
+    with factory() as session:
+        device = Device(
+            name="Ready Device",
+            device_type="virtual",
+            platform="android",
+            os_version="14",
+            status="offline",
+        )
+        session.add(device)
+        session.flush()
+        session.add(
+            Runtime(
+                device_id=device.id,
+                name="Ready Redroid",
+                runtime_type="redroid",
+                docker_container_name="redroid-device-01",
+                adb_serial="localhost:5555",
+                status="stopped",
+            )
+        )
+        session.commit()
+
+    adapter = MagicMock(spec=RedroidRuntimeAdapter)
+    adapter.get_container_status.return_value = "running"
+    adapter.check_boot.return_value = True
+    adapter.check_adb.return_value = True
+    mock_run.return_value = subprocess.CompletedProcess(
+        [], 0, stdout="27.3.1\n", stderr=""
+    )
+    mock_which.side_effect = lambda name: f"/usr/bin/{name}"
+
+    host_manager(factory, adapter=adapter).startup()
+
+    adapter.get_container_status.assert_called_once_with("redroid-device-01")
+    adapter.check_boot.assert_called_once_with("redroid-device-01")
+    adapter.check_adb.assert_called_once_with("localhost:5555")
+    adapter.start_container.assert_not_called()
+    adapter.stop_container.assert_not_called()
+    adapter.restart_container.assert_not_called()
+    with factory() as session:
+        runtime = session.scalar(select(Runtime))
+        device = session.scalar(select(Device))
+        assert runtime is not None and runtime.status == "running"
+        assert device is not None and device.status == "online"
+        assert runtime.last_seen_at is not None
+
+    engine.dispose()
+
+
+@patch("app.services.host_lifecycle.shutil.which")
+@patch("app.services.host_lifecycle.subprocess.run")
+def test_startup_reconciliation_continues_after_runtime_failure_and_skips_incomplete(
+    mock_run,
+    mock_which,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    factory, engine = session_factory(tmp_path)
+    with factory() as session:
+        devices = [
+            Device(
+                name=f"Startup Device {index}",
+                device_type="virtual",
+                platform="android",
+                os_version="14",
+                status="online",
+            )
+            for index in range(1, 4)
+        ]
+        session.add_all(devices)
+        session.flush()
+        session.add_all(
+            [
+                Runtime(
+                    device_id=devices[0].id,
+                    name="Failing Redroid",
+                    runtime_type="redroid",
+                    docker_container_name="redroid-device-01",
+                    adb_serial="localhost:5555",
+                    status="running",
+                ),
+                Runtime(
+                    device_id=devices[1].id,
+                    name="Healthy Redroid",
+                    runtime_type="redroid",
+                    docker_container_name="redroid-device-02",
+                    adb_serial="localhost:5556",
+                    status="running",
+                ),
+                Runtime(
+                    device_id=devices[2].id,
+                    name="Incomplete Redroid",
+                    runtime_type="redroid",
+                    docker_container_name=None,
+                    adb_serial=None,
+                    status="unknown",
+                ),
+            ]
+        )
+        session.commit()
+
+    adapter = MagicMock(spec=RedroidRuntimeAdapter)
+    adapter.get_container_status.side_effect = [
+        RedroidCommandError(
+            ["docker", "inspect", "redroid-device-01"],
+            returncode=1,
+            stderr="inspect failed",
+        ),
+        "exited",
+    ]
+    adapter.check_adb.return_value = False
+    mock_run.return_value = subprocess.CompletedProcess(
+        [], 0, stdout="27.3.1\n", stderr=""
+    )
+    mock_which.side_effect = lambda name: f"/usr/bin/{name}"
+
+    with caplog.at_level(logging.INFO):
+        host_manager(factory, adapter=adapter).startup()
+
+    assert adapter.get_container_status.call_args_list == [
+        call("redroid-device-01"),
+        call("redroid-device-02"),
+    ]
+    adapter.start_container.assert_not_called()
+    adapter.stop_container.assert_not_called()
+    adapter.restart_container.assert_not_called()
+    assert "Startup failed to reconcile Redroid Runtime" in caplog.text
+    assert "reconciled=1 failed=1 skipped=1" in caplog.text
+    with factory() as session:
+        runtimes = {
+            runtime.name: runtime
+            for runtime in session.scalars(select(Runtime).order_by(Runtime.id))
+        }
+        assert runtimes["Failing Redroid"].status == "running"
+        assert runtimes["Healthy Redroid"].status == "stopped"
+        assert runtimes["Healthy Redroid"].device.status == "offline"
+        assert runtimes["Incomplete Redroid"].status == "unknown"
+
     engine.dispose()
 
 
