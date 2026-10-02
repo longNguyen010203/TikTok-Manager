@@ -5,6 +5,7 @@ import {
   CreateDeviceInput,
   UpdateDeviceInput,
   DeviceLifecycleStatus,
+  DeviceScreenStatus,
   ApiError,
   ValidationErrorDetail,
 } from "@/types/device";
@@ -16,6 +17,9 @@ export interface IDeviceService {
   startDevice(id: number): Promise<DeviceLifecycleStatus>;
   stopDevice(id: number): Promise<DeviceLifecycleStatus>;
   restartDevice(id: number): Promise<DeviceLifecycleStatus>;
+  getDeviceScreenStatus(id: number): Promise<DeviceScreenStatus>;
+  openDeviceScreen(id: number): Promise<DeviceScreenStatus>;
+  closeDeviceScreen(id: number): Promise<DeviceScreenStatus>;
   createDevice(input: CreateDeviceInput): Promise<Device>;
   updateDevice(id: number, input: UpdateDeviceInput): Promise<Device>;
   deleteDevice(id: number): Promise<void>;
@@ -181,6 +185,54 @@ export class FastApiDeviceService implements IDeviceService {
     }
 
     const data: DeviceLifecycleStatus = await response.json();
+    return data;
+  }
+
+  async getDeviceScreenStatus(id: number): Promise<DeviceScreenStatus> {
+    const response = await fetch(`${this.baseUrl}/devices/${id}/screen/status`, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      throw await this.parseError(response);
+    }
+
+    const data: DeviceScreenStatus = await response.json();
+    return data;
+  }
+
+  async openDeviceScreen(id: number): Promise<DeviceScreenStatus> {
+    const response = await fetch(`${this.baseUrl}/devices/${id}/screen/open`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      throw await this.parseError(response);
+    }
+
+    const data: DeviceScreenStatus = await response.json();
+    return data;
+  }
+
+  async closeDeviceScreen(id: number): Promise<DeviceScreenStatus> {
+    const response = await fetch(`${this.baseUrl}/devices/${id}/screen/close`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      throw await this.parseError(response);
+    }
+
+    const data: DeviceScreenStatus = await response.json();
     return data;
   }
 

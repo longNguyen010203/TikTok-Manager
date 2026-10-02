@@ -63,5 +63,13 @@ export interface DeviceLifecycleStatus {
   device_status: string;
 }
 
+export interface DeviceScreenStatus {
+  device_id: number;
+  runtime_id: number;
+  adb_serial: string;
+  status: "open" | "closed" | string;
+  process_id: number | null;
+}
+
 export { ApiError, formatApiError };
 export type { ValidationErrorDetail };

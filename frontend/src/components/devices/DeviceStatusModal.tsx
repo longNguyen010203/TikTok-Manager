@@ -23,10 +23,12 @@ import {
   Loader2,
   ExternalLink,
   Layers,
+  Monitor,
 } from "lucide-react";
 import {
   Device,
   DeviceLifecycleStatus,
+  DeviceScreenStatus,
   formatApiError,
   ApiError,
 } from "@/types/device";
@@ -74,9 +76,22 @@ export function DeviceStatusModal({
     statusCode?: number;
   } | null>(null);
 
+  // Screen viewer session states
+  const [screenStatus, setScreenStatus] = useState<DeviceScreenStatus | null>(
+    null
+  );
+  const [screenActionRunning, setScreenActionRunning] = useState<
+    "open" | "close" | null
+  >(null);
+  const [screenFeedback, setScreenFeedback] = useState<{
+    type: "success" | "error";
+    message: string;
+    statusCode?: number;
+  } | null>(null);
+
   const deviceId = device?.id;
 
-  // Fetch lifecycle status from real backend
+  // Fetch lifecycle status and screen session status from real backend
   useEffect(() => {
     if (!isOpen || !deviceId) {
       return;
@@ -122,35 +137,51 @@ export function DeviceStatusModal({
         }
       });
 
+    // Fetch initial or refreshed screen session status
+    deviceService
+      .getDeviceScreenStatus(deviceId)
+      .then((screenRes) => {
+        if (!ignore) {
+          setScreenStatus(screenRes);
+        }
+      })
+      .catch(() => {
+        // Graceful fallback: If device runtime has configuration error, getDeviceStatus handles it
+      });
+
     return () => {
       ignore = true;
     };
   }, [isOpen, deviceId, refreshTrigger, onStatusUpdated]);
 
+  const isAnyActionRunning =
+    actionRunning !== null || screenActionRunning !== null;
+
   // Handle escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isOpen && !actionRunning) {
+      if (e.key === "Escape" && isOpen && !isAnyActionRunning) {
         onClose();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose, actionRunning]);
+  }, [isOpen, onClose, isAnyActionRunning]);
 
   if (!isOpen || !device) return null;
 
   const handleRefreshClick = () => {
-    if (device && !isLoading && !isRefreshing && !actionRunning) {
+    if (device && !isLoading && !isRefreshing && !isAnyActionRunning) {
       setIsRefreshing(true);
       setError(null);
       setActionFeedback(null);
+      setScreenFeedback(null);
       setRefreshTrigger((prev) => prev + 1);
     }
   };
 
   const handleExecuteAction = async (action: "start" | "stop" | "restart") => {
-    if (!device || actionRunning) return;
+    if (!device || isAnyActionRunning) return;
 
     setActionRunning(action);
     setConfirmingAction(null);
@@ -183,6 +214,12 @@ export function DeviceStatusModal({
           .catch(() => {});
       }
 
+      // Refresh screen status after lifecycle action
+      deviceService
+        .getDeviceScreenStatus(device.id)
+        .then((sRes) => setScreenStatus(sRes))
+        .catch(() => {});
+
       const successMessages: Record<string, string> = {
         start: `Device "${device.name}" started successfully! Container is running and system readiness verified.`,
         stop: `Device "${device.name}" stopped successfully. Container halted and persistent data preserved.`,
@@ -206,6 +243,44 @@ export function DeviceStatusModal({
     }
   };
 
+  const handleScreenAction = async (action: "open" | "close") => {
+    if (!device || isAnyActionRunning) return;
+
+    setScreenActionRunning(action);
+    setScreenFeedback(null);
+
+    try {
+      let result: DeviceScreenStatus;
+      if (action === "open") {
+        result = await deviceService.openDeviceScreen(device.id);
+        setScreenFeedback({
+          type: "success",
+          message: `Screen viewer window launched (scrcpy PID: ${
+            result.process_id ?? "active"
+          }). Connected to ${result.adb_serial}.`,
+        });
+      } else {
+        result = await deviceService.closeDeviceScreen(device.id);
+        setScreenFeedback({
+          type: "success",
+          message: `Screen viewer window closed. The Redroid container and device continue running uninterrupted.`,
+        });
+      }
+
+      setScreenStatus(result);
+    } catch (err: unknown) {
+      const message = formatApiError(err);
+      const statusCode = err instanceof ApiError ? err.status : undefined;
+      setScreenFeedback({
+        type: "error",
+        message,
+        statusCode,
+      });
+    } finally {
+      setScreenActionRunning(null);
+    }
+  };
+
   const formatLastChecked = (date: Date | null) => {
     if (!date) return "Not checked yet";
     return new Intl.DateTimeFormat("en-US", {
@@ -216,8 +291,8 @@ export function DeviceStatusModal({
     }).format(date);
   };
 
-  // Action validation rules based on lifecycle state
-  const isActionDisabled = actionRunning !== null || isLoading || isRefreshing;
+  // Action validation rules based on lifecycle and screen states
+  const isActionDisabled = isAnyActionRunning || isLoading || isRefreshing;
 
   const isContainerRunning = status?.container_status === "running";
   const isReady = status?.ready === true;
@@ -228,7 +303,7 @@ export function DeviceStatusModal({
 
   const startDisabledReason = !status
     ? "Status must be checked first"
-    : isActionDisabled
+    : isAnyActionRunning
     ? "An action or check is currently in progress"
     : isReady
     ? "Device is already running and ready"
@@ -242,7 +317,7 @@ export function DeviceStatusModal({
 
   const stopDisabledReason = !status
     ? "Status must be checked first"
-    : isActionDisabled
+    : isAnyActionRunning
     ? "An action or check is currently in progress"
     : !isContainerRunning
     ? "Device is already stopped"
@@ -254,11 +329,27 @@ export function DeviceStatusModal({
 
   const restartDisabledReason = !status
     ? "Status must be checked first"
-    : isActionDisabled
+    : isAnyActionRunning
     ? "An action or check is currently in progress"
     : !isContainerRunning
     ? "Container is not running; click Start to launch"
     : undefined;
+
+  // Screen action rules
+  const isScreenOpen = screenStatus?.status === "open";
+
+  const openScreenDisabled =
+    isActionDisabled || !status || !isContainerRunning;
+
+  const openScreenDisabledReason = !status
+    ? "Status must be checked first"
+    : isAnyActionRunning
+    ? "An action or check is currently in progress"
+    : !isContainerRunning
+    ? "Device container must be running to view screen. Click Start Device first."
+    : undefined;
+
+  const closeScreenDisabled = isActionDisabled;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
@@ -296,7 +387,7 @@ export function DeviceStatusModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={actionRunning !== null}
+            disabled={isAnyActionRunning}
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 transition-colors disabled:opacity-40"
             aria-label="Close dialog"
           >
@@ -331,7 +422,7 @@ export function DeviceStatusModal({
             <button
               type="button"
               onClick={handleRefreshClick}
-              disabled={isLoading || isRefreshing || actionRunning !== null}
+              disabled={isLoading || isRefreshing || isAnyActionRunning}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200/70 hover:bg-indigo-100 active:bg-indigo-200/80 transition-colors disabled:opacity-50 shadow-2xs"
             >
               <RefreshCw
@@ -680,6 +771,153 @@ export function DeviceStatusModal({
                 )}
               </div>
 
+              {/* Screen Viewer Panel (scrcpy) */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3 shadow-2xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Monitor className="w-4 h-4 text-indigo-600" />
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Screen Viewer (scrcpy)
+                    </h3>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-slate-500">Session State:</span>
+                    {isScreenOpen ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100/90 text-emerald-800 border border-emerald-300 shadow-2xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        <span>Open</span>
+                        {screenStatus?.process_id !== null &&
+                          screenStatus?.process_id !== undefined && (
+                            <span className="font-mono text-[10px] bg-white/80 px-1.5 py-0.5 rounded text-emerald-900 border border-emerald-200">
+                              PID #{screenStatus.process_id}
+                            </span>
+                          )}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-200/80 text-slate-600 border border-slate-300">
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                        <span>Closed</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Screen Feedback Banner */}
+                {screenFeedback && (
+                  <div
+                    className={`p-3.5 rounded-xl border text-xs flex items-start justify-between gap-3 animate-in fade-in duration-200 ${
+                      screenFeedback.type === "success"
+                        ? "bg-emerald-50 border-emerald-200 text-emerald-900"
+                        : "bg-rose-50 border-rose-200 text-rose-900"
+                    }`}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      {screenFeedback.type === "success" ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      ) : (
+                        <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      )}
+                      <div className="space-y-1">
+                        <h4 className="font-semibold text-xs">
+                          {screenFeedback.type === "success"
+                            ? "Screen Operation Succeeded"
+                            : screenFeedback.statusCode === 409
+                            ? "Screen Configuration Conflict (409)"
+                            : screenFeedback.statusCode === 502
+                            ? "scrcpy Process Error (502)"
+                            : "Screen Action Failed"}
+                        </h4>
+                        <p className="leading-relaxed">{screenFeedback.message}</p>
+                        {screenFeedback.type === "error" && (
+                          <p className="text-[11px] opacity-85 pt-0.5">
+                            {screenFeedback.statusCode === 409
+                              ? "Ensure this device has an assigned Redroid runtime with a valid container name and ADB serial endpoint."
+                              : screenFeedback.statusCode === 502
+                              ? "Failed to launch or terminate scrcpy. Verify that scrcpy is installed on the host system, DISPLAY is accessible, and ADB serial is connected."
+                              : "Check backend communication and retry."}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setScreenFeedback(null)}
+                      className="font-bold text-slate-400 hover:text-slate-600 text-sm px-1.5 py-0.5"
+                      aria-label="Dismiss screen feedback"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                )}
+
+                {/* Screen Controls and Safety Explanation */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                  <div className="text-xs text-slate-600 leading-relaxed">
+                    {isScreenOpen ? (
+                      <div className="space-y-0.5">
+                        <p className="font-medium text-slate-700">
+                          Active scrcpy mirror session is running.
+                        </p>
+                        <p className="text-[11px] text-amber-700 flex items-center gap-1 font-medium">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>
+                            Closing the screen terminates the viewing window only. The Redroid container and device will keep running uninterrupted.
+                          </span>
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-500">
+                        Launch a native scrcpy viewer window to mirror and interact with this Android device over ADB (<code className="font-mono text-slate-700">{status.adb_serial}</code>).
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    {isScreenOpen ? (
+                      <button
+                        type="button"
+                        onClick={() => handleScreenAction("close")}
+                        disabled={closeScreenDisabled}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-rose-700 bg-white border border-rose-300 hover:bg-rose-50 active:bg-rose-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
+                        title="Close scrcpy screen window (Redroid device continues running)"
+                      >
+                        {screenActionRunning === "close" ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Closing Screen...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Square className="w-3.5 h-3.5 fill-current" />
+                            <span>Close Screen</span>
+                          </>
+                        )}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleScreenAction("open")}
+                        disabled={openScreenDisabled}
+                        title={openScreenDisabledReason}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
+                      >
+                        {screenActionRunning === "open" ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Opening Screen...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Monitor className="w-3.5 h-3.5" />
+                            <span>Open Screen / View Device</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {/* Readiness Banner with Clear Transitional States */}
               {status.ready ? (
                 <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/90 text-emerald-900 flex items-start gap-3.5 shadow-2xs">
@@ -905,7 +1143,7 @@ export function DeviceStatusModal({
                 >
                   <span className="flex items-center gap-2">
                     <FileJson className="w-4 h-4 text-slate-400" />
-                    <span>Raw Lifecycle Status Payload</span>
+                    <span>Raw Telemetry &amp; Screen Status Payload</span>
                   </span>
                   {showRawJson ? (
                     <ChevronUp className="w-4 h-4 text-slate-400" />
@@ -915,7 +1153,14 @@ export function DeviceStatusModal({
                 </button>
                 {showRawJson && (
                   <pre className="p-3 bg-slate-900 text-slate-100 font-mono text-[11px] overflow-x-auto leading-relaxed">
-                    {JSON.stringify(status, null, 2)}
+                    {JSON.stringify(
+                      {
+                        lifecycle: status,
+                        screen: screenStatus,
+                      },
+                      null,
+                      2
+                    )}
                   </pre>
                 )}
               </div>
@@ -926,13 +1171,13 @@ export function DeviceStatusModal({
         {/* Modal Footer */}
         <div className="flex items-center justify-between px-6 py-3.5 border-t border-slate-100 bg-slate-50/60">
           <div className="text-[11px] text-slate-400 font-mono">
-            /devices/{device.id}/(status|start|stop|restart)
+            /devices/{device.id}/(status|start|stop|restart|screen)
           </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={handleRefreshClick}
-              disabled={isLoading || isRefreshing || actionRunning !== null}
+              disabled={isLoading || isRefreshing || isAnyActionRunning}
               className="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-200 text-xs font-semibold rounded-lg text-slate-700 bg-white hover:bg-slate-50 transition-colors shadow-2xs disabled:opacity-50"
             >
               <RefreshCw
@@ -945,7 +1190,7 @@ export function DeviceStatusModal({
             <button
               type="button"
               onClick={onClose}
-              disabled={actionRunning !== null}
+              disabled={isAnyActionRunning}
               className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-200/80 hover:bg-slate-300 rounded-lg transition-colors disabled:opacity-40"
             >
               Close
