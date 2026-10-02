@@ -500,7 +500,7 @@ Acceptance criteria:
 ---
 
 ## TIK-016
-Status: IN PROGRESS
+Status: DONE
 Owner: Codex + Antigravity
 Type: Device Host Lifecycle / Screen Control
 
