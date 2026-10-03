@@ -129,6 +129,17 @@ class FakeRuntimeAdapter:
         return container_name
 
 
+class FakeNetworkCleaner:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.fail = fail
+        self.cleaned: list[int] = []
+
+    def cleanup_before_delete(self, runtime_id: int) -> None:
+        if self.fail:
+            raise RuntimeError("ambiguous network ownership")
+        self.cleaned.append(runtime_id)
+
+
 @pytest.fixture
 def deprovision_context(tmp_path: Path):
     engine = create_engine(
@@ -148,13 +159,27 @@ def deprovision_context(tmp_path: Path):
     engine.dispose()
 
 
-def completed_service(deprovision_context, *, running=True, fail_at=None, screen_fail=False, stop_fail=False):
+def completed_service(
+    deprovision_context,
+    *,
+    running=True,
+    fail_at=None,
+    screen_fail=False,
+    stop_fail=False,
+    network_fail=False,
+):
     factory, settings = deprovision_context
     adapter = DeprovisionAdapter(running=running, fail_at=fail_at)
     screen = FakeScreenManager(fail=screen_fail)
     runtime = FakeRuntimeAdapter(adapter, fail=stop_fail)
+    network = FakeNetworkCleaner(fail=network_fail)
     service = RedroidProvisioningService(
-        factory, adapter, settings, screen_manager=screen, runtime_adapter=runtime
+        factory,
+        adapter,
+        settings,
+        screen_manager=screen,
+        runtime_adapter=runtime,
+        network_cleaner=network,
     )
     attempt = service.provision(
         "deprovision-key",
@@ -195,6 +220,7 @@ def test_deprovision_removes_owned_resources_and_preserves_data(
     assert result.device_id is None and result.runtime_id is None
     assert adapter.data_present is True
     assert screen.closed == [(device_id, runtime_id, "localhost:5555")]
+    assert service.network_cleaner.cleaned == [runtime_id]
     assert runtime.stopped == (["container-id"] if running else [])
     with factory() as session:
         assert session.scalar(select(func.count()).select_from(Device)) == 0
@@ -250,6 +276,17 @@ def test_screen_or_stop_failure_prevents_removal(deprovision_context, dependency
         deprovision_context,
         screen_fail=dependency == "screen",
         stop_fail=dependency == "stop",
+    )
+    with pytest.raises(DeprovisioningFailedError):
+        service.deprovision(attempt.id)
+    assert adapter.container_present and adapter.network_present and adapter.data_present
+
+
+def test_network_cleanup_failure_prevents_deprovision_removal(
+    deprovision_context,
+) -> None:
+    service, attempt, adapter, _, _ = completed_service(
+        deprovision_context, network_fail=True
     )
     with pytest.raises(DeprovisioningFailedError):
         service.deprovision(attempt.id)

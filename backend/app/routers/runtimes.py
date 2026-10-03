@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Device, Runtime
 from app.schemas.runtime import RuntimeCreate, RuntimeList, RuntimeRead, RuntimeUpdate
+from app.routers.runtime_networks import NetworkCleaner
+from app.services.runtime_network_orchestration import NetworkApplyError
 
 router = APIRouter(prefix="/runtimes", tags=["runtimes"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
@@ -80,9 +82,15 @@ def update_runtime(
 
 
 @router.delete("/{runtime_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_runtime(runtime_id: int, session: DatabaseSession) -> Response:
+def delete_runtime(
+    runtime_id: int, session: DatabaseSession, network_cleaner: NetworkCleaner
+) -> Response:
     """Delete a runtime while preserving and unassigning its accounts."""
     runtime = _get_runtime_or_404(runtime_id, session)
+    try:
+        network_cleaner.cleanup_before_delete(runtime.id)
+    except NetworkApplyError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     session.delete(runtime)
     session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

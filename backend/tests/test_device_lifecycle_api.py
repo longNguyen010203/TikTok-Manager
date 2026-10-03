@@ -13,8 +13,9 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import get_db, init_db
 from tests.app_factory import create_test_app
-from app.models import Device, Runtime
+from app.models import Device, Runtime, RuntimeNetworkConfig, RuntimeNetworkState
 from app.routers.devices import get_redroid_runtime_adapter
+from app.routers.runtime_networks import get_request_network_cleaner
 from app.services.redroid_runtime import (
     RedroidAdbTimeoutError,
     RedroidBootTimeoutError,
@@ -237,6 +238,48 @@ def test_restart_waits_for_adb_readiness(
         device_status="online",
         runtime_status="running",
     )
+
+
+def test_restart_reapplies_managed_http_proxy_without_changing_lifecycle_result(
+    lifecycle_api: LifecycleApiEnvironment,
+) -> None:
+    device = create_device(lifecycle_api)
+    runtime = create_runtime(lifecycle_api, int(device["id"]))
+    with Session(lifecycle_api.engine) as session:
+        session.add(
+            RuntimeNetworkConfig(
+                runtime_id=int(runtime["id"]),
+                mode="http_proxy",
+                proxy_host="proxy.example.test",
+                proxy_port=3128,
+                bridge_host_port=18801,
+                bridge_device_port=18888,
+                desired_revision=1,
+            )
+        )
+        session.add(
+            RuntimeNetworkState(
+                runtime_id=int(runtime["id"]),
+                status="pending",
+                desired_revision=1,
+                applied_revision=None,
+                observed_mode="unknown",
+                reverse_present=None,
+                bridge_status="stopped",
+            )
+        )
+        session.commit()
+    network_orchestrator = MagicMock()
+    lifecycle_api.client.app.dependency_overrides[
+        get_request_network_cleaner
+    ] = lambda: network_orchestrator
+    lifecycle_api.adapter.wait_for_adb.return_value = True
+
+    response = lifecycle_api.client.post(f"/devices/{device['id']}/restart")
+
+    assert response.status_code == 200
+    assert response.json()["ready"] is True
+    network_orchestrator.apply.assert_called_once_with(int(runtime["id"]))
 
 
 def test_stop_preserves_runtime_and_reconciles_stopped_state(

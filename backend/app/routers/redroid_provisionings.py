@@ -23,6 +23,12 @@ from app.services.redroid_provisioning import (
     RedroidProvisioningService,
 )
 from app.services.redroid_runtime import RedroidRuntimeAdapter
+from app.services.android_network import AndroidNetworkAdapter
+from app.services.network_config import RuntimeNetworkSettings
+from app.services.network_operation_lock import RuntimeNetworkOperationGuard
+from app.services.network_secrets import SecretResolver
+from app.services.runtime_network_orchestration import RuntimeNetworkCleanupCoordinator
+from app.services.systemd_proxy_bridge import SystemdHostProxyBridgeSupervisor
 from app.services.redroid_provisioning_adapter import (
     ProvisioningConflictError,
     ProvisioningVerificationError,
@@ -44,12 +50,22 @@ def get_redroid_provisioning_service() -> RedroidProvisioningService:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Managed Redroid provisioning is not configured",
         ) from error
+    runtime_adapter = RedroidRuntimeAdapter()
+    network_settings = RuntimeNetworkSettings.from_environment()
     return RedroidProvisioningService(
         SessionLocal,
         RedroidProvisioningAdapter(settings),
         settings,
         screen_manager=screen_process_manager,
-        runtime_adapter=RedroidRuntimeAdapter(),
+        runtime_adapter=runtime_adapter,
+        network_cleaner=RuntimeNetworkCleanupCoordinator(
+            SessionLocal,
+            runtime_adapter=runtime_adapter,
+            android_adapter=AndroidNetworkAdapter(),
+            bridge_supervisor=SystemdHostProxyBridgeSupervisor(network_settings),
+            secret_resolver=SecretResolver(),
+            guard=RuntimeNetworkOperationGuard(network_settings.lock_directory),
+        ),
     )
 
 

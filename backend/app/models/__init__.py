@@ -6,6 +6,11 @@ from app.models.job import Job, JobStatus
 from app.models.job_log import JobLog
 from app.models.redroid_provisioning import RedroidProvisioning
 from app.models.runtime import Runtime
+from app.models.runtime_network import (
+    RuntimeNetworkConfig,
+    RuntimeNetworkConfigRevision,
+    RuntimeNetworkState,
+)
 
 __all__ = [
     "Account",
@@ -15,4 +20,7 @@ __all__ = [
     "JobStatus",
     "RedroidProvisioning",
     "Runtime",
+    "RuntimeNetworkConfig",
+    "RuntimeNetworkConfigRevision",
+    "RuntimeNetworkState",
 ]

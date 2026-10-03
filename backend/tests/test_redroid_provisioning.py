@@ -12,7 +12,7 @@ from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import init_db
-from app.models import Device, Runtime
+from app.models import Device, Runtime, RuntimeNetworkConfig, RuntimeNetworkState
 from app.services.redroid_provisioning import (
     ProvisioningFailedError,
     ProvisioningIdempotencyConflict,
@@ -121,6 +121,8 @@ def test_allocation_skips_legacy_and_occupied_tuple(factory, settings) -> None:
     assert reserved.device_number == 7
     assert reserved.container_name == "redroid-device-07"
     assert reserved.adb_host_port == 5561
+    with factory() as session:
+        assert session.query(RuntimeNetworkConfig).count() == 0
 
 
 def test_reserved_number_is_never_reused(factory, settings) -> None:
@@ -173,6 +175,16 @@ def test_success_commits_device_runtime_together_after_inspection(factory, setti
         assert runtime is not None
         assert runtime.device_id == completed.device_id
         assert runtime.status == "stopped"
+        network = session.scalar(
+            select(RuntimeNetworkConfig).where(
+                RuntimeNetworkConfig.runtime_id == runtime.id
+            )
+        )
+        state = session.get(RuntimeNetworkState, runtime.id)
+        assert network is not None and network.mode == "direct"
+        assert network.desired_revision == 1
+        assert state is not None and state.status == "disabled"
+        assert state.applied_revision == 1
 
 
 @pytest.mark.parametrize(

@@ -126,6 +126,53 @@ Fields:
 Multiple null values are allowed for both Redroid identifiers so non-Redroid
 and not-yet-configured Runtime records remain backward-compatible.
 
+## RuntimeNetworkConfig
+
+The SQL table name is `runtime_network_configs`. It contains at most one
+current desired network configuration for each Runtime. Deleting the Runtime
+cascades to this row. An absent row means that TikTok Manager has never managed
+network configuration for that Runtime; legacy Runtime rows are not backfilled.
+
+Fields include `mode`, nullable proxy host and port, nullable username and
+password secret references, nullable host/device bridge ports, a positive
+`desired_revision`, and timestamps. Modes are `direct` and `http_proxy`.
+`direct` requires every proxy and bridge field to be null. `http_proxy`
+requires proxy host/port and both bridge ports. Proxy and bridge ports are
+limited to 1-65535. `runtime_id` and non-null `bridge_host_port` values are
+unique.
+
+Only allowlisted secret references are stored. Resolved proxy usernames and
+passwords are never stored in these tables.
+
+## RuntimeNetworkConfigRevision
+
+The SQL table name is `runtime_network_config_revisions`. Each row is an
+immutable application-level snapshot of the desired fields at one positive
+revision. `(runtime_id, revision)` is unique, and Runtime deletion cascades to
+its revision history. The same mode and port constraints as the current config
+apply to every snapshot.
+
+## RuntimeNetworkState
+
+The SQL table name is `runtime_network_states`. `runtime_id` is both its primary
+key and a cascading foreign key to `runtimes.id`, giving each managed Runtime
+at most one observed-state row.
+
+Statuses are `disabled`, `pending`, `applying`, `ready`, `degraded`, and
+`failed`. The row records desired and nullable applied revisions, observed
+mode and Android proxy endpoint, reverse-rule presence, bridge state and
+ownership/process metadata, apply/verify/probe timestamps, and sanitized error
+details. Observed modes are `unknown`, `direct`, and `http_proxy`; bridge states
+are `unknown`, `stopped`, `starting`, `running`, and `unhealthy`.
+
+Migration `20261003_0009` creates all three tables. It creates no default rows
+and therefore does not adopt or alter legacy devices.
+
+When a stopped Runtime changes from HTTP proxy to direct mode, its current
+config has no bridge port, but prior HTTP revision ports remain reserved while
+observed state retains a bridge owner token. Successful cleanup clears the
+token and makes the historical port eligible for later allocation.
+
 ## RedroidProvisioning
 
 The SQL table name is `redroid_provisionings`. It is a durable allocation and
@@ -200,6 +247,9 @@ Fields:
 - One Device has zero or more Runtime records. Deleting a Device cascades to its
   Runtime records.
 - One Runtime belongs to exactly one Device.
+- One Runtime has zero or one current RuntimeNetworkConfig, zero or one
+  RuntimeNetworkState, and zero or more RuntimeNetworkConfigRevision rows.
+  Deleting the Runtime cascades to all of these network rows.
 - Although the general schema permits several Runtime records per Device, a
   managed Redroid Device must have exactly one Runtime. Device lifecycle and
   screen operations reject zero or multiple Runtime assignments.

@@ -25,6 +25,7 @@ from app.services.redroid_provisioning_adapter import (
     RedroidProvisioningAdapter,
 )
 from app.services.redroid_provisioning_config import RedroidProvisioningSettings
+from app.services.runtime_network import add_default_direct_network_config
 
 
 class ProvisioningError(RuntimeError):
@@ -66,6 +67,10 @@ class ScreenCloser(Protocol):
 
 class ContainerStopper(Protocol):
     def stop_container(self, container_name: str) -> str: ...
+
+
+class RuntimeNetworkCleaner(Protocol):
+    def cleanup_before_delete(self, runtime_id: int) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -175,6 +180,7 @@ class RedroidProvisioningService:
         execution_guard: AttemptExecutionGuard | None = None,
         screen_manager: ScreenCloser | None = None,
         runtime_adapter: ContainerStopper | None = None,
+        network_cleaner: RuntimeNetworkCleaner | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.adapter = adapter
@@ -185,6 +191,7 @@ class RedroidProvisioningService:
         )
         self.screen_manager = screen_manager
         self.runtime_adapter = runtime_adapter
+        self.network_cleaner = network_cleaner
 
     def get_or_create_request(
         self, idempotency_key: str, request: ProvisioningRequest
@@ -411,6 +418,8 @@ class RedroidProvisioningService:
                     )
 
                 self.screen_manager.close(device_id, runtime_id, allocation.adb_serial)
+                if self.network_cleaner is not None:
+                    self.network_cleaner.cleanup_before_delete(runtime_id)
 
                 if not attempt.container_removed:
                     assert container is not None
@@ -569,6 +578,7 @@ class RedroidProvisioningService:
             )
             session.add(runtime)
             session.flush()
+            add_default_direct_network_config(session, runtime, applied=True)
             attempt.device_id = device.id
             attempt.runtime_id = runtime.id
             attempt.state = "completed"

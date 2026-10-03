@@ -42,6 +42,7 @@ def host_manager(
     screens: MagicMock | ScreenProcessManager | None = None,
     stop_managed_devices_on_shutdown: bool = True,
     binder_readiness_check=None,
+    network_reconciler=None,
 ) -> HostLifecycleManager:
     runtime_adapter = adapter or MagicMock(spec=RedroidRuntimeAdapter)
     screen_manager = screens or MagicMock(spec=ScreenProcessManager)
@@ -53,6 +54,7 @@ def host_manager(
         screen_manager,
         stop_managed_devices_on_shutdown=stop_managed_devices_on_shutdown,
         binder_readiness_check=binder_readiness_check or (lambda: ()),
+        network_reconciler=network_reconciler,
     )
 
 
@@ -67,6 +69,49 @@ def binder_paths(tmp_path: Path) -> BinderHostPaths:
             tmp_path / "dev/binderfs/vndbinder",
         ),
     )
+
+
+@patch("app.services.host_lifecycle.shutil.which")
+@patch("app.services.host_lifecycle.subprocess.run")
+def test_startup_invokes_network_recovery_after_runtime_discovery(
+    mock_run, mock_which, tmp_path: Path
+) -> None:
+    factory, engine = session_factory(tmp_path)
+    network_reconciler = MagicMock()
+    mock_run.return_value = subprocess.CompletedProcess(
+        [], 0, stdout="27.3.1\n", stderr=""
+    )
+    mock_which.side_effect = lambda name: f"/usr/bin/{name}"
+
+    host_manager(
+        factory, network_reconciler=network_reconciler
+    ).startup()
+
+    network_reconciler.reconcile_startup.assert_called_once_with()
+    engine.dispose()
+
+
+@patch("app.services.host_lifecycle.shutil.which")
+@patch("app.services.host_lifecycle.subprocess.run")
+def test_network_recovery_failure_does_not_fail_host_lifecycle_startup(
+    mock_run, mock_which, tmp_path: Path
+) -> None:
+    factory, engine = session_factory(tmp_path)
+    network_reconciler = MagicMock()
+    network_reconciler.reconcile_startup.side_effect = RuntimeError(
+        "network recovery unavailable"
+    )
+    mock_run.return_value = subprocess.CompletedProcess(
+        [], 0, stdout="27.3.1\n", stderr=""
+    )
+    mock_which.side_effect = lambda name: f"/usr/bin/{name}"
+
+    capabilities = host_manager(
+        factory, network_reconciler=network_reconciler
+    ).startup()
+
+    assert capabilities.docker_server_version == "27.3.1"
+    engine.dispose()
 
 
 def test_binder_readiness_accepts_loaded_module_mount_and_endpoints(

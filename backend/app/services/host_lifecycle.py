@@ -91,6 +91,12 @@ class ApplicationLifecycle(Protocol):
     def shutdown(self) -> None: ...
 
 
+class NetworkStartupReconciler(Protocol):
+    """Optional per-Runtime network recovery invoked after lifecycle discovery."""
+
+    def reconcile_startup(self) -> None: ...
+
+
 class HostDependencyError(RuntimeError):
     """Raised when a required host capability is unavailable."""
 
@@ -119,12 +125,14 @@ class HostLifecycleManager:
         *,
         stop_managed_devices_on_shutdown: bool = True,
         binder_readiness_check: Callable[[], tuple[str, ...]] = check_binder_readiness,
+        network_reconciler: NetworkStartupReconciler | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.runtime_adapter = runtime_adapter
         self.screen_manager = screen_manager
         self.stop_managed_devices_on_shutdown = stop_managed_devices_on_shutdown
         self.binder_readiness_check = binder_readiness_check
+        self.network_reconciler = network_reconciler
 
     def startup(self) -> HostCapabilities:
         """Validate host dependencies and reconcile managed runtime state."""
@@ -162,6 +170,11 @@ class HostLifecycleManager:
             "enabled" if self.stop_managed_devices_on_shutdown else "disabled",
         )
         self._reconcile_redroid_runtimes()
+        if self.network_reconciler is not None:
+            try:
+                self.network_reconciler.reconcile_startup()
+            except Exception:
+                logger.error("Startup network reconciliation failed safely")
         logger.info(
             "Startup reconciliation leaves Redroid containers and screens unchanged"
         )

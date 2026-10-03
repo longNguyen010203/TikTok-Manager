@@ -43,6 +43,13 @@ Existing Device 01 and Device 02 remain legacy managed runtimes. They are not
 automatically adopted into the provisioning manifest and cannot be removed by
 the provisioning rollback path.
 
+The TIK-019 network schema does not backfill these legacy
+Runtimes and does not change their Android settings, Docker networks, routes,
+or host firewall. New provisioning completion creates direct revision 1 and
+disabled/applied network state atomically with its Device and Runtime. Existing
+provisioning history, including Device 03, is not rewritten. No real host proxy
+bridge implementation is launched in Phase 3.
+
 Provisioning is exposed internally through `POST /redroid-provisionings` and
 `GET /redroid-provisionings/{provisioning_id}`. POST requires an
 `Idempotency-Key`; retries reuse the same durable attempt and allocation. A

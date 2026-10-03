@@ -15,7 +15,7 @@ PRE_JOB_LOG_REVISION = "20260918_0003"
 PRE_REDROID_CONFIG_REVISION = "20260918_0004"
 PRE_UNIQUE_CONFIG_REVISION = "20261001_0005"
 PRE_PROVISIONING_REVISION = "20261001_0006"
-LATEST_REVISION = "20261003_0008"
+LATEST_REVISION = "20261003_0009"
 
 
 def test_upgrade_head_creates_accounts_table(
@@ -42,6 +42,11 @@ def test_upgrade_head_creates_accounts_table(
             inspector.get_table_names()
         )
         assert "alembic_version" in inspector.get_table_names()
+        assert {
+            "runtime_network_configs",
+            "runtime_network_config_revisions",
+            "runtime_network_states",
+        }.issubset(inspector.get_table_names())
         account_columns = {
             column["name"] for column in inspector.get_columns("accounts")
         }
@@ -130,6 +135,35 @@ def test_upgrade_head_creates_accounts_table(
         job_log_foreign_key = inspector.get_foreign_keys("job_logs")[0]
         assert job_log_foreign_key["referred_table"] == "jobs"
         assert job_log_foreign_key["options"]["ondelete"] == "CASCADE"
+
+        network_config_columns = {
+            column["name"] for column in inspector.get_columns("runtime_network_configs")
+        }
+        assert network_config_columns == {
+            "id", "runtime_id", "mode", "proxy_host", "proxy_port",
+            "proxy_username_secret_ref", "proxy_password_secret_ref",
+            "bridge_host_port", "bridge_device_port", "desired_revision",
+            "created_at", "updated_at",
+        }
+        network_config_fk = inspector.get_foreign_keys("runtime_network_configs")[0]
+        assert network_config_fk["referred_table"] == "runtimes"
+        assert network_config_fk["options"]["ondelete"] == "CASCADE"
+        network_config_uniques = {
+            tuple(constraint["column_names"])
+            for constraint in inspector.get_unique_constraints("runtime_network_configs")
+        }
+        assert ("runtime_id",) in network_config_uniques
+        assert ("bridge_host_port",) in network_config_uniques
+
+        revision_uniques = {
+            tuple(constraint["column_names"])
+            for constraint in inspector.get_unique_constraints("runtime_network_config_revisions")
+        }
+        assert ("runtime_id", "revision") in revision_uniques
+        state_columns = {
+            column["name"] for column in inspector.get_columns("runtime_network_states")
+        }
+        assert {"runtime_id", "status", "desired_revision", "applied_revision", "observed_mode"}.issubset(state_columns)
 
         with test_engine.connect() as connection:
             migration_context = MigrationContext.configure(connection)

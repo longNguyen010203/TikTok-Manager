@@ -1,5 +1,6 @@
 """Device CRUD endpoints."""
 
+import logging
 from collections.abc import Callable
 from typing import Annotated
 
@@ -8,7 +9,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Device, RedroidProvisioning
+from app.models import (
+    Device,
+    RedroidProvisioning,
+    RuntimeNetworkConfig,
+    RuntimeNetworkState,
+)
 from app.schemas.device import (
     DeviceCreate,
     DeviceLifecycleStatus,
@@ -32,9 +38,15 @@ from app.services.redroid_runtime import (
     RedroidRuntimeAdapter,
     RedroidRuntimeError,
 )
+from app.routers.runtime_networks import NetworkCleaner
+from app.services.runtime_network_orchestration import (
+    NetworkApplyError,
+    RuntimeNetworkOrchestrator,
+)
 
 router = APIRouter(prefix="/devices", tags=["devices"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
+logger = logging.getLogger(__name__)
 
 
 def get_redroid_runtime_adapter() -> RedroidRuntimeAdapter:
@@ -101,12 +113,17 @@ def get_device_status(
 
 @router.post("/{device_id}/start", response_model=DeviceLifecycleStatus)
 def start_device(
-    device_id: int, session: DatabaseSession, adapter: RuntimeAdapter
+    device_id: int,
+    session: DatabaseSession,
+    adapter: RuntimeAdapter,
+    network_cleaner: NetworkCleaner,
 ) -> DeviceLifecycleStatus:
     """Start a Device's Redroid runtime and wait for readiness."""
     device = _get_device_or_404(device_id, session)
     service = DeviceLifecycleService(session, adapter)
-    return _execute_lifecycle(lambda: service.start(device))
+    result = _execute_lifecycle(lambda: service.start(device))
+    _reconcile_network_after_ready(device, session, network_cleaner)
+    return result
 
 
 @router.post("/{device_id}/stop", response_model=DeviceLifecycleStatus)
@@ -121,12 +138,17 @@ def stop_device(
 
 @router.post("/{device_id}/restart", response_model=DeviceLifecycleStatus)
 def restart_device(
-    device_id: int, session: DatabaseSession, adapter: RuntimeAdapter
+    device_id: int,
+    session: DatabaseSession,
+    adapter: RuntimeAdapter,
+    network_cleaner: NetworkCleaner,
 ) -> DeviceLifecycleStatus:
     """Restart a Device's Redroid runtime and wait for readiness."""
     device = _get_device_or_404(device_id, session)
     service = DeviceLifecycleService(session, adapter)
-    return _execute_lifecycle(lambda: service.restart(device))
+    result = _execute_lifecycle(lambda: service.restart(device))
+    _reconcile_network_after_ready(device, session, network_cleaner)
+    return result
 
 
 @router.post("/{device_id}/screen/open", response_model=DeviceScreenStatus)
@@ -186,7 +208,9 @@ def update_device(
 
 
 @router.delete("/{device_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_device(device_id: int, session: DatabaseSession) -> Response:
+def delete_device(
+    device_id: int, session: DatabaseSession, network_cleaner: NetworkCleaner
+) -> Response:
     """Delete a device and its runtimes while preserving assigned accounts."""
     device = _get_device_or_404(device_id, session)
     managed = session.scalar(
@@ -202,6 +226,11 @@ def delete_device(device_id: int, session: DatabaseSession) -> Response:
                 f"POST /redroid-provisionings/{managed.id}/deprovision"
             ),
         )
+    try:
+        for runtime in device.runtimes:
+            network_cleaner.cleanup_before_delete(runtime.id)
+    except NetworkApplyError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     session.delete(device)
     session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -218,6 +247,34 @@ def _execute_lifecycle(
         raise HTTPException(status_code=502, detail=str(error)) from error
     except DeviceLifecycleError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+def _reconcile_network_after_ready(
+    device: Device,
+    session: Session,
+    network_orchestrator: RuntimeNetworkOrchestrator,
+) -> None:
+    """Reapply only network intent that has ephemeral state to restore."""
+    target = get_redroid_target(device)
+    config = session.scalar(
+        select(RuntimeNetworkConfig).where(
+            RuntimeNetworkConfig.runtime_id == target.runtime.id
+        )
+    )
+    state = session.get(RuntimeNetworkState, target.runtime.id)
+    if config is None or state is None:
+        return
+    if config.mode == "direct" and state.applied_revision == config.desired_revision:
+        return
+    try:
+        network_orchestrator.apply(target.runtime.id)
+    except Exception:
+        # Lifecycle readiness remains independent. The network orchestrator
+        # persists its own safe failure state for the status API.
+        logger.error(
+            "Network reconciliation after lifecycle start failed for Runtime %s",
+            target.runtime.id,
+        )
 
 
 def _open_screen(device: Device, manager: ScreenProcessManager) -> DeviceScreenStatus:

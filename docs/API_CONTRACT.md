@@ -1,5 +1,40 @@
 # API Contract
 
+## Runtime network configuration
+
+`GET /runtimes/{id}/network` returns safe desired and observed state. An
+unmanaged Runtime is represented as `managed=false`, `mode=direct`, revision
+zero, and disabled status. Responses expose only username/password configured
+booleans; secret values, secret references, bridge ownership tokens, and raw
+process metadata are never returned.
+
+`PUT /runtimes/{id}/network` stores desired state only. Its body contains
+`mode`, `expected_revision`, and, for `http_proxy`, `proxy_host`, `proxy_port`,
+and optional username/password secret references. Bridge ports are allocated
+by the server. A stopped Runtime remains pending and no ADB or bridge action is
+performed. A stale expected revision returns `409 Conflict`.
+
+`POST /runtimes/{id}/network/apply` applies the current desired revision.
+Direct mode clears Android proxy keys, removes the exact Runtime reverse rule,
+and stops only the bridge with the recorded owner token. HTTP proxy mode checks
+Runtime/ADB readiness, resolves secrets, verifies the supervised bridge,
+installs the exact reverse mapping, applies the loopback Android proxy, and
+reads state back. A revision change during apply returns `409` and never marks
+the old revision ready.
+
+`POST /runtimes/{id}/network/clear` creates direct desired state. It reconciles
+immediately for a running Runtime and remains pending for a stopped Runtime.
+Retries are idempotent. Previous bridge ports remain reserved through observed
+ownership state until cleanup succeeds.
+
+`GET /runtimes/{id}/network/status` returns safe Runtime, ADB, Android proxy,
+ADB reverse, bridge, and connectivity check summaries. Connectivity is
+`not_run` in Phase 3; no public-IP or geography check is performed.
+
+Apply errors use `409` for stopped/locked/revision-conflict state, `422` for
+invalid desired input, `502` for ADB or bridge failures, and `503` for missing
+secrets. Network failures do not alter Device or Runtime lifecycle status.
+
 Frontend and backend must communicate through APIs defined in this file.
 
 Do not invent endpoints independently.
