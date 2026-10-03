@@ -620,3 +620,44 @@ Acceptance criteria:
 - Existing Device 01 and Device 02 remain unchanged.
 - Frontend can create a managed Redroid device.
 - Full backend tests, frontend lint, and frontend build pass.
+
+---
+
+## TIK-019
+Status: IN PROGRESS
+Owner: Codex + Antigravity
+Type: Backend / Device Networking
+
+Title:
+Add Per-Device Network Configuration
+
+Dependencies:
+- TIK-014
+- TIK-017
+- TIK-018
+
+Scope:
+- backend/
+- frontend/
+- docs/
+
+Phases:
+1. Network architecture and configuration design
+2. Backend network configuration model/service
+3. Network API and runtime application
+4. Real multi-device network isolation test
+5. Frontend network management UI
+6. Recovery, health checks, and persistence
+7. Final verification
+
+Acceptance criteria:
+- Each managed Redroid device can have independent network configuration.
+- Network configuration is stored durably and mapped to the correct Runtime.
+- Proxy configuration can be applied, inspected, cleared, and verified independently per device.
+- Changing Device A network configuration does not affect Device B.
+- Secrets are not stored in plaintext logs or exposed unnecessarily through APIs/UI.
+- Network configuration survives manager restarts where appropriate.
+- Runtime start/restart can safely restore the intended network configuration.
+- Failure to apply network settings produces clear recoverable state.
+- Existing lifecycle, provisioning, screen, and deprovision flows remain unchanged.
+- Full backend tests, frontend lint, TypeScript, and production build pass.
