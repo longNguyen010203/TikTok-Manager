@@ -69,17 +69,20 @@ export class FastApiRuntimeNetworkService implements IRuntimeNetworkService {
       }
     }
 
-    // Safety: sanitize raw execution traces, command outputs, or stderr
+    // Safety: sanitize raw execution traces, command outputs, or internal details
     if (
       message.includes("Traceback") ||
       message.includes("systemd:") ||
       message.includes("docker: Error") ||
-      message.includes("subprocess.CalledProcessError")
+      message.includes("subprocess.CalledProcessError") ||
+      message.includes("Fernet") ||
+      message.includes("ciphertext") ||
+      message.includes("encrypted_password")
     ) {
       if (status === 502) {
         message = "Proxy bridge or ADB host network operation failed";
       } else if (status === 503) {
-        message = "Proxy credential secret resolution failed";
+        message = "Proxy credential service or decryption failed";
       } else {
         message = "Network operation failed unexpectedly";
       }
@@ -118,17 +121,27 @@ export class FastApiRuntimeNetworkService implements IRuntimeNetworkService {
     if (input.mode === "http_proxy") {
       payload.proxy_host = input.proxy_host ? input.proxy_host.trim() : null;
       payload.proxy_port = input.proxy_port ? Number(input.proxy_port) : null;
-      payload.proxy_username_secret_ref = input.proxy_username_secret_ref
-        ? input.proxy_username_secret_ref.trim()
-        : null;
-      payload.proxy_password_secret_ref = input.proxy_password_secret_ref
-        ? input.proxy_password_secret_ref.trim()
-        : null;
+
+      if (input.credential_action) {
+        payload.credential_action = input.credential_action;
+      }
+      if (input.username) {
+        payload.username = input.username;
+      }
+      if (input.password) {
+        payload.password = input.password;
+      }
+
+      // Legacy references fallback
+      if (input.proxy_username_secret_ref) {
+        payload.proxy_username_secret_ref = input.proxy_username_secret_ref.trim();
+      }
+      if (input.proxy_password_secret_ref) {
+        payload.proxy_password_secret_ref = input.proxy_password_secret_ref.trim();
+      }
     } else {
       payload.proxy_host = null;
       payload.proxy_port = null;
-      payload.proxy_username_secret_ref = null;
-      payload.proxy_password_secret_ref = null;
     }
 
     const response = await fetch(

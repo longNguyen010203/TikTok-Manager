@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   X,
   Globe,
@@ -55,8 +55,9 @@ export function RuntimeNetworkModal({
   const [selectedMode, setSelectedMode] = useState<NetworkMode>("direct");
   const [proxyHost, setProxyHost] = useState("");
   const [proxyPort, setProxyPort] = useState<string>("");
-  const [usernameSecretRef, setUsernameSecretRef] = useState("");
-  const [passwordSecretRef, setPasswordSecretRef] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmingClearAuth, setConfirmingClearAuth] = useState(false);
 
   // Operation states
   const [isSaving, setIsSaving] = useState(false);
@@ -73,6 +74,18 @@ export function RuntimeNetworkModal({
   const isRuntimeStopped = runtime?.status === "stopped";
 
   const isWorking = isSaving || isApplying || isClearing || isRefreshing;
+  const hasCredentials = Boolean(
+    network?.credentials.username_configured ||
+      network?.credentials.password_configured
+  );
+
+  const handleModalClose = useCallback(() => {
+    if (isWorking) return;
+    setUsername("");
+    setPassword("");
+    setConfirmingClearAuth(false);
+    onClose();
+  }, [isWorking, onClose]);
 
   // Initial load
   useEffect(() => {
@@ -93,8 +106,9 @@ export function RuntimeNetworkModal({
         setSelectedMode((net.mode as NetworkMode) || "direct");
         setProxyHost(net.proxy_host || "");
         setProxyPort(net.proxy_port ? net.proxy_port.toString() : "");
-        setUsernameSecretRef("");
-        setPasswordSecretRef("");
+        setUsername("");
+        setPassword("");
+        setConfirmingClearAuth(false);
         setIsLoading(false);
       })
       .catch((err: unknown) => {
@@ -115,12 +129,12 @@ export function RuntimeNetworkModal({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape" && isOpen && !isWorking) {
-        onClose();
+        handleModalClose();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose, isWorking]);
+  }, [isOpen, isWorking, handleModalClose]);
 
   if (!isOpen || !runtime) return null;
 
@@ -138,8 +152,9 @@ export function RuntimeNetworkModal({
       setSelectedMode((net.mode as NetworkMode) || "direct");
       setProxyHost(net.proxy_host || "");
       setProxyPort(net.proxy_port ? net.proxy_port.toString() : "");
-      setUsernameSecretRef("");
-      setPasswordSecretRef("");
+      setUsername("");
+      setPassword("");
+      setConfirmingClearAuth(false);
       if (onNetworkUpdated) onNetworkUpdated(net);
     } catch (err: unknown) {
       setFeedback({
@@ -151,36 +166,66 @@ export function RuntimeNetworkModal({
     }
   };
 
-  const handleSaveDesired = async (e?: React.FormEvent) => {
+  const handleSaveDesired = async (
+    e?: React.FormEvent,
+    clearCredentialsAction = false
+  ) => {
     if (e) e.preventDefault();
     if (!runtimeId || !network) return;
+
+    const u = username.trim();
+    const p = password;
+    const hasU = u.length > 0;
+    const hasP = p.length > 0;
+
+    if (!clearCredentialsAction && selectedMode === "http_proxy") {
+      // If only one of username or password is entered:
+      if ((hasU && !hasP) || (!hasU && hasP)) {
+        setFeedback({
+          type: "error",
+          message: "Enter both username and password, or leave both blank.",
+        });
+        return;
+      }
+    }
 
     setFeedback(null);
     setIsSaving(true);
 
     try {
       const portNum = proxyPort.trim() ? parseInt(proxyPort.trim(), 10) : undefined;
+
+      let credentialAction: "retain" | "replace" | "clear" | undefined = undefined;
+      let sendUsername: string | undefined = undefined;
+      let sendPassword: string | undefined = undefined;
+
+      if (clearCredentialsAction) {
+        credentialAction = "clear";
+      } else if (hasU && hasP) {
+        credentialAction = "replace";
+        sendUsername = u;
+        sendPassword = p;
+      }
+
       const updated = await runtimeNetworkService.updateNetwork(runtimeId, {
         mode: selectedMode,
         proxy_host: selectedMode === "http_proxy" ? proxyHost.trim() : null,
         proxy_port: selectedMode === "http_proxy" ? portNum : null,
-        proxy_username_secret_ref:
-          selectedMode === "http_proxy" && usernameSecretRef.trim()
-            ? usernameSecretRef.trim()
-            : undefined,
-        proxy_password_secret_ref:
-          selectedMode === "http_proxy" && passwordSecretRef.trim()
-            ? passwordSecretRef.trim()
-            : undefined,
+        credential_action: credentialAction,
+        username: sendUsername,
+        password: sendPassword,
         expected_revision: network.desired_revision,
       });
 
       setNetwork(updated);
-      setUsernameSecretRef("");
-      setPasswordSecretRef("");
+      setUsername("");
+      setPassword("");
+      setConfirmingClearAuth(false);
       setFeedback({
         type: "success",
-        message: `Desired configuration saved (rev ${updated.desired_revision}). Click "Apply Configuration" to activate on the runtime.`,
+        message: clearCredentialsAction
+          ? `Saved proxy credentials removed (rev ${updated.desired_revision}). Click "Apply Configuration" to activate on the runtime.`
+          : `Desired configuration saved (rev ${updated.desired_revision}). Click "Apply Configuration" to activate on the runtime.`,
       });
       if (onNetworkUpdated) onNetworkUpdated(updated);
     } catch (err: unknown) {
@@ -261,8 +306,9 @@ export function RuntimeNetworkModal({
       setSelectedMode("direct");
       setProxyHost("");
       setProxyPort("");
-      setUsernameSecretRef("");
-      setPasswordSecretRef("");
+      setUsername("");
+      setPassword("");
+      setConfirmingClearAuth(false);
 
       const latestChecks = await runtimeNetworkService
         .getNetworkStatus(runtimeId)
@@ -425,7 +471,7 @@ export function RuntimeNetworkModal({
             </button>
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleModalClose}
               className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
             >
               <X className="w-4 h-4" />
@@ -688,15 +734,24 @@ export function RuntimeNetworkModal({
                 </div>
               </div>
 
-              {/* Secret References Section */}
+              {/* Proxy Authentication Section */}
               <div className="p-3.5 rounded-lg bg-white border border-slate-200/90 space-y-3">
                 <div className="flex items-center justify-between pb-1 border-b border-slate-100">
                   <span className="font-semibold text-slate-800 flex items-center gap-1.5">
-                    <Lock className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Authentication Secret References</span>
+                    <Lock className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Proxy Authentication</span>
                   </span>
-                  <span className="text-[10px] text-slate-400">
-                    References only (not plaintext credentials)
+                  <span className="text-[11px]">
+                    {hasCredentials ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        <span>Configured</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold bg-slate-100 text-slate-500 border border-slate-200">
+                        <span>None</span>
+                      </span>
+                    )}
                   </span>
                 </div>
 
@@ -704,72 +759,99 @@ export function RuntimeNetworkModal({
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
                       <label className="font-medium text-slate-700">
-                        Username Secret Ref
+                        Username
                       </label>
-                      <span className="text-[10px] text-slate-400">
-                        {network?.credentials.username_configured ? (
-                          <span className="text-emerald-600 font-semibold">
-                            ✓ Configured
-                          </span>
-                        ) : (
-                          "None"
-                        )}
-                      </span>
+                      {network?.credentials.username_configured && (
+                        <span className="text-[10px] text-emerald-600 font-semibold">
+                          Configured
+                        </span>
+                      )}
                     </div>
                     <input
                       type="text"
-                      value={usernameSecretRef}
-                      onChange={(e) => setUsernameSecretRef(e.target.value)}
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
                       placeholder={
                         network?.credentials.username_configured
-                          ? "(Leave blank to keep current secret)"
-                          : "env:TIKTOK_PROXY_USER_DEV01"
+                          ? "Leave blank to keep existing"
+                          : "Optional username"
                       }
                       disabled={isWorking}
-                      className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-md font-mono bg-slate-50/50 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                      autoComplete="off"
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-md bg-white focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
                     />
-                    <p className="text-[10px] text-slate-400">
-                      e.g. <code className="font-mono">env:TIKTOK_PROXY_USERNAME</code>
-                    </p>
                   </div>
 
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
                       <label className="font-medium text-slate-700">
-                        Password Secret Ref
+                        Password
                       </label>
-                      <span className="text-[10px] text-slate-400">
-                        {network?.credentials.password_configured ? (
-                          <span className="text-emerald-600 font-semibold">
-                            ✓ Configured
-                          </span>
-                        ) : (
-                          "None"
-                        )}
-                      </span>
+                      {network?.credentials.password_configured && (
+                        <span className="text-[10px] text-emerald-600 font-semibold">
+                          Configured
+                        </span>
+                      )}
                     </div>
                     <input
-                      type="text"
-                      value={passwordSecretRef}
-                      onChange={(e) => setPasswordSecretRef(e.target.value)}
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
                       placeholder={
                         network?.credentials.password_configured
-                          ? "(Leave blank to keep current secret)"
-                          : "env:TIKTOK_PROXY_PASS_DEV01"
+                          ? "Leave blank to keep existing"
+                          : "Optional password"
                       }
                       disabled={isWorking}
-                      className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-md font-mono bg-slate-50/50 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                      autoComplete="new-password"
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-md bg-white focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
                     />
-                    <p className="text-[10px] text-slate-400">
-                      e.g. <code className="font-mono">env:TIKTOK_PROXY_PASSWORD</code>
-                    </p>
                   </div>
                 </div>
 
-                <div className="p-2 rounded bg-amber-50/60 border border-amber-200/60 text-[10px] text-amber-800 leading-normal flex items-start gap-1.5">
-                  <ShieldCheck className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                {hasCredentials && (
+                  <div className="pt-1">
+                    {!confirmingClearAuth ? (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmingClearAuth(true)}
+                        disabled={isWorking}
+                        className="text-[11px] text-rose-600 hover:text-rose-700 hover:underline font-medium inline-flex items-center gap-1 transition-colors"
+                      >
+                        <span>Remove saved authentication</span>
+                      </button>
+                    ) : (
+                      <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 animate-in fade-in duration-150">
+                        <span className="text-[11px] text-rose-900 font-medium">
+                          Remove saved proxy username and password?
+                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setConfirmingClearAuth(false)}
+                            disabled={isWorking}
+                            className="px-2 py-1 text-[11px] font-medium rounded text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveDesired(undefined, true)}
+                            disabled={isWorking}
+                            className="px-2 py-1 text-[11px] font-semibold rounded text-white bg-rose-600 hover:bg-rose-700 transition-colors shadow-2xs"
+                          >
+                            Confirm Remove
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="p-2 rounded bg-slate-50 border border-slate-200/80 text-[10px] text-slate-500 leading-normal flex items-start gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
                   <span>
-                    <strong>Secret Safety:</strong> Secrets are resolved dynamically by the backend using your specified environment or vault reference. Credentials are never sent to or stored in the browser.
+                    Credentials are stored securely by TikTok Manager. Existing credentials are never displayed or stored in the browser.
                   </span>
                 </div>
               </div>
@@ -882,7 +964,7 @@ export function RuntimeNetworkModal({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleModalClose}
               disabled={isWorking}
               className="px-3.5 py-2 border border-slate-200 rounded-lg text-slate-600 hover:bg-white text-xs font-medium transition-colors disabled:opacity-50"
             >

@@ -84,6 +84,9 @@ export interface RuntimeNetworkUpdateInput {
   proxy_port?: number | null;
   proxy_username_secret_ref?: string | null;
   proxy_password_secret_ref?: string | null;
+  credential_action?: "retain" | "replace" | "clear" | null;
+  username?: string | null;
+  password?: string | null;
   expected_revision: number;
 }
 
@@ -100,7 +103,9 @@ export class RuntimeNetworkApiError extends ApiError {
     super(status, message, details);
     this.name = "RuntimeNetworkApiError";
     const lower = message.toLowerCase();
-    this.isRevisionConflict = status === 409 && lower.includes("revision conflict");
+    this.isRevisionConflict =
+      status === 409 &&
+      (lower.includes("revision") || lower.includes("conflict"));
     this.isRuntimeStopped =
       status === 409 && (lower.includes("stopped") || lower.includes("runtime is stopped"));
     this.isLockBusy = status === 409 && lower.includes("lock");
