@@ -16,6 +16,7 @@ import { RuntimePagination } from "@/components/runtimes/RuntimePagination";
 import { RuntimeCreateModal } from "@/components/runtimes/RuntimeCreateModal";
 import { RuntimeEditModal } from "@/components/runtimes/RuntimeEditModal";
 import { RuntimeDeleteDialog } from "@/components/runtimes/RuntimeDeleteDialog";
+import { RuntimeNetworkModal } from "@/components/runtimes/RuntimeNetworkModal";
 import {
   Cpu,
   CheckCircle2,
@@ -43,6 +44,7 @@ export default function RuntimesPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editingRuntime, setEditingRuntime] = useState<Runtime | null>(null);
   const [deletingRuntime, setDeletingRuntime] = useState<Runtime | null>(null);
+  const [networkModalRuntime, setNetworkModalRuntime] = useState<Runtime | null>(null);
 
   // Banner notifications
   const [bannerMessage, setBannerMessage] = useState<{
@@ -356,6 +358,7 @@ export default function RuntimesPage() {
           onCreateRuntime={() => setIsCreateModalOpen(true)}
           onEditRuntime={(rt) => setEditingRuntime(rt)}
           onDeleteRuntime={(rt) => setDeletingRuntime(rt)}
+          onConfigureNetwork={(rt) => setNetworkModalRuntime(rt)}
         />
 
         {/* Pagination UI */}
@@ -396,6 +399,18 @@ export default function RuntimesPage() {
         onClose={() => setDeletingRuntime(null)}
         onConfirm={handleDeleteRuntime}
       />
+
+      {/* Network Configuration Modal */}
+      {networkModalRuntime && (
+        <RuntimeNetworkModal
+          key={`net-modal-${networkModalRuntime.id}`}
+          runtime={networkModalRuntime}
+          device={devicesMap[networkModalRuntime.device_id] || null}
+          isOpen={networkModalRuntime !== null}
+          onClose={() => setNetworkModalRuntime(null)}
+          onNetworkUpdated={() => handleRefresh()}
+        />
+      )}
     </div>
   );
 }

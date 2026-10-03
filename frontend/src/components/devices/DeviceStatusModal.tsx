@@ -25,6 +25,7 @@ import {
   Layers,
   Monitor,
   Trash2,
+  Globe,
 } from "lucide-react";
 import {
   Device,
@@ -42,6 +43,7 @@ import {
 } from "@/services/provisioningRegistry";
 import { DeviceStatusBadge } from "./DeviceStatusBadge";
 import { DeviceReadinessBadge } from "./DeviceReadinessBadge";
+import { RuntimeNetworkModal } from "@/components/runtimes/RuntimeNetworkModal";
 
 interface DeviceStatusModalProps {
   device: Device | null;
@@ -98,6 +100,9 @@ export function DeviceStatusModal({
     message: string;
     statusCode?: number;
   } | null>(null);
+
+  // Per-Runtime network modal state
+  const [isNetworkModalOpen, setIsNetworkModalOpen] = useState(false);
 
   const deviceId = device?.id;
 
@@ -604,15 +609,26 @@ export function DeviceStatusModal({
                     </div>
                   </div>
 
-                  {/* Link to related /runtimes page */}
-                  <Link
-                    href="/runtimes"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 active:bg-indigo-200/80 border border-indigo-200/70 rounded-lg transition-colors shadow-2xs w-fit"
-                    title="Open Runtimes management page"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    <span>Open Related Runtimes</span>
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsNetworkModalOpen(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-cyan-800 bg-cyan-50 hover:bg-cyan-100 active:bg-cyan-200/80 border border-cyan-200/70 rounded-lg transition-colors shadow-2xs w-fit"
+                      title="Configure per-runtime networking and HTTP proxy"
+                    >
+                      <Globe className="w-3.5 h-3.5 text-cyan-600" />
+                      <span>Configure Network</span>
+                    </button>
+                    {/* Link to related /runtimes page */}
+                    <Link
+                      href="/runtimes"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 active:bg-indigo-200/80 border border-indigo-200/70 rounded-lg transition-colors shadow-2xs w-fit"
+                      title="Open Runtimes management page"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Open Related Runtimes</span>
+                    </Link>
+                  </div>
                 </div>
 
                 {/* Runtime Metrics Grid */}
@@ -1237,6 +1253,36 @@ export function DeviceStatusModal({
           </div>
         </div>
       </div>
+
+      {/* Per-Runtime Network Configuration Modal */}
+      {isNetworkModalOpen && (runtime || status) && (
+        <RuntimeNetworkModal
+          key={`net-modal-${runtime?.id || status?.runtime_id}`}
+          runtime={
+            runtime ||
+            (status
+              ? {
+                  id: status.runtime_id,
+                  device_id: device.id,
+                  name: status.docker_container_name,
+                  runtime_type: "redroid",
+                  status:
+                    status.container_status === "running"
+                      ? "running"
+                      : "stopped",
+                  docker_container_name: status.docker_container_name,
+                  adb_serial: status.adb_serial,
+                  created_at: "",
+                  updated_at: "",
+                  last_seen_at: null,
+                }
+              : null)
+          }
+          device={device}
+          isOpen={isNetworkModalOpen}
+          onClose={() => setIsNetworkModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

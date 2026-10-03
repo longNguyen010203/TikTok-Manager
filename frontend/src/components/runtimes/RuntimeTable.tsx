@@ -5,7 +5,7 @@ import { RuntimeStatusBadge } from "./RuntimeStatusBadge";
 import { RuntimeLoadingState } from "./RuntimeLoadingState";
 import { RuntimeEmptyState } from "./RuntimeEmptyState";
 import { RuntimeErrorState } from "./RuntimeErrorState";
-import { Cpu, Calendar, Pencil, Trash2, Smartphone, AlertCircle, Layers } from "lucide-react";
+import { Cpu, Calendar, Pencil, Trash2, Smartphone, AlertCircle, Layers, Globe } from "lucide-react";
 
 interface RuntimeTableProps {
   runtimes: Runtime[];
@@ -18,6 +18,7 @@ interface RuntimeTableProps {
   onCreateRuntime: () => void;
   onEditRuntime?: (runtime: Runtime) => void;
   onDeleteRuntime?: (runtime: Runtime) => void;
+  onConfigureNetwork?: (runtime: Runtime) => void;
 }
 
 export function RuntimeTable({
@@ -31,6 +32,7 @@ export function RuntimeTable({
   onCreateRuntime,
   onEditRuntime,
   onDeleteRuntime,
+  onConfigureNetwork,
 }: RuntimeTableProps) {
   // Format ISO date string
   const formatDate = (isoString: string | null) => {
@@ -169,9 +171,21 @@ export function RuntimeTable({
                     </div>
                   </td>
 
-                  {/* Actions: Edit and Delete */}
+                  {/* Actions: Network, Edit, and Delete */}
                   <td className="py-4 px-6 text-right whitespace-nowrap">
                     <div className="flex items-center justify-end gap-1.5">
+                      {onConfigureNetwork && (
+                        <button
+                          type="button"
+                          onClick={() => onConfigureNetwork(rt)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-cyan-800 bg-cyan-50 hover:bg-cyan-100 border border-cyan-200/80 rounded-lg transition-colors shadow-2xs"
+                          title={`Configure per-runtime networking for ${rt.name}`}
+                          aria-label={`Configure network for ${rt.name}`}
+                        >
+                          <Globe className="w-3.5 h-3.5 text-cyan-600" />
+                          <span>Network</span>
+                        </button>
+                      )}
                       {onEditRuntime && (
                         <button
                           type="button"
