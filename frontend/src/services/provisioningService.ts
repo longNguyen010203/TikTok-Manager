@@ -1,6 +1,7 @@
 import {
   RedroidProvisionRequest,
   RedroidProvisioningStatus,
+  RedroidDeprovisioningStatus,
   ProvisioningApiError,
 } from "@/types/provisioning";
 import { ValidationErrorDetail } from "@/types/device";
@@ -11,6 +12,9 @@ export interface IProvisioningService {
     idempotencyKey: string
   ): Promise<RedroidProvisioningStatus>;
   getProvisioning(provisioningId: string): Promise<RedroidProvisioningStatus>;
+  deprovisionDevice(
+    provisioningId: string
+  ): Promise<RedroidDeprovisioningStatus>;
   getBaseUrl(): string;
 }
 
@@ -30,46 +34,67 @@ export class FastApiProvisioningService implements IProvisioningService {
   }
 
   private async parseError(response: Response): Promise<ProvisioningApiError> {
-    let detailData: {
-      detail?:
-        | string
-        | { message?: string; provisioning_id?: string }
-        | ValidationErrorDetail[];
-    } | null = null;
+    let rawData: Record<string, unknown> | null = null;
     try {
-      detailData = await response.json();
+      rawData = await response.json();
     } catch {
       // Not JSON
     }
 
     const status = response.status;
-    const detail = detailData?.detail;
-
     let message = `Request failed with status ${status}`;
     let provisioningId: string | undefined = undefined;
+    let deprovisionStatus: RedroidDeprovisioningStatus | undefined = undefined;
+    let validationDetails: ValidationErrorDetail[] | string | undefined = undefined;
 
-    if (typeof detail === "string") {
-      message = detail;
-    } else if (detail && typeof detail === "object") {
-      if (Array.isArray(detail)) {
-        message = detail
-          .map((item) => {
-            const loc =
-              item.loc && item.loc.length > 1
-                ? item.loc.slice(1).join(".")
-                : "field";
-            return `${loc}: ${item.msg || "Invalid value"}`;
-          })
-          .join("; ");
-      } else {
-        if ("message" in detail && typeof detail.message === "string") {
-          message = detail.message;
-        }
+    if (rawData && typeof rawData === "object") {
+      // Case 1: Backend returned RedroidDeprovisioningStatus directly on 409
+      if (
+        "provisioning_id" in rawData &&
+        typeof rawData.provisioning_id === "string" &&
+        ("container_removed" in rawData || "state" in rawData)
+      ) {
+        deprovisionStatus = rawData as unknown as RedroidDeprovisioningStatus;
+        provisioningId = rawData.provisioning_id;
         if (
-          "provisioning_id" in detail &&
-          typeof detail.provisioning_id === "string"
+          "error_message" in rawData &&
+          typeof rawData.error_message === "string" &&
+          rawData.error_message
         ) {
-          provisioningId = detail.provisioning_id;
+          message = rawData.error_message;
+        } else if (rawData.state === "deprovision_failed") {
+          message = "Managed Redroid deprovisioning requires recovery";
+        }
+      }
+
+      // Case 2: Standard FastAPI detail wrapper
+      const detail = rawData.detail;
+      if (typeof detail === "string") {
+        message = detail;
+        validationDetails = detail;
+      } else if (detail && typeof detail === "object") {
+        if (Array.isArray(detail)) {
+          validationDetails = detail as ValidationErrorDetail[];
+          message = (detail as ValidationErrorDetail[])
+            .map((item) => {
+              const loc =
+                item.loc && item.loc.length > 1
+                  ? item.loc.slice(1).join(".")
+                  : "field";
+              return `${loc}: ${item.msg || "Invalid value"}`;
+            })
+            .join("; ");
+        } else {
+          const detailObj = detail as Record<string, unknown>;
+          if ("message" in detailObj && typeof detailObj.message === "string") {
+            message = detailObj.message;
+          }
+          if (
+            "provisioning_id" in detailObj &&
+            typeof detailObj.provisioning_id === "string"
+          ) {
+            provisioningId = detailObj.provisioning_id;
+          }
         }
       }
     }
@@ -83,7 +108,8 @@ export class FastApiProvisioningService implements IProvisioningService {
       status,
       message,
       provisioningId,
-      typeof detail === "string" || Array.isArray(detail) ? detail : undefined
+      validationDetails,
+      deprovisionStatus
     );
   }
 
@@ -137,7 +163,31 @@ export class FastApiProvisioningService implements IProvisioningService {
     const data: RedroidProvisioningStatus = await response.json();
     return data;
   }
+
+  async deprovisionDevice(
+    provisioningId: string
+  ): Promise<RedroidDeprovisioningStatus> {
+    const response = await fetch(
+      `${this.baseUrl}/redroid-provisionings/${encodeURIComponent(
+        provisioningId.trim()
+      )}/deprovision`,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw await this.parseError(response);
+    }
+
+    const data: RedroidDeprovisioningStatus = await response.json();
+    return data;
+  }
 }
 
 export const provisioningService: IProvisioningService =
   new FastApiProvisioningService();
+

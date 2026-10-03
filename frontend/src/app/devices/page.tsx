@@ -15,6 +15,12 @@ import { DeviceCreateModal } from "@/components/devices/DeviceCreateModal";
 import { DeviceEditModal } from "@/components/devices/DeviceEditModal";
 import { DeviceDeleteDialog } from "@/components/devices/DeviceDeleteDialog";
 import { DeviceStatusModal } from "@/components/devices/DeviceStatusModal";
+import { DeviceDeprovisionModal } from "@/components/devices/DeviceDeprovisionModal";
+import {
+  provisioningRegistry,
+  ManagedProvisioningRecord,
+} from "@/services/provisioningRegistry";
+import { RedroidProvisioningStatus } from "@/types/provisioning";
 import {
   Smartphone,
   CheckCircle2,
@@ -39,6 +45,22 @@ export default function DevicesPage() {
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
   const [deletingDevice, setDeletingDevice] = useState<Device | null>(null);
   const [statusModalDevice, setStatusModalDevice] = useState<Device | null>(null);
+  const [deprovisioningDevice, setDeprovisioningDevice] =
+    useState<Device | null>(null);
+  const [deprovisionRecord, setDeprovisionRecord] =
+    useState<ManagedProvisioningRecord | null>(null);
+  const [provisioningRecords, setProvisioningRecords] = useState<
+    Record<number, ManagedProvisioningRecord>
+  >(() => {
+    const records = provisioningRegistry.getAll();
+    const map: Record<number, ManagedProvisioningRecord> = {};
+    for (const rec of records) {
+      if (rec.state !== "deprovisioned") {
+        map[rec.deviceId] = rec;
+      }
+    }
+    return map;
+  });
   const [lifecycleStatuses, setLifecycleStatuses] = useState<
     Record<number, DeviceLifecycleStatus>
   >({});
@@ -51,6 +73,18 @@ export default function DevicesPage() {
 
   const [refreshIndex, setRefreshIndex] = useState(0);
   const apiBaseUrl = deviceService.getBaseUrl();
+
+  // Load and refresh known managed provisioning records from registry
+  const loadProvisioningRecords = () => {
+    const records = provisioningRegistry.getAll();
+    const map: Record<number, ManagedProvisioningRecord> = {};
+    for (const rec of records) {
+      if (rec.state !== "deprovisioned") {
+        map[rec.deviceId] = rec;
+      }
+    }
+    setProvisioningRecords(map);
+  };
 
   // Fetch devices from real FastAPI backend
   useEffect(() => {
@@ -65,6 +99,7 @@ export default function DevicesPage() {
         if (!ignore) {
           setDevices(res.items);
           setTotal(res.total);
+          loadProvisioningRecords();
           setError(null);
           setIsLoading(false);
         }
@@ -121,13 +156,45 @@ export default function DevicesPage() {
   };
 
   // CRUD handlers
-  const handleDeviceCreated = (info: { name: string; device_id?: number }) => {
+  const handleDeviceCreated = (info: {
+    name: string;
+    device_id?: number;
+    status?: RedroidProvisioningStatus;
+  }) => {
+    if (info.status) {
+      provisioningRegistry.registerFromStatus(info.status);
+    }
+    loadProvisioningRecords();
     setBannerMessage({
       type: "success",
       text: `Managed Redroid device "${info.name}" provisioned successfully!`,
     });
     setTimeout(() => setBannerMessage(null), 5000);
     setCurrentPage(1);
+    handleRefresh();
+  };
+
+  const handleOpenDeprovision = (
+    dev: Device,
+    rec?: ManagedProvisioningRecord | null
+  ) => {
+    setDeprovisioningDevice(dev);
+    setDeprovisionRecord(rec || provisioningRegistry.getByDeviceId(dev.id));
+  };
+
+  const handleDeprovisionComplete = (summary: {
+    name: string;
+    deviceId: number;
+    dataPath: string | null;
+  }) => {
+    setDeprovisioningDevice(null);
+    setDeprovisionRecord(null);
+    loadProvisioningRecords();
+    setBannerMessage({
+      type: "success",
+      text: `Device "${summary.name}" deprovisioned successfully. Host container & network removed; persistent data safely preserved at ${summary.dataPath || "disk"}.`,
+    });
+    setTimeout(() => setBannerMessage(null), 6000);
     handleRefresh();
   };
 
@@ -349,7 +416,9 @@ export default function DevicesPage() {
           onEditDevice={(dev) => setEditingDevice(dev)}
           onDeleteDevice={(dev) => setDeletingDevice(dev)}
           onViewStatus={(dev) => setStatusModalDevice(dev)}
+          onDeprovisionDevice={handleOpenDeprovision}
           lifecycleStatuses={lifecycleStatuses}
+          provisioningRecords={provisioningRecords}
         />
 
         {/* Pagination UI */}
@@ -371,6 +440,7 @@ export default function DevicesPage() {
         isOpen={statusModalDevice !== null}
         onClose={() => setStatusModalDevice(null)}
         onStatusUpdated={handleStatusUpdated}
+        onOpenDeprovision={handleOpenDeprovision}
       />
 
       {/* Create Device Modal */}
@@ -390,10 +460,25 @@ export default function DevicesPage() {
 
       {/* Delete Confirmation Dialog */}
       <DeviceDeleteDialog
+        key={deletingDevice ? deletingDevice.id : "closed"}
         device={deletingDevice}
         isOpen={deletingDevice !== null}
         onClose={() => setDeletingDevice(null)}
         onConfirm={handleDeleteDevice}
+        onOpenDeprovision={handleOpenDeprovision}
+      />
+
+      {/* Managed Redroid Deprovision Modal */}
+      <DeviceDeprovisionModal
+        key={deprovisioningDevice ? deprovisioningDevice.id : "closed"}
+        device={deprovisioningDevice}
+        provisioningRecord={deprovisionRecord}
+        isOpen={deprovisioningDevice !== null}
+        onClose={() => {
+          setDeprovisioningDevice(null);
+          setDeprovisionRecord(null);
+        }}
+        onDeprovisionComplete={handleDeprovisionComplete}
       />
     </div>
   );

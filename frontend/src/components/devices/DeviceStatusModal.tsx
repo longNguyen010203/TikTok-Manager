@@ -24,6 +24,7 @@ import {
   ExternalLink,
   Layers,
   Monitor,
+  Trash2,
 } from "lucide-react";
 import {
   Device,
@@ -35,6 +36,10 @@ import {
 import { Runtime } from "@/types/runtime";
 import { deviceService } from "@/services/deviceService";
 import { runtimeService } from "@/services/runtimeService";
+import {
+  provisioningRegistry,
+  ManagedProvisioningRecord,
+} from "@/services/provisioningRegistry";
 import { DeviceStatusBadge } from "./DeviceStatusBadge";
 import { DeviceReadinessBadge } from "./DeviceReadinessBadge";
 
@@ -43,6 +48,10 @@ interface DeviceStatusModalProps {
   isOpen: boolean;
   onClose: () => void;
   onStatusUpdated?: (status: DeviceLifecycleStatus) => void;
+  onOpenDeprovision?: (
+    device: Device,
+    record?: ManagedProvisioningRecord | null
+  ) => void;
 }
 
 export function DeviceStatusModal({
@@ -50,6 +59,7 @@ export function DeviceStatusModal({
   isOpen,
   onClose,
   onStatusUpdated,
+  onOpenDeprovision,
 }: DeviceStatusModalProps) {
   const [status, setStatus] = useState<DeviceLifecycleStatus | null>(null);
   const [runtime, setRuntime] = useState<Runtime | null>(null);
@@ -1170,8 +1180,37 @@ export function DeviceStatusModal({
 
         {/* Modal Footer */}
         <div className="flex items-center justify-between px-6 py-3.5 border-t border-slate-100 bg-slate-50/60">
-          <div className="text-[11px] text-slate-400 font-mono">
-            /devices/{device.id}/(status|start|stop|restart|screen)
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-slate-400 font-mono">
+              /devices/{device.id}/(status|start|stop|restart|screen)
+            </span>
+            {(() => {
+              const managedRecord = device
+                ? provisioningRegistry.getByDeviceId(device.id)
+                : null;
+              if (
+                onOpenDeprovision &&
+                managedRecord &&
+                managedRecord.state !== "deprovisioned"
+              ) {
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenDeprovision(device, managedRecord);
+                    }}
+                    disabled={isAnyActionRunning}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-rose-200 text-xs font-semibold rounded-lg text-rose-700 bg-rose-50 hover:bg-rose-100 transition-colors shadow-2xs disabled:opacity-50"
+                    title="Deprovision this managed Redroid device"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Deprovision Device</span>
+                  </button>
+                );
+              }
+              return null;
+            })()}
           </div>
           <div className="flex items-center gap-2">
             <button

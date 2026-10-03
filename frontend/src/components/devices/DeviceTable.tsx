@@ -7,6 +7,8 @@ import { DeviceEmptyState } from "./DeviceEmptyState";
 import { DeviceErrorState } from "./DeviceErrorState";
 import { Smartphone, Calendar, Pencil, Trash2, Cpu, Layers, Activity } from "lucide-react";
 
+import { ManagedProvisioningRecord } from "@/services/provisioningRegistry";
+
 interface DeviceTableProps {
   devices: Device[];
   isLoading: boolean;
@@ -18,7 +20,12 @@ interface DeviceTableProps {
   onEditDevice?: (device: Device) => void;
   onDeleteDevice?: (device: Device) => void;
   onViewStatus?: (device: Device) => void;
+  onDeprovisionDevice?: (
+    device: Device,
+    record?: ManagedProvisioningRecord | null
+  ) => void;
   lifecycleStatuses?: Record<number, DeviceLifecycleStatus>;
+  provisioningRecords?: Record<number, ManagedProvisioningRecord>;
 }
 
 export function DeviceTable({
@@ -32,7 +39,9 @@ export function DeviceTable({
   onEditDevice,
   onDeleteDevice,
   onViewStatus,
+  onDeprovisionDevice,
   lifecycleStatuses,
+  provisioningRecords,
 }: DeviceTableProps) {
   // Format ISO date string
   const formatDate = (isoString: string) => {
@@ -233,17 +242,45 @@ export function DeviceTable({
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
                     )}
-                    {onDeleteDevice && (
-                      <button
-                        type="button"
-                        onClick={() => onDeleteDevice(dev)}
-                        className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                        title={`Delete device ${dev.name}`}
-                        aria-label={`Delete device ${dev.name}`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
+                    {(() => {
+                      const managedRecord = provisioningRecords?.[dev.id];
+                      const isManaged = Boolean(
+                        managedRecord && managedRecord.state !== "deprovisioned"
+                      );
+
+                      if (isManaged) {
+                        return (
+                          onDeprovisionDevice && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onDeprovisionDevice(dev, managedRecord)
+                              }
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200/80 hover:bg-rose-100 transition-colors shadow-2xs"
+                              title={`Deprovision managed Redroid device (stops and removes container & network; preserves /data)`}
+                              aria-label={`Deprovision device ${dev.name}`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Deprovision</span>
+                            </button>
+                          )
+                        );
+                      }
+
+                      return (
+                        onDeleteDevice && (
+                          <button
+                            type="button"
+                            onClick={() => onDeleteDevice(dev)}
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                            title={`Delete device ${dev.name}`}
+                            aria-label={`Delete device ${dev.name}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )
+                      );
+                    })()}
                   </div>
                 </td>
               </tr>

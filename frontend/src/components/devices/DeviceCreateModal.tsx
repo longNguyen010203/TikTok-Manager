@@ -22,13 +22,18 @@ import {
   ProvisioningApiError,
 } from "@/types/provisioning";
 import { provisioningService } from "@/services/provisioningService";
+import { provisioningRegistry } from "@/services/provisioningRegistry";
 import { deviceService } from "@/services/deviceService";
 import { formatApiError } from "@/types/device";
 
 interface DeviceCreateModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onDeviceCreated?: (info: { name: string; device_id?: number }) => void;
+  onDeviceCreated?: (info: {
+    name: string;
+    device_id?: number;
+    status?: RedroidProvisioningStatus;
+  }) => void;
 }
 
 const TERMINAL_SUCCESS_STATES: ProvisioningState[] = ["completed"];
@@ -150,10 +155,12 @@ export function DeviceCreateModal({
 
         if (TERMINAL_SUCCESS_STATES.includes(latest.state as ProvisioningState)) {
           stopPolling();
+          provisioningRegistry.registerFromStatus(latest);
           if (onDeviceCreated) {
             onDeviceCreated({
               name: name.trim() || latest.container_name || "New Device",
               device_id: latest.device_id ?? undefined,
+              status: latest,
             });
           }
         } else if (
@@ -208,10 +215,12 @@ export function DeviceCreateModal({
 
       if (result.state === "completed") {
         setIsSubmitting(false);
+        provisioningRegistry.registerFromStatus(result);
         if (onDeviceCreated) {
           onDeviceCreated({
             name: trimmedName,
             device_id: result.device_id ?? undefined,
+            status: result,
           });
         }
       } else if (TERMINAL_FAILURE_STATES.includes(result.state as ProvisioningState)) {
