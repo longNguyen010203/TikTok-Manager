@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Device
+from app.models import Device, RedroidProvisioning
 from app.schemas.device import (
     DeviceCreate,
     DeviceLifecycleStatus,
@@ -189,6 +189,19 @@ def update_device(
 def delete_device(device_id: int, session: DatabaseSession) -> Response:
     """Delete a device and its runtimes while preserving assigned accounts."""
     device = _get_device_or_404(device_id, session)
+    managed = session.scalar(
+        select(RedroidProvisioning).where(
+            RedroidProvisioning.device_id == device.id
+        )
+    )
+    if managed is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Provisioned managed devices must be removed through "
+                f"POST /redroid-provisionings/{managed.id}/deprovision"
+            ),
+        )
     session.delete(device)
     session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

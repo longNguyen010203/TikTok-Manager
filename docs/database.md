@@ -136,7 +136,9 @@ The record stores a unique idempotency key, request fingerprint, ownership
 token, installation ID, provisioning state, device number, container name and
 ID, ADB host port and serial, persistent data path, network name and ID,
 immutable image reference, nullable resulting Device/Runtime IDs, explicit
-resource-created flags, nullable error details, and timestamps.
+resource-created flags, immutable historical Device/Runtime IDs after
+deprovisioning, container/network removal flags, a data-preserved flag, nullable
+error details, and timestamps.
 
 Device number, container name, ADB port, ADB serial, data path, network name,
 ownership token, idempotency key, Device ID, and Runtime ID are unique. Device
@@ -146,7 +148,9 @@ available if application records are removed.
 Provisioning states are `requested`, `preflighting`, `reserved`,
 `data_created`, `network_created`, `container_created`, `inspected`,
 `completed`, `rolling_back`, `rolled_back`, `failed`, `rollback_failed`, and
-`inconsistent`.
+`inconsistent`. Managed removal adds `deprovisioning`, `deprovisioned`, and
+`deprovision_failed`. A deprovisioned record is retained as a tombstone, and its
+unique `device_number` reservation is never released.
 
 ## Job
 

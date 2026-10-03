@@ -31,3 +31,18 @@ class RedroidProvisioningStatus(BaseModel):
     error_message: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class RedroidDeprovisioningStatus(BaseModel):
+    provisioning_id: str
+    state: str
+    container_removed: bool
+    network_removed: bool
+    data_preserved: bool
+    data_path: str | None
+    device_id: int | None
+    runtime_id: int | None
+    error_code: str | None
+    error_message: str | None
+    created_at: datetime
+    updated_at: datetime

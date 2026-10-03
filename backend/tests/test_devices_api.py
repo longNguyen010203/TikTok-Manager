@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import get_db, init_db
 from tests.app_factory import create_test_app
-from app.models import Account, Device, Runtime
+from app.models import Account, Device, RedroidProvisioning, Runtime
 
 
 @dataclass(frozen=True)
@@ -168,3 +168,58 @@ def test_delete_device_cascades_runtimes_and_preserves_accounts(
         assert session.get(Runtime, runtime_id) is None
         assert preserved_account is not None
         assert preserved_account.runtime_id is None
+
+
+def test_generic_delete_rejects_provisioned_managed_device(
+    device_api: DeviceApiEnvironment,
+) -> None:
+    with Session(device_api.engine) as session:
+        device = Device(
+            name="Managed Device",
+            device_type="emulator",
+            platform="android",
+            os_version="12",
+            status="offline",
+        )
+        runtime = Runtime(
+            name="redroid-runtime-03",
+            runtime_type="redroid",
+            docker_container_name="redroid-device-03",
+            adb_serial="localhost:5557",
+            status="stopped",
+        )
+        device.runtimes.append(runtime)
+        session.add(device)
+        session.flush()
+        provisioning = RedroidProvisioning(
+            id="00000000-0000-0000-0000-000000000003",
+            idempotency_key="managed-delete-test",
+            request_fingerprint="a" * 64,
+            ownership_token="00000000-0000-0000-0000-000000000004",
+            installation_id="test-installation",
+            state="completed",
+            device_number=3,
+            container_name="redroid-device-03",
+            docker_container_id="container-id",
+            adb_host_port=5557,
+            adb_serial="localhost:5557",
+            data_path="/tmp/redroid/device-03-data",
+            network_name="redroid-device-03-net",
+            docker_network_id="network-id",
+            image_reference="image@sha256:" + "a" * 64,
+            device_id=device.id,
+            runtime_id=runtime.id,
+            data_directory_created=True,
+            network_created=True,
+            container_created=True,
+        )
+        session.add(provisioning)
+        session.commit()
+        device_id = device.id
+
+    response = device_api.client.delete(f"/devices/{device_id}")
+
+    assert response.status_code == 409
+    assert "/redroid-provisionings/" in response.json()["detail"]
+    with Session(device_api.engine) as session:
+        assert session.get(Device, device_id) is not None

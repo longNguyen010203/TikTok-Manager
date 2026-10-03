@@ -346,3 +346,56 @@ def test_verify_rejects_started_container(settings, monkeypatch) -> None:
     monkeypatch.setattr(adapter, "inspect_container", lambda _: inspected)
     with pytest.raises(ProvisioningVerificationError, match="created state"):
         adapter.verify_container(item, "container-id")
+
+
+def test_deprovision_removes_stopped_owned_container_by_id(settings, monkeypatch) -> None:
+    adapter = RedroidProvisioningAdapter(settings)
+    item = allocation(settings, settings.data_root.resolve() / "device-03-data")
+    inspected = {
+        "Id": "container-id",
+        "Name": "/redroid-device-03",
+        "Config": {"Labels": item.labels("container")},
+        "State": {"Running": False},
+    }
+    commands: list[list[str]] = []
+    monkeypatch.setattr(adapter, "inspect_container", lambda _: inspected)
+    monkeypatch.setattr(
+        adapter,
+        "_run",
+        lambda command, **_: commands.append(list(command)) or SimpleNamespace(),
+    )
+
+    assert adapter.remove_verified_container(item, "container-id") is True
+    assert commands == [["docker", "container", "rm", "container-id"]]
+
+
+def test_deprovision_refuses_attached_network(settings, monkeypatch) -> None:
+    adapter = RedroidProvisioningAdapter(settings)
+    item = allocation(settings, settings.data_root.resolve() / "device-03-data")
+    inspected = {
+        "Id": "network-id",
+        "Name": "redroid-device-03-net",
+        "Labels": item.labels("network"),
+        "Containers": {"foreign-container": {}},
+    }
+    monkeypatch.setattr(adapter, "inspect_network", lambda _: inspected)
+    monkeypatch.setattr(
+        adapter,
+        "_run",
+        lambda *_args, **_kwargs: pytest.fail("attached network must be preserved"),
+    )
+
+    with pytest.raises(ProvisioningOwnershipError, match="attached"):
+        adapter.remove_verified_network(item, "network-id")
+
+
+def test_deprovision_data_verification_preserves_android_contents(settings) -> None:
+    adapter = RedroidProvisioningAdapter(settings)
+    item = allocation(settings, settings.data_root.resolve() / "device-03-data")
+    adapter.create_owned_data_directory(item)
+    android_data = item.data_path / "android-data"
+    android_data.write_text("preserve", encoding="utf-8")
+
+    adapter.verify_owned_data_directory(item)
+
+    assert android_data.read_text(encoding="utf-8") == "preserve"

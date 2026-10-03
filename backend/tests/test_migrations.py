@@ -15,7 +15,7 @@ PRE_JOB_LOG_REVISION = "20260918_0003"
 PRE_REDROID_CONFIG_REVISION = "20260918_0004"
 PRE_UNIQUE_CONFIG_REVISION = "20261001_0005"
 PRE_PROVISIONING_REVISION = "20261001_0006"
-LATEST_REVISION = "20261002_0007"
+LATEST_REVISION = "20261003_0008"
 
 
 def test_upgrade_head_creates_accounts_table(
@@ -68,8 +68,9 @@ def test_upgrade_head_creates_accounts_table(
             "docker_container_id", "adb_host_port", "adb_serial", "data_path",
             "network_name", "docker_network_id", "image_reference", "device_id",
             "runtime_id", "data_directory_created", "network_created",
-            "container_created", "error_code", "error_message", "created_at",
-            "updated_at",
+            "container_created", "historical_device_id", "historical_runtime_id",
+            "container_removed", "network_removed", "data_preserved",
+            "error_code", "error_message", "created_at", "updated_at",
         }
         provisioning_uniques = {
             tuple(constraint["column_names"])

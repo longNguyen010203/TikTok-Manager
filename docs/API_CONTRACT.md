@@ -558,6 +558,8 @@ Error cases:
 
 - `404 Not Found` with `{"detail": "Device not found"}` when the ID does not
   exist.
+- `409 Conflict` when the Device belongs to a managed Redroid provisioning.
+  Call `POST /redroid-provisionings/{provisioning_id}/deprovision` instead.
 - `422 Unprocessable Entity` when `id` is not an integer.
 
 ## Device lifecycle status object
@@ -818,3 +820,54 @@ Error cases:
 
 - `404 Not Found` with `{"detail": "Provisioning attempt not found"}` when the
   ID is unknown.
+
+## Deprovision a managed Redroid device
+
+- Method: `POST`
+- Path: `/redroid-provisionings/{provisioning_id}/deprovision`
+- Request body: none.
+- Success: `200 OK` with a durable deprovisioning status object.
+- Concurrent execution: `202 Accepted` with the current durable status. Retry
+  the same path; the provisioning ID is the idempotency identity.
+
+```json
+{
+  "provisioning_id": "2e2bc741-61e8-4e2f-bc38-d9c5cc42d949",
+  "state": "deprovisioned",
+  "container_removed": true,
+  "network_removed": true,
+  "data_preserved": true,
+  "data_path": "/home/longnguyen/redroid-test/device-03-data",
+  "device_id": 5,
+  "runtime_id": 5,
+  "error_code": null,
+  "error_message": null,
+  "created_at": "2026-10-02T16:00:00",
+  "updated_at": "2026-10-03T16:00:00"
+}
+```
+
+Only a completed `redroid_provisionings` record can authorize this operation.
+The backend closes its tracked screen, stops a running container, verifies the
+recorded Docker IDs and ownership labels, removes the owned container and its
+dedicated network, then removes the active Device/Runtime records. The
+provisioning record remains as a tombstone with historical Device/Runtime IDs.
+The allocated device number is permanently reserved.
+
+The persistent data directory and its ownership marker are preserved. There is
+no API for destructive data removal.
+
+Error cases:
+
+- `404 Not Found` when the provisioning ID is unknown.
+- `409 Conflict` when the record is ineligible, ownership or DB mapping is
+  ambiguous, an owned network remains attached, or a recoverable deprovision
+  step fails. A durable failure returns the deprovisioning status object in
+  `deprovision_failed` state; an ineligible record returns a conventional error
+  detail.
+- `500 Internal Server Error` when deprovisioning dependencies are unavailable
+  or an unexpected failure cannot be classified.
+
+Messages are sanitized and never include raw Docker output. This endpoint is a
+host-administration capability and must not be exposed publicly without
+administrator authentication and authorization.

@@ -20,6 +20,7 @@ from app.models import Device, RedroidProvisioning, Runtime
 from app.services.redroid_provisioning_adapter import (
     OccupiedResources,
     ProvisioningAllocation,
+    ProvisioningOwnershipError,
     ProvisioningVerificationError,
     RedroidProvisioningAdapter,
 )
@@ -46,6 +47,25 @@ class ProvisioningFailedError(ProvisioningError):
         self.cause = cause
         self.stage = stage
         super().__init__(f"Provisioning {provisioning_id} failed: {cause}")
+
+
+class DeprovisioningEligibilityError(ProvisioningError):
+    """Raised when a provisioning record cannot safely be deprovisioned."""
+
+
+class DeprovisioningFailedError(ProvisioningError):
+    def __init__(self, provisioning_id: str, cause: BaseException) -> None:
+        self.provisioning_id = provisioning_id
+        self.cause = cause
+        super().__init__(f"Deprovisioning {provisioning_id} failed: {cause}")
+
+
+class ScreenCloser(Protocol):
+    def close(self, device_id: int, runtime_id: int, adb_serial: str) -> object: ...
+
+
+class ContainerStopper(Protocol):
+    def stop_container(self, container_name: str) -> str: ...
 
 
 @dataclass(frozen=True)
@@ -130,7 +150,16 @@ class FileAttemptExecutionGuard:
             os.close(descriptor)
 
 
-_TERMINAL_STATES = {"completed", "rolled_back", "failed", "rollback_failed", "inconsistent"}
+_TERMINAL_STATES = {
+    "completed",
+    "rolled_back",
+    "failed",
+    "rollback_failed",
+    "inconsistent",
+    "deprovisioning",
+    "deprovisioned",
+    "deprovision_failed",
+}
 
 
 class RedroidProvisioningService:
@@ -144,6 +173,8 @@ class RedroidProvisioningService:
         *,
         allocation_lock: AllocationLock | None = None,
         execution_guard: AttemptExecutionGuard | None = None,
+        screen_manager: ScreenCloser | None = None,
+        runtime_adapter: ContainerStopper | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.adapter = adapter
@@ -152,6 +183,8 @@ class RedroidProvisioningService:
         self.execution_guard = execution_guard or FileAttemptExecutionGuard(
             settings.data_root
         )
+        self.screen_manager = screen_manager
+        self.runtime_adapter = runtime_adapter
 
     def get_or_create_request(
         self, idempotency_key: str, request: ProvisioningRequest
@@ -325,6 +358,167 @@ class RedroidProvisioningService:
     def get(self, attempt_id: str) -> RedroidProvisioning:
         with self.session_factory() as session:
             return self._require_attempt(session, attempt_id)
+
+    def deprovision(self, attempt_id: str) -> RedroidProvisioning:
+        """Remove verified infrastructure while preserving data and history."""
+        attempt = self.get(attempt_id)
+        with self.execution_guard.acquire(attempt.id) as acquired:
+            if not acquired:
+                return self.get(attempt.id)
+            attempt = self.get(attempt.id)
+            if attempt.state == "deprovisioned":
+                return attempt
+            if attempt.state not in {
+                "completed", "deprovisioning", "deprovision_failed"
+            }:
+                raise DeprovisioningEligibilityError(
+                    "Only completed managed Redroid provisionings can be deprovisioned"
+                )
+            if attempt.installation_id != self.settings.installation_id:
+                raise DeprovisioningEligibilityError(
+                    "Provisioning belongs to a different manager installation"
+                )
+            if self.screen_manager is None or self.runtime_adapter is None:
+                raise ProvisioningError("Deprovisioning dependencies are unavailable")
+
+            try:
+                device_id, runtime_id = self._validate_deprovision_mapping(attempt.id)
+                self._record_stage(
+                    attempt.id,
+                    "deprovisioning",
+                    historical_device_id=device_id,
+                    historical_runtime_id=runtime_id,
+                    error_code=None,
+                    error_message=None,
+                )
+                attempt = self.get(attempt.id)
+                allocation = self._allocation(attempt)
+
+                # Validate every ownership boundary before the first action.
+                self.adapter.verify_owned_data_directory(allocation)
+                container = None
+                if attempt.container_removed:
+                    self.adapter.require_removed_container_absent(allocation)
+                else:
+                    container = self.adapter.require_owned_container_for_removal(
+                        allocation, attempt.docker_container_id or ""
+                    )
+                if attempt.network_removed:
+                    self.adapter.require_removed_network_absent(allocation)
+                else:
+                    self.adapter.require_owned_network_for_removal(
+                        allocation, attempt.docker_network_id or ""
+                    )
+
+                self.screen_manager.close(device_id, runtime_id, allocation.adb_serial)
+
+                if not attempt.container_removed:
+                    assert container is not None
+                    if (container.get("State") or {}).get("Running"):
+                        self.runtime_adapter.stop_container(
+                            attempt.docker_container_id or ""
+                        )
+                    self._mark_runtime_stopped(attempt.id)
+                    self.adapter.remove_verified_container(
+                        allocation, attempt.docker_container_id or ""
+                    )
+                    self._record_stage(
+                        attempt.id,
+                        "deprovisioning",
+                        container_removed=True,
+                    )
+
+                attempt = self.get(attempt.id)
+                if not attempt.network_removed:
+                    self.adapter.remove_verified_network(
+                        allocation, attempt.docker_network_id or ""
+                    )
+                    self._record_stage(
+                        attempt.id,
+                        "deprovisioning",
+                        network_removed=True,
+                    )
+
+                return self._complete_deprovision(attempt.id)
+            except Exception as error:
+                self._record_error(attempt.id, error, state="deprovision_failed")
+                raise DeprovisioningFailedError(attempt.id, error) from error
+
+    def _validate_deprovision_mapping(self, attempt_id: str) -> tuple[int, int]:
+        with self.session_factory() as session:
+            attempt = self._require_attempt(session, attempt_id)
+            device_id = attempt.device_id or attempt.historical_device_id
+            runtime_id = attempt.runtime_id or attempt.historical_runtime_id
+            if device_id is None or runtime_id is None:
+                raise ProvisioningOwnershipError(
+                    "Provisioning Device/Runtime ownership mapping is incomplete"
+                )
+            if attempt.device_id != device_id or attempt.runtime_id != runtime_id:
+                raise ProvisioningOwnershipError(
+                    "Active Device/Runtime mapping is missing"
+                )
+            device = session.get(Device, device_id)
+            runtime = session.get(Runtime, runtime_id)
+            if device is None or runtime is None:
+                raise ProvisioningOwnershipError(
+                    "Provisioning Device/Runtime records are missing"
+                )
+            if (
+                runtime.device_id != device.id
+                or runtime.runtime_type != "redroid"
+                or runtime.docker_container_name != attempt.container_name
+                or runtime.adb_serial != attempt.adb_serial
+                or len(device.runtimes) != 1
+                or device.runtimes[0].id != runtime.id
+            ):
+                raise ProvisioningOwnershipError(
+                    "Provisioning Device/Runtime mapping does not match"
+                )
+            if (
+                attempt.historical_device_id not in {None, device_id}
+                or attempt.historical_runtime_id not in {None, runtime_id}
+            ):
+                raise ProvisioningOwnershipError(
+                    "Provisioning historical mapping does not match"
+                )
+            return device_id, runtime_id
+
+    def _mark_runtime_stopped(self, attempt_id: str) -> None:
+        with self.session_factory() as session:
+            attempt = self._require_attempt(session, attempt_id)
+            if attempt.device_id is None or attempt.runtime_id is None:
+                raise ProvisioningOwnershipError("Active mapping disappeared")
+            device = session.get(Device, attempt.device_id)
+            runtime = session.get(Runtime, attempt.runtime_id)
+            if device is None or runtime is None:
+                raise ProvisioningOwnershipError("Active mapping disappeared")
+            device.status = "offline"
+            runtime.status = "stopped"
+            session.commit()
+
+    def _complete_deprovision(self, attempt_id: str) -> RedroidProvisioning:
+        with self.session_factory() as session:
+            attempt = self._require_attempt(session, attempt_id)
+            if not attempt.container_removed or not attempt.network_removed:
+                raise ProvisioningError("External deprovisioning is incomplete")
+            if attempt.device_id is None or attempt.runtime_id is None:
+                raise ProvisioningOwnershipError("Active mapping disappeared")
+            device = session.get(Device, attempt.device_id)
+            runtime = session.get(Runtime, attempt.runtime_id)
+            if device is None or runtime is None or runtime.device_id != device.id:
+                raise ProvisioningOwnershipError("Active mapping disappeared")
+            attempt.historical_device_id = device.id
+            attempt.historical_runtime_id = runtime.id
+            attempt.device_id = None
+            attempt.runtime_id = None
+            attempt.data_preserved = True
+            attempt.state = "deprovisioned"
+            attempt.error_code = None
+            attempt.error_message = None
+            session.delete(device)
+            session.commit()
+            session.refresh(attempt)
+            return attempt
 
     def _select_number(
         self,

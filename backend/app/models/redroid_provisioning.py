@@ -23,6 +23,9 @@ PROVISIONING_STATES = (
     "failed",
     "rollback_failed",
     "inconsistent",
+    "deprovisioning",
+    "deprovisioned",
+    "deprovision_failed",
 )
 
 
@@ -66,9 +69,14 @@ class RedroidProvisioning(Base):
     runtime_id: Mapped[int | None] = mapped_column(
         ForeignKey("runtimes.id", ondelete="SET NULL"), unique=True
     )
+    historical_device_id: Mapped[int | None] = mapped_column(Integer)
+    historical_runtime_id: Mapped[int | None] = mapped_column(Integer)
     data_directory_created: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     network_created: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     container_created: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    container_removed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    network_removed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    data_preserved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(100))
     error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)

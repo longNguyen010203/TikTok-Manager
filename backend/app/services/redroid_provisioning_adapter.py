@@ -293,6 +293,99 @@ class RedroidProvisioningAdapter:
         self._require_labels(item, allocation.labels("network"))
         return str(item["Id"])
 
+    def verify_owned_data_directory(self, allocation: ProvisioningAllocation) -> None:
+        """Verify the preserved data directory without changing its contents."""
+        self._validate_allocation(allocation)
+        path = self._validated_data_path(allocation)
+        if not path.is_dir():
+            raise ProvisioningOwnershipError("Provisioned data directory is missing")
+        self._require_marker(
+            path / self.marker_name,
+            self._marker_payload(allocation),
+        )
+
+    def require_owned_container_for_removal(
+        self, allocation: ProvisioningAllocation, container_id: str
+    ) -> dict[str, Any]:
+        """Return a container only when its immutable ID and ownership all match."""
+        self._validate_allocation(allocation)
+        if not container_id:
+            raise ProvisioningOwnershipError("Recorded container ID is missing")
+        item = self.inspect_container(container_id)
+        if item is None:
+            replacement = self.inspect_container(allocation.container_name)
+            if replacement is not None:
+                raise ProvisioningOwnershipError(
+                    "A different container occupies the provisioned name"
+                )
+            raise ProvisioningOwnershipError("Recorded container is missing")
+        if str(item.get("Id")) != container_id:
+            raise ProvisioningOwnershipError("Container ID changed")
+        self._require_labels(item, allocation.labels("container"))
+        if str(item.get("Name", "")).lstrip("/") != allocation.container_name:
+            raise ProvisioningOwnershipError("Container name changed")
+        return item
+
+    def require_owned_network_for_removal(
+        self, allocation: ProvisioningAllocation, network_id: str
+    ) -> dict[str, Any]:
+        """Return a network only when its immutable ID and ownership all match."""
+        self._validate_allocation(allocation)
+        if not network_id:
+            raise ProvisioningOwnershipError("Recorded network ID is missing")
+        item = self.inspect_network(network_id)
+        if item is None:
+            replacement = self.inspect_network(allocation.network_name)
+            if replacement is not None:
+                raise ProvisioningOwnershipError(
+                    "A different network occupies the provisioned name"
+                )
+            raise ProvisioningOwnershipError("Recorded network is missing")
+        if str(item.get("Id")) != network_id:
+            raise ProvisioningOwnershipError("Network ID changed")
+        self._require_labels(item, allocation.labels("network"))
+        if item.get("Name") != allocation.network_name:
+            raise ProvisioningOwnershipError("Network name changed")
+        return item
+
+    def require_removed_container_absent(
+        self, allocation: ProvisioningAllocation
+    ) -> None:
+        """Refuse recovery if any resource now occupies a removed name."""
+        self._validate_allocation(allocation)
+        if self.inspect_container(allocation.container_name) is not None:
+            raise ProvisioningOwnershipError(
+                "A container now occupies the deprovisioned name"
+            )
+
+    def require_removed_network_absent(self, allocation: ProvisioningAllocation) -> None:
+        """Refuse recovery if any resource now occupies a removed name."""
+        self._validate_allocation(allocation)
+        if self.inspect_network(allocation.network_name) is not None:
+            raise ProvisioningOwnershipError(
+                "A network now occupies the deprovisioned name"
+            )
+
+    def remove_verified_container(
+        self, allocation: ProvisioningAllocation, container_id: str
+    ) -> bool:
+        """Remove a stopped container by verified immutable ID."""
+        item = self.require_owned_container_for_removal(allocation, container_id)
+        if (item.get("State") or {}).get("Running"):
+            raise ProvisioningOwnershipError("Owned container is still running")
+        self._run(["docker", "container", "rm", container_id])
+        return True
+
+    def remove_verified_network(
+        self, allocation: ProvisioningAllocation, network_id: str
+    ) -> bool:
+        """Remove an empty network by verified immutable ID."""
+        item = self.require_owned_network_for_removal(allocation, network_id)
+        if item.get("Containers"):
+            raise ProvisioningOwnershipError("Network still has attached containers")
+        self._run(["docker", "network", "rm", network_id])
+        return True
+
     def remove_owned_data_directory(self, allocation: ProvisioningAllocation) -> bool:
         self._validate_allocation(allocation)
         path = self._validated_data_path(allocation)

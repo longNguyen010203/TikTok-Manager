@@ -20,6 +20,7 @@ from app.services.redroid_provisioning_adapter import (
     ProvisioningAllocation,
     ProvisioningAdapterError,
     ProvisioningConflictError,
+    ProvisioningOwnershipError,
     ProvisioningVerificationError,
 )
 from app.services.redroid_provisioning_config import RedroidProvisioningSettings
@@ -33,6 +34,8 @@ class ApiFakeAdapter:
         self.blocking = blocking
         self.preflight_entered = Event()
         self.release_preflight = Event()
+        self.container_present = True
+        self.network_present = True
 
     def _call(self, name: str) -> None:
         self.calls.append(name)
@@ -73,6 +76,34 @@ class ApiFakeAdapter:
         self.calls.append("remove_network"); return True
     def remove_owned_data_directory(self, allocation: ProvisioningAllocation) -> bool:
         self.calls.append("remove_data"); return True
+    def verify_owned_data_directory(self, allocation: ProvisioningAllocation) -> None:
+        self.calls.append("verify_data")
+    def require_owned_container_for_removal(self, allocation, container_id):
+        self.calls.append("verify_owned_container")
+        return {"Id": container_id, "State": {"Running": False}}
+    def require_owned_network_for_removal(self, allocation, network_id):
+        self.calls.append("verify_owned_network")
+        return {"Id": network_id}
+    def require_removed_container_absent(self, allocation):
+        assert not self.container_present
+    def require_removed_network_absent(self, allocation):
+        assert not self.network_present
+    def remove_verified_container(self, allocation, container_id):
+        self.calls.append("deprovision_container")
+        self.container_present = False
+        return True
+    def remove_verified_network(self, allocation, network_id):
+        self.calls.append("deprovision_network")
+        self.network_present = False
+        return True
+
+
+class ApiScreenManager:
+    def close(self, device_id, runtime_id, adb_serial): return object()
+
+
+class ApiRuntimeAdapter:
+    def stop_container(self, container_name): return container_name
 
 
 @pytest.fixture
@@ -94,7 +125,13 @@ def api_context(tmp_path: Path):
 
 def client_for(api_context, adapter: ApiFakeAdapter):
     app, factory, settings = api_context
-    service = RedroidProvisioningService(factory, adapter, settings)
+    service = RedroidProvisioningService(
+        factory,
+        adapter,
+        settings,
+        screen_manager=ApiScreenManager(),
+        runtime_adapter=ApiRuntimeAdapter(),
+    )
     app.dependency_overrides[get_redroid_provisioning_service] = lambda: service
     return TestClient(app), service
 
@@ -173,3 +210,60 @@ def test_concurrent_duplicate_executes_external_path_once(api_context) -> None:
     assert adapter.calls.count("data") == 1
     assert adapter.calls.count("network") == 1
     assert adapter.calls.count("container") == 1
+
+
+def test_deprovision_endpoint_returns_tombstone_and_is_idempotent(api_context) -> None:
+    adapter = ApiFakeAdapter()
+    client, _ = client_for(api_context, adapter)
+    created = client.post(
+        "/redroid-provisionings",
+        headers={"Idempotency-Key": "deprovision-api"},
+        json=payload(),
+    ).json()
+    path = f"/redroid-provisionings/{created['provisioning_id']}/deprovision"
+
+    first = client.post(path)
+    second = client.post(path)
+
+    assert first.status_code == second.status_code == 200
+    assert first.json() == second.json()
+    assert first.json()["state"] == "deprovisioned"
+    assert first.json()["container_removed"] is True
+    assert first.json()["network_removed"] is True
+    assert first.json()["data_preserved"] is True
+    assert adapter.calls.count("deprovision_container") == 1
+    replay = client.post(
+        "/redroid-provisionings",
+        headers={"Idempotency-Key": "deprovision-api"},
+        json=payload(),
+    )
+    assert replay.status_code == 409
+    assert adapter.calls.count("container") == 1
+
+
+def test_unknown_deprovision_is_404(api_context) -> None:
+    client, _ = client_for(api_context, ApiFakeAdapter())
+    assert client.post("/redroid-provisionings/unknown/deprovision").status_code == 404
+
+
+def test_deprovision_failure_returns_sanitized_durable_status(api_context) -> None:
+    adapter = ApiFakeAdapter()
+    client, _ = client_for(api_context, adapter)
+    created = client.post(
+        "/redroid-provisionings",
+        headers={"Idempotency-Key": "deprovision-failure"},
+        json=payload(),
+    ).json()
+
+    def fail_ownership(_allocation):
+        raise ProvisioningOwnershipError("SECRET ownership diagnostic")
+
+    adapter.verify_owned_data_directory = fail_ownership
+    response = client.post(
+        f"/redroid-provisionings/{created['provisioning_id']}/deprovision"
+    )
+
+    assert response.status_code == 409
+    assert response.json()["state"] == "deprovision_failed"
+    assert response.json()["error_code"] == "ProvisioningOwnershipError"
+    assert "SECRET" not in response.text

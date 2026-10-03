@@ -55,6 +55,34 @@ These endpoints control privileged Docker resources and are host-administration
 capabilities. Keep the backend bound to a trusted/local interface and do not
 publish the endpoint without administrator authentication and authorization.
 
+## Managed deprovisioning
+
+Provisioned devices must be removed with
+`POST /redroid-provisionings/{provisioning_id}/deprovision`. Generic
+`DELETE /devices/{id}` rejects provisioned managed devices; legacy Device 01/02
+retain their existing unmanaged behavior and are never adopted automatically.
+
+Deprovisioning uses the same cross-process attempt lock as provisioning. Before
+the first state-changing action, it verifies the installation ID, provisioning
+and ownership labels, recorded container/network IDs, exact Device/Runtime
+mapping, derived allocation, and data ownership marker. Resource names are only
+checked for conflicts and never authorize deletion. An ownership mismatch sets
+`deprovision_failed` and preserves resources for manual recovery.
+
+The normal order is: close the tracked screen, stop a running container by its
+verified ID, remove that stopped container by ID, remove the verified empty
+dedicated network by ID, and atomically remove the active Device/Runtime rows.
+Account and Job references follow their existing `SET NULL` semantics. The
+provisioning row remains in `deprovisioned` state with historical Device and
+Runtime IDs plus durable removal flags, so retries are idempotent and its device
+number can never be allocated again.
+
+The data directory and `.tiktok-manager-provisioning.json` marker are always
+preserved by this workflow. Phase 6 intentionally provides no permanent-data
+deletion option. A frontend action should therefore be offered only for a
+device backed by a completed provisioning record, warn that the container and
+network will be removed, and state clearly that persistent data is retained.
+
 ## Device 03 API provisioning verification
 
 Device 03 was provisioned through `POST /redroid-provisionings` on 2026-10-02
