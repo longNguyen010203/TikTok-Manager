@@ -83,6 +83,18 @@ deletion option. A frontend action should therefore be offered only for a
 device backed by a completed provisioning record, warn that the container and
 network will be removed, and state clearly that persistent data is retained.
 
+### Frontend registry recovery
+
+The frontend keeps a convenience mapping from Device IDs to provisioning IDs in
+browser `localStorage`; it is not an ownership authority. If that registry is
+missing or cleared, the UI first attempts the ordinary Device delete. For a
+provisioned managed Device, the backend rejects that request with `409 Conflict`
+and includes the dedicated deprovision path containing the authoritative
+provisioning ID. The frontend extracts that ID, fetches
+`GET /redroid-provisionings/{provisioning_id}`, rebuilds its local registry from
+the durable backend record, and directs the operator into the Deprovision flow.
+No Docker resource is deleted by the rejected generic request.
+
 ## Device 03 API provisioning verification
 
 Device 03 was provisioned through `POST /redroid-provisionings` on 2026-10-02

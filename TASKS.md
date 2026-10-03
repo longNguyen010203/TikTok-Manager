@@ -581,7 +581,7 @@ Acceptance criteria:
 ---
 
 ## TIK-018
-Status: IN PROGRESS
+Status: DONE
 Owner: Codex + Antigravity
 Type: Backend / Device Provisioning
 
