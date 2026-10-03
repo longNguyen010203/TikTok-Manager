@@ -10,9 +10,19 @@ process metadata are never returned.
 
 `PUT /runtimes/{id}/network` stores desired state only. Its body contains
 `mode`, `expected_revision`, and, for `http_proxy`, `proxy_host`, `proxy_port`,
-and optional username/password secret references. Bridge ports are allocated
-by the server. A stopped Runtime remains pending and no ADB or bridge action is
-performed. A stale expected revision returns `409 Conflict`.
+and optional plaintext `username` and `password` write-only fields. Supplying
+both replaces the encrypted stored credentials. Omitting both retains existing
+credentials. `credential_action="clear"` removes authentication, while
+`credential_action="replace"` requires both fields; empty strings are invalid.
+Legacy allowlisted environment references remain accepted temporarily but
+cannot be combined with stored-credential operations. Bridge ports are
+allocated by the server. A stopped Runtime remains pending and no ADB or bridge
+action is performed. A stale expected revision returns `409 Conflict`.
+
+Plaintext credential fields exist only in request memory. Validation and API
+error bodies never echo rejected input. No network response returns plaintext,
+ciphertext, a secret reference, or the master key—only the two configured
+booleans.
 
 `POST /runtimes/{id}/network/apply` applies the current desired revision.
 Direct mode clears Android proxy keys, removes the exact Runtime reverse rule,

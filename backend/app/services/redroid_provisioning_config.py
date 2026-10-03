@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
+
+from app.config import load_application_config
 
 
 class ProvisioningConfigurationError(ValueError):
@@ -44,25 +45,12 @@ class RedroidProvisioningSettings:
 
     @classmethod
     def from_environment(cls) -> "RedroidProvisioningSettings":
-        required = {
-            "installation_id": os.getenv("TIKTOK_MANAGER_INSTALLATION_ID"),
-            "image_reference": os.getenv("REDROID_PROVISIONING_IMAGE"),
-            "data_root": os.getenv("REDROID_PROVISIONING_DATA_ROOT"),
-        }
-        missing = [name for name, value in required.items() if not value]
-        if missing:
-            raise ProvisioningConfigurationError(
-                "Missing required provisioning configuration: " + ", ".join(missing)
-            )
-        try:
-            base_port = int(os.getenv("REDROID_PROVISIONING_BASE_ADB_PORT", "5554"))
-        except ValueError as error:
-            raise ProvisioningConfigurationError("REDROID_PROVISIONING_BASE_ADB_PORT must be an integer") from error
+        application = load_application_config()
         return cls(
-            installation_id=required["installation_id"] or "",
-            image_reference=required["image_reference"] or "",
-            data_root=Path(required["data_root"] or ""),
-            base_adb_port=base_port,
-            network_prefix=os.getenv("REDROID_PROVISIONING_NETWORK_PREFIX", "redroid-device"),
-            supported_profile=os.getenv("REDROID_PROVISIONING_PROFILE", "android-12-redroid"),
+            installation_id=application.installation_id,
+            image_reference=application.redroid_image,
+            data_root=application.redroid_data_root,
+            base_adb_port=application.redroid_base_adb_port,
+            network_prefix=application.redroid_network_prefix,
+            supported_profile=application.redroid_profile,
         )

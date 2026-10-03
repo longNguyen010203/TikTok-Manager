@@ -2,10 +2,12 @@
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
-from app.database import SessionLocal
+from app.database import DATABASE_SETTINGS, SessionLocal, engine
 from app.routers.accounts import router as accounts_router
 from app.routers.devices import router as devices_router, screen_process_manager
 from app.routers.health import router as health_router
@@ -18,13 +20,16 @@ from app.services.host_lifecycle import (
     HostLifecycleManager,
     stop_managed_devices_on_shutdown_from_environment,
 )
+from app.services.database_startup import DatabaseStartupValidator
 from app.services.android_network import AndroidNetworkAdapter
 from app.services.network_config import RuntimeNetworkSettings
+from app.services.network_credentials import MasterKeyManager, NetworkCredentialProvider
 from app.services.network_operation_lock import RuntimeNetworkOperationGuard
 from app.services.network_secrets import SecretResolver
 from app.services.redroid_runtime import RedroidRuntimeAdapter
 from app.services.runtime_network_orchestration import RuntimeNetworkRecoveryCoordinator
 from app.services.systemd_proxy_bridge import SystemdHostProxyBridgeSupervisor
+from app.config import load_application_config
 
 
 def create_app(
@@ -35,6 +40,10 @@ def create_app(
     if lifecycle is None:
         runtime_adapter = RedroidRuntimeAdapter()
         network_settings = RuntimeNetworkSettings.from_environment()
+        application_config = load_application_config()
+        credential_provider = NetworkCredentialProvider(
+            MasterKeyManager(application_config.credential_key_path)
+        )
         lifecycle = HostLifecycleManager(
             SessionLocal,
             runtime_adapter,
@@ -53,7 +62,11 @@ def create_app(
                 guard=RuntimeNetworkOperationGuard(
                     network_settings.lock_directory
                 ),
+                credential_provider=credential_provider,
             ),
+            database_readiness_check=DatabaseStartupValidator(
+                engine, DATABASE_SETTINGS, credential_provider
+            ).validate,
         )
 
     @asynccontextmanager
@@ -65,6 +78,22 @@ def create_app(
             lifecycle.shutdown()
 
     application = FastAPI(title="TikTok Manager API", lifespan=lifespan)
+
+    @application.exception_handler(RequestValidationError)
+    async def safe_validation_error(
+        _request: Request, error: RequestValidationError
+    ) -> JSONResponse:
+        # FastAPI's default response includes the rejected input. Network write
+        # bodies may contain plaintext credentials, so expose only safe fields.
+        details = [
+            {
+                "loc": list(item.get("loc", ())),
+                "msg": item.get("msg", "Invalid input"),
+                "type": item.get("type", "value_error"),
+            }
+            for item in error.errors()
+        ]
+        return JSONResponse(status_code=422, content={"detail": details})
     application.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],

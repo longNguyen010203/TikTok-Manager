@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from app.models.account import Account
     from app.models.device import Device
     from app.models.job import Job
-    from app.models.runtime_network import RuntimeNetworkConfig, RuntimeNetworkConfigRevision, RuntimeNetworkState
+    from app.models.runtime_network import RuntimeNetworkConfig, RuntimeNetworkConfigRevision, RuntimeNetworkCredential, RuntimeNetworkState
 
 
 class Runtime(Base):
@@ -53,5 +53,8 @@ class Runtime(Base):
         back_populates="runtime", cascade="all, delete-orphan"
     )
     network_state: Mapped["RuntimeNetworkState | None"] = relationship(
+        back_populates="runtime", cascade="all, delete-orphan", uselist=False
+    )
+    network_credential: Mapped["RuntimeNetworkCredential | None"] = relationship(
         back_populates="runtime", cascade="all, delete-orphan", uselist=False
     )

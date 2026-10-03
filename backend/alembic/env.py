@@ -1,20 +1,21 @@
 """Alembic migration environment."""
 
-import os
 from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 import app.models  # noqa: F401
-from app.database import Base
+from app.database import Base, resolve_database_settings
 
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Alembic can run in the application/test process. Keep already-created
+    # application loggers enabled instead of globally disabling them.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
-database_url = os.getenv("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
+database_url = resolve_database_settings().url
 config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 target_metadata = Base.metadata
 

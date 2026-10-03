@@ -18,8 +18,13 @@ from app.schemas.runtime_network import (
 )
 from app.services.android_network import AndroidNetworkAdapter
 from app.services.network_config import RuntimeNetworkSettings
+from app.services.network_credentials import (
+    MasterKeyManager,
+    NetworkCredentialError,
+    NetworkCredentialProvider,
+)
 from app.services.network_operation_lock import NetworkOperationLockBusy, RuntimeNetworkOperationGuard
-from app.services.network_secrets import SecretResolutionError, SecretResolver
+from app.services.network_secrets import SecretResolutionError, SecretResolver, SecretValue
 from app.services.network_validation import NetworkValidationError
 from app.services.proxy_bridge import HostProxyBridgeSupervisor
 from app.services.redroid_runtime import RedroidRuntimeAdapter
@@ -40,6 +45,7 @@ from app.services.runtime_network_orchestration import (
     RuntimeNetworkOrchestrator,
 )
 from app.services.systemd_proxy_bridge import SystemdHostProxyBridgeSupervisor
+from app.config import load_application_config
 
 router = APIRouter(prefix="/runtimes", tags=["runtime-network"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
@@ -65,11 +71,21 @@ def get_runtime_network_settings() -> RuntimeNetworkSettings:
     return RuntimeNetworkSettings.from_environment()
 
 
+def get_network_credential_provider() -> NetworkCredentialProvider:
+    application = load_application_config()
+    return NetworkCredentialProvider(
+        MasterKeyManager(application.credential_key_path)
+    )
+
+
 AndroidAdapter = Annotated[AndroidNetworkAdapter, Depends(get_android_network_adapter)]
 RuntimeAdapter = Annotated[RedroidRuntimeAdapter, Depends(get_network_runtime_adapter)]
 BridgeSupervisor = Annotated[HostProxyBridgeSupervisor, Depends(get_host_proxy_bridge_supervisor)]
 Secrets = Annotated[SecretResolver, Depends(get_network_secret_resolver)]
 NetworkSettings = Annotated[RuntimeNetworkSettings, Depends(get_runtime_network_settings)]
+CredentialProvider = Annotated[
+    NetworkCredentialProvider, Depends(get_network_credential_provider)
+]
 
 
 def get_request_network_cleaner(
@@ -79,9 +95,10 @@ def get_request_network_cleaner(
     bridge: BridgeSupervisor,
     secrets: Secrets,
     settings: NetworkSettings,
+    credentials: CredentialProvider,
 ) -> RuntimeNetworkOrchestrator:
     return _orchestrator(
-        session, android, runtime_adapter, bridge, secrets, settings
+        session, android, runtime_adapter, bridge, secrets, settings, credentials
     )
 
 
@@ -102,16 +119,35 @@ def update_runtime_network(
     payload: RuntimeNetworkUpdate,
     session: DatabaseSession,
     settings: NetworkSettings,
+    credentials: CredentialProvider,
 ) -> RuntimeNetworkResponse:
+    credential_action = payload.credential_action or (
+        "replace"
+        if payload.username is not None or payload.password is not None
+        else "retain"
+    )
     desired = DesiredNetworkInput(
         mode=payload.mode,
         proxy_host=payload.proxy_host,
         proxy_port=payload.proxy_port,
         proxy_username_secret_ref=payload.proxy_username_secret_ref,
         proxy_password_secret_ref=payload.proxy_password_secret_ref,
+        credential_action=credential_action,
+        username=(
+            SecretValue(payload.username.get_secret_value())
+            if payload.username is not None
+            else None
+        ),
+        password=(
+            SecretValue(payload.password.get_secret_value())
+            if payload.password is not None
+            else None
+        ),
     )
     try:
-        RuntimeNetworkService(session, settings=settings).create_or_update_desired(
+        RuntimeNetworkService(
+            session, settings=settings, credential_provider=credentials
+        ).create_or_update_desired(
             runtime_id,
             desired,
             expected_revision=payload.expected_revision,
@@ -122,6 +158,8 @@ def update_runtime_network(
         raise HTTPException(status_code=409, detail=str(error)) from error
     except (NetworkValidationError, SecretResolutionError, ValueError) as error:
         raise HTTPException(status_code=422, detail="Invalid Runtime network configuration") from error
+    except NetworkCredentialError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
     except RuntimeNetworkError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     return _network_response(runtime_id, session)
@@ -136,9 +174,10 @@ def apply_runtime_network(
     bridge: BridgeSupervisor,
     secrets: Secrets,
     settings: NetworkSettings,
+    credentials: CredentialProvider,
 ) -> RuntimeNetworkResponse:
     orchestrator = _orchestrator(
-        session, android, runtime_adapter, bridge, secrets, settings
+        session, android, runtime_adapter, bridge, secrets, settings, credentials
     )
     _execute_apply(lambda: orchestrator.apply(runtime_id))
     return _network_response(runtime_id, session)
@@ -153,6 +192,7 @@ def clear_runtime_network(
     bridge: BridgeSupervisor,
     secrets: Secrets,
     settings: NetworkSettings,
+    credentials: CredentialProvider,
 ) -> RuntimeNetworkResponse:
     runtime = _require_runtime(runtime_id, session)
     config = session.scalar(
@@ -161,7 +201,9 @@ def clear_runtime_network(
     expected = 0 if config is None else config.desired_revision
     if config is None or config.mode != "direct":
         try:
-            RuntimeNetworkService(session, settings=settings).switch_to_direct(
+            RuntimeNetworkService(
+                session, settings=settings, credential_provider=credentials
+            ).switch_to_direct(
                 runtime_id,
                 expected_revision=expected,
                 cleanup_complete=False,
@@ -173,7 +215,7 @@ def clear_runtime_network(
     if runtime.status == "stopped":
         return _network_response(runtime_id, session)
     orchestrator = _orchestrator(
-        session, android, runtime_adapter, bridge, secrets, settings
+        session, android, runtime_adapter, bridge, secrets, settings, credentials
     )
     _execute_apply(lambda: orchestrator.apply(runtime_id))
     return _network_response(runtime_id, session)
@@ -188,6 +230,7 @@ def get_runtime_network_status(
     bridge: BridgeSupervisor,
     secrets: Secrets,
     settings: NetworkSettings,
+    credentials: CredentialProvider,
 ) -> RuntimeNetworkStatusResponse:
     _require_runtime(runtime_id, session)
     config = session.scalar(select(RuntimeNetworkConfig).where(RuntimeNetworkConfig.runtime_id == runtime_id))
@@ -208,7 +251,7 @@ def get_runtime_network_status(
             error_message=None,
         )
     checks = _orchestrator(
-        session, android, runtime_adapter, bridge, secrets, settings
+        session, android, runtime_adapter, bridge, secrets, settings, credentials
     ).checks(runtime_id)
     return RuntimeNetworkStatusResponse(
         runtime_id=runtime_id,
@@ -230,6 +273,7 @@ def _orchestrator(
     bridge: HostProxyBridgeSupervisor,
     secrets: SecretResolver,
     settings: RuntimeNetworkSettings,
+    credential_provider: NetworkCredentialProvider,
 ) -> RuntimeNetworkOrchestrator:
     return RuntimeNetworkOrchestrator(
         session,
@@ -238,6 +282,7 @@ def _orchestrator(
         bridge_supervisor=bridge,
         secret_resolver=secrets,
         guard=RuntimeNetworkOperationGuard(settings.lock_directory),
+        credential_provider=credential_provider,
     )
 
 
@@ -299,8 +344,14 @@ def _network_response(runtime_id: int, session: Session) -> RuntimeNetworkRespon
         proxy_host=config.proxy_host,
         proxy_port=config.proxy_port,
         credentials=NetworkCredentialsSummary(
-            username_configured=config.proxy_username_secret_ref is not None,
-            password_configured=config.proxy_password_secret_ref is not None,
+            username_configured=(
+                config.credential_source == "stored_encrypted"
+                or config.proxy_username_secret_ref is not None
+            ),
+            password_configured=(
+                config.credential_source == "stored_encrypted"
+                or config.proxy_password_secret_ref is not None
+            ),
         ),
         desired_revision=config.desired_revision,
         applied_revision=state.applied_revision,

@@ -1,24 +1,25 @@
 # Database
 
-## Development database
-SQLite, configured by default as `sqlite:///./tiktok_manager.db` relative to the
-backend process working directory. Set `DATABASE_URL` to override the connection
-URL.
+## Authoritative operational database
 
-## Operational host database
-
-Real host operations must not use the relative development URL because each Git
-worktree resolves it to a different SQLite file. The verified local host runtime
-uses this explicit database outside every worktree:
+The normal local runtime always resolves its SQLite database from the durable
+application configuration. Its canonical path is:
 
 ```text
 sqlite:////home/longnguyen/.local/share/tiktok-manager/tiktok_manager.db
 ```
 
-Set that exact `DATABASE_URL` before starting the backend for real Docker/device
-operations. The database and its backups are operational state and must never be
-committed to Git. The pre-Device-03 backup is stored under
-`/home/longnguyen/.local/share/tiktok-manager/backups/`.
+Normal users do not set `DATABASE_URL`. The installer creates
+`~/.config/tiktok-manager/config.toml`, and production startup rejects a
+worktree-local SQLite path. The database and its backups are operational state
+and must never be committed to Git. Startup fails instead of creating a second
+empty database when the configured operational database is absent, corrupt, or
+at an incompatible Alembic revision.
+
+Files such as `backend/tiktok_manager.db` are development artifacts. Tests use
+temporary databases. Developers may explicitly set `DATABASE_URL` for an
+isolated development/test process; an explicit override is never required by
+the installed application service.
 
 Database schema changes are managed by Alembic. Application import does not
 create database files or tables automatically. `app.database.init_db()` remains
@@ -27,9 +28,10 @@ migration workflow below.
 
 ## Migration workflow
 
-Run migration commands from the `backend/` directory. Alembic uses
-`sqlite:///./tiktok_manager.db` by default and honors the same `DATABASE_URL`
-environment variable as the application.
+Run migration commands from the `backend/` directory. Without an explicit
+development override, Alembic resolves the same canonical application database
+as the backend. The installer backs up and checks an existing database before
+running `alembic upgrade head`.
 
 Install the backend and apply every pending migration:
 
@@ -141,8 +143,8 @@ requires proxy host/port and both bridge ports. Proxy and bridge ports are
 limited to 1-65535. `runtime_id` and non-null `bridge_host_port` values are
 unique.
 
-Only allowlisted secret references are stored. Resolved proxy usernames and
-passwords are never stored in these tables.
+`credential_source` distinguishes `none`, legacy `environment_reference`, and
+`stored_encrypted`. Secret values and ciphertext are not stored in this table.
 
 ## RuntimeNetworkConfigRevision
 
@@ -167,6 +169,18 @@ are `unknown`, `stopped`, `starting`, `running`, and `unhealthy`.
 
 Migration `20261003_0009` creates all three tables. It creates no default rows
 and therefore does not adopt or alter legacy devices.
+
+## RuntimeNetworkCredential
+
+The `runtime_network_credentials` table contains at most one authenticated-
+encryption payload per Runtime. Username and password are encrypted separately
+with Fernet (`fernet-v1`), and Runtime deletion cascades to the credential row.
+The master key is never stored in SQLite; it lives at
+`~/.config/tiktok-manager/credentials.key` with mode `0600`.
+
+Migration `20261004_0010` adds encrypted credential storage and marks existing
+allowlisted environment-reference configurations as
+`environment_reference`. It does not resolve or expose historical secrets.
 
 When a stopped Runtime changes from HTTP proxy to direct mode, its current
 config has no bridge port, but prior HTTP revision ports remain reserved while

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -15,6 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import Runtime
+from app.config import load_application_config
 from app.services.device_lifecycle import DeviceLifecycleService
 from app.services.device_screen import ScreenProcessManager
 from app.services.redroid_runtime import RedroidRuntimeAdapter
@@ -126,6 +126,7 @@ class HostLifecycleManager:
         stop_managed_devices_on_shutdown: bool = True,
         binder_readiness_check: Callable[[], tuple[str, ...]] = check_binder_readiness,
         network_reconciler: NetworkStartupReconciler | None = None,
+        database_readiness_check: Callable[[], None] | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.runtime_adapter = runtime_adapter
@@ -133,10 +134,19 @@ class HostLifecycleManager:
         self.stop_managed_devices_on_shutdown = stop_managed_devices_on_shutdown
         self.binder_readiness_check = binder_readiness_check
         self.network_reconciler = network_reconciler
+        self.database_readiness_check = database_readiness_check
 
     def startup(self) -> HostCapabilities:
         """Validate host dependencies and reconcile managed runtime state."""
         failures: list[str] = []
+
+        if self.database_readiness_check is not None:
+            try:
+                self.database_readiness_check()
+            except Exception as error:
+                message = f"Operational database startup check failed: {error}"
+                logger.critical(message)
+                raise HostDependencyError(message) from error
 
         docker_version = self._check_docker(failures)
         adb_path = self._check_executable("adb", failures)
@@ -389,14 +399,8 @@ class HostLifecycleManager:
 
 
 def stop_managed_devices_on_shutdown_from_environment() -> bool:
-    """Read the managed-device shutdown policy, defaulting to enabled."""
-    raw_value = os.getenv(STOP_MANAGED_DEVICES_ON_SHUTDOWN, "true")
-    normalized = raw_value.strip().lower()
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off"}:
-        return False
-    raise HostConfigurationError(
-        f"{STOP_MANAGED_DEVICES_ON_SHUTDOWN} must be a boolean value; "
-        f"received {raw_value!r}"
-    )
+    """Read the durable shutdown policy with an optional legacy override."""
+    try:
+        return load_application_config().stop_managed_devices_on_shutdown
+    except ValueError as error:
+        raise HostConfigurationError(str(error)) from error

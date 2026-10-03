@@ -14,6 +14,7 @@ from app.models import Runtime, RuntimeNetworkConfig, RuntimeNetworkConfigRevisi
 from app.models.timestamps import utc_now
 from app.services.android_network import AdbReverseRule, AndroidNetworkAdapter, AndroidNetworkCommandError
 from app.services.network_operation_lock import NetworkOperationLockBusy, RuntimeNetworkOperationGuard
+from app.services.network_credentials import NetworkCredentialError, NetworkCredentialProvider
 from app.services.network_secrets import SecretResolutionError, SecretResolver
 from app.services.proxy_bridge import (
     BridgeCredentials,
@@ -72,6 +73,7 @@ class RuntimeNetworkOrchestrator:
         bridge_supervisor: HostProxyBridgeSupervisor,
         secret_resolver: SecretResolver,
         guard: RuntimeNetworkOperationGuard,
+        credential_provider: NetworkCredentialProvider | None = None,
     ) -> None:
         self.session = session
         self.runtime_adapter = runtime_adapter
@@ -79,6 +81,7 @@ class RuntimeNetworkOrchestrator:
         self.bridge_supervisor = bridge_supervisor
         self.secret_resolver = secret_resolver
         self.guard = guard
+        self.credential_provider = credential_provider
 
     def apply(self, runtime_id: int) -> RuntimeNetworkState:
         try:
@@ -105,7 +108,7 @@ class RuntimeNetworkOrchestrator:
                 self._apply_direct(runtime, config, state)
             else:
                 self._apply_http_proxy(runtime, config, state)
-        except SecretResolutionError as error:
+        except (SecretResolutionError, NetworkCredentialError) as error:
             self._record_failure(state, revision, "PROXY_SECRET_UNAVAILABLE", "Configured proxy secret is unavailable")
             raise NetworkSecretFailure("Configured proxy secret is unavailable") from error
         except AndroidNetworkCommandError as error:
@@ -139,17 +142,21 @@ class RuntimeNetworkOrchestrator:
         assert config.bridge_host_port and config.bridge_device_port
         owner_token = state.bridge_owner_token or str(uuid4())
         state.bridge_owner_token = owner_token
-        credentials = BridgeCredentials(
-            username=(
-                self.secret_resolver.resolve(config.proxy_username_secret_ref)
-                if config.proxy_username_secret_ref
-                else None
-            ),
-            password=(
-                self.secret_resolver.resolve(config.proxy_password_secret_ref)
-                if config.proxy_password_secret_ref
-                else None
-            ),
+        credentials = (
+            self.credential_provider.resolve(self.session, config)
+            if self.credential_provider is not None
+            else BridgeCredentials(
+                username=(
+                    self.secret_resolver.resolve(config.proxy_username_secret_ref)
+                    if config.proxy_username_secret_ref
+                    else None
+                ),
+                password=(
+                    self.secret_resolver.resolve(config.proxy_password_secret_ref)
+                    if config.proxy_password_secret_ref
+                    else None
+                ),
+            )
         )
         spec = BridgeSpec(
             runtime_id=runtime.id,
@@ -420,6 +427,7 @@ class RuntimeNetworkCleanupCoordinator:
         bridge_supervisor: HostProxyBridgeSupervisor,
         secret_resolver: SecretResolver,
         guard: RuntimeNetworkOperationGuard,
+        credential_provider: NetworkCredentialProvider | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.runtime_adapter = runtime_adapter
@@ -427,6 +435,7 @@ class RuntimeNetworkCleanupCoordinator:
         self.bridge_supervisor = bridge_supervisor
         self.secret_resolver = secret_resolver
         self.guard = guard
+        self.credential_provider = credential_provider
 
     def cleanup_before_delete(self, runtime_id: int) -> None:
         with self.session_factory() as session:
@@ -437,6 +446,7 @@ class RuntimeNetworkCleanupCoordinator:
                 bridge_supervisor=self.bridge_supervisor,
                 secret_resolver=self.secret_resolver,
                 guard=self.guard,
+                credential_provider=self.credential_provider,
             ).cleanup_before_delete(runtime_id)
 
 
@@ -452,6 +462,7 @@ class RuntimeNetworkRecoveryCoordinator:
         bridge_supervisor: HostProxyBridgeSupervisor,
         secret_resolver: SecretResolver,
         guard: RuntimeNetworkOperationGuard,
+        credential_provider: NetworkCredentialProvider | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.runtime_adapter = runtime_adapter
@@ -459,6 +470,7 @@ class RuntimeNetworkRecoveryCoordinator:
         self.bridge_supervisor = bridge_supervisor
         self.secret_resolver = secret_resolver
         self.guard = guard
+        self.credential_provider = credential_provider
 
     def reconcile_startup(self) -> None:
         with self.session_factory() as session:
@@ -500,6 +512,7 @@ class RuntimeNetworkRecoveryCoordinator:
                 bridge_supervisor=self.bridge_supervisor,
                 secret_resolver=self.secret_resolver,
                 guard=self.guard,
+                credential_provider=self.credential_provider,
             ).apply(runtime_id)
 
     def _reconcile_stopped(

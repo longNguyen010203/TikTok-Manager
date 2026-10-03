@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -19,6 +19,7 @@ NETWORK_MODES = ("direct", "http_proxy")
 NETWORK_STATUSES = ("disabled", "pending", "applying", "ready", "degraded", "failed")
 OBSERVED_NETWORK_MODES = ("unknown",) + NETWORK_MODES
 BRIDGE_STATUSES = ("unknown", "stopped", "starting", "running", "unhealthy")
+CREDENTIAL_SOURCES = ("none", "environment_reference", "stored_encrypted")
 
 _MODE_CHECK = (
     "(mode = 'direct' AND proxy_host IS NULL AND proxy_port IS NULL "
@@ -26,6 +27,15 @@ _MODE_CHECK = (
     "AND bridge_host_port IS NULL AND bridge_device_port IS NULL) OR "
     "(mode = 'http_proxy' AND proxy_host IS NOT NULL AND proxy_port IS NOT NULL "
     "AND bridge_host_port IS NOT NULL AND bridge_device_port IS NOT NULL)"
+)
+_CREDENTIAL_SOURCE_CHECK = (
+    "(credential_source = 'none' AND proxy_username_secret_ref IS NULL "
+    "AND proxy_password_secret_ref IS NULL) OR "
+    "(mode = 'http_proxy' AND credential_source = 'environment_reference' AND "
+    "(proxy_username_secret_ref IS NOT NULL OR proxy_password_secret_ref IS NOT NULL)) OR "
+    "(mode = 'http_proxy' AND credential_source = 'stored_encrypted' "
+    "AND proxy_username_secret_ref IS NULL "
+    "AND proxy_password_secret_ref IS NULL)"
 )
 
 
@@ -36,6 +46,7 @@ class RuntimeNetworkConfig(Base):
     __table_args__ = (
         CheckConstraint("mode IN ('direct', 'http_proxy')", name="ck_runtime_network_configs_mode"),
         CheckConstraint(_MODE_CHECK, name="ck_runtime_network_configs_mode_fields"),
+        CheckConstraint(_CREDENTIAL_SOURCE_CHECK, name="ck_runtime_network_configs_credential_source"),
         CheckConstraint("proxy_port IS NULL OR (proxy_port >= 1 AND proxy_port <= 65535)", name="ck_runtime_network_configs_proxy_port"),
         CheckConstraint("bridge_host_port IS NULL OR (bridge_host_port >= 1 AND bridge_host_port <= 65535)", name="ck_runtime_network_configs_bridge_host_port"),
         CheckConstraint("bridge_device_port IS NULL OR (bridge_device_port >= 1 AND bridge_device_port <= 65535)", name="ck_runtime_network_configs_bridge_device_port"),
@@ -49,6 +60,7 @@ class RuntimeNetworkConfig(Base):
     proxy_port: Mapped[int | None] = mapped_column(Integer)
     proxy_username_secret_ref: Mapped[str | None] = mapped_column(String(255))
     proxy_password_secret_ref: Mapped[str | None] = mapped_column(String(255))
+    credential_source: Mapped[str] = mapped_column(String(30), default="none", nullable=False)
     bridge_host_port: Mapped[int | None] = mapped_column(Integer, unique=True)
     bridge_device_port: Mapped[int | None] = mapped_column(Integer)
     desired_revision: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -66,6 +78,7 @@ class RuntimeNetworkConfigRevision(Base):
         UniqueConstraint("runtime_id", "revision", name="uq_runtime_network_revision"),
         CheckConstraint("mode IN ('direct', 'http_proxy')", name="ck_runtime_network_revisions_mode"),
         CheckConstraint(_MODE_CHECK, name="ck_runtime_network_revisions_mode_fields"),
+        CheckConstraint(_CREDENTIAL_SOURCE_CHECK, name="ck_runtime_network_revisions_credential_source"),
         CheckConstraint("proxy_port IS NULL OR (proxy_port >= 1 AND proxy_port <= 65535)", name="ck_runtime_network_revisions_proxy_port"),
         CheckConstraint("bridge_host_port IS NULL OR (bridge_host_port >= 1 AND bridge_host_port <= 65535)", name="ck_runtime_network_revisions_bridge_host_port"),
         CheckConstraint("bridge_device_port IS NULL OR (bridge_device_port >= 1 AND bridge_device_port <= 65535)", name="ck_runtime_network_revisions_bridge_device_port"),
@@ -80,11 +93,43 @@ class RuntimeNetworkConfigRevision(Base):
     proxy_port: Mapped[int | None] = mapped_column(Integer)
     proxy_username_secret_ref: Mapped[str | None] = mapped_column(String(255))
     proxy_password_secret_ref: Mapped[str | None] = mapped_column(String(255))
+    credential_source: Mapped[str] = mapped_column(String(30), default="none", nullable=False)
     bridge_host_port: Mapped[int | None] = mapped_column(Integer)
     bridge_device_port: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     runtime: Mapped["Runtime"] = relationship(back_populates="network_config_revisions")
+
+
+class RuntimeNetworkCredential(Base):
+    """Current authenticated-encryption payload for one Runtime proxy."""
+
+    __tablename__ = "runtime_network_credentials"
+    __table_args__ = (
+        CheckConstraint(
+            "encryption_version = 'fernet-v1'",
+            name="ck_runtime_network_credentials_version",
+        ),
+        CheckConstraint(
+            "encrypted_username IS NOT NULL AND encrypted_password IS NOT NULL",
+            name="ck_runtime_network_credentials_complete",
+        ),
+    )
+
+    runtime_id: Mapped[int] = mapped_column(
+        ForeignKey("runtimes.id", ondelete="CASCADE"), primary_key=True
+    )
+    encrypted_username: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    encrypted_password: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    encryption_version: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    runtime: Mapped["Runtime"] = relationship(back_populates="network_credential")
 
 
 class RuntimeNetworkState(Base):
@@ -122,4 +167,3 @@ class RuntimeNetworkState(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
 
     runtime: Mapped["Runtime"] = relationship(back_populates="network_state")
-

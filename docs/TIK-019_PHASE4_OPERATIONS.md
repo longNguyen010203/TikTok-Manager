@@ -24,24 +24,25 @@ dedicated protected runtime directory such as `/run/tiktok-manager-network`.
 The configured Python executable and bridge worker must be regular readable
 files. The host systemd version must support `LoadCredential`.
 
-The backend process must inherit the user-bus environment, normally:
+When installed as `tiktok-manager-backend.service`, the backend runs inside the
+native user manager and receives its user-bus environment automatically,
+normally:
 
 ```text
 XDG_RUNTIME_DIR=/run/user/<uid>
 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus
 ```
 
-An interactive shell can have a working user manager while a separately
-launched automation process lacks these variables; in that case
-`systemctl --user` fails with `No medium found` even though the bus socket
-exists. Configure the backend service environment explicitly rather than
-weakening supervisor ownership checks.
+An interactive shell can have a working user manager while an ad-hoc process
+lacks these variables; in that case `systemctl --user` fails with `No medium
+found` even though the bus socket exists. Use the installed user service rather
+than exporting or hard-coding a UID. Supervisor ownership checks are unchanged.
 
-Proxy credentials remain environment-secret references in desired state, for
-example `env:TIKTOK_PROXY_TEST_USERNAME`. Plaintext values must be injected into
-the backend service environment by the deployment secret mechanism. Do not put
-them in API bodies, unit environment variables, command lines, or committed
-files.
+Normal proxy credentials are submitted through write-only API fields and are
+encrypted at rest using the installation key. Legacy
+`env:TIKTOK_PROXY_...` references remain available only for compatibility and
+controlled tests. Credentials never appear in unit environment variables,
+command lines, manifests, logs, responses, or committed files.
 
 ## Recovery and ownership
 
@@ -66,7 +67,7 @@ Before provisioning a disposable test device, verify all of the following:
 
 1. one supervision scope is usable by the backend account;
 2. a controlled upstream HTTP proxy host and port are available;
-3. any required `TIKTOK_PROXY_*` environment secrets are present;
+3. stored credentials are configured (or required legacy test references are present);
 4. the operational API is running with the same database and environment;
 5. Device 03 control snapshots can be collected without mutation.
 

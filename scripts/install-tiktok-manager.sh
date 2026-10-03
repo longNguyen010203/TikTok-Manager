@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Installation always targets the authoritative local database, even if this
+# shell was previously used for an isolated development database.
+unset DATABASE_URL
+export TIKTOK_MANAGER_RUNTIME_MODE=production
+
+project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+backend_dir="${project_root}/backend"
+venv_dir="${backend_dir}/.venv"
+config_dir="${XDG_CONFIG_HOME:-${HOME}/.config}/tiktok-manager"
+data_dir="${XDG_DATA_HOME:-${HOME}/.local/share}/tiktok-manager"
+database_path="${data_dir}/tiktok_manager.db"
+unit_dir="${XDG_CONFIG_HOME:-${HOME}/.config}/systemd/user"
+unit_path="${unit_dir}/tiktok-manager-backend.service"
+user_runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+if [[ ! -S "${user_runtime_dir}/bus" ]]; then
+  echo "User systemd bus is unavailable at ${user_runtime_dir}/bus" >&2
+  exit 1
+fi
+export XDG_RUNTIME_DIR="${user_runtime_dir}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${user_runtime_dir}/bus}"
+
+mkdir -p "${config_dir}" "${data_dir}" "${unit_dir}"
+chmod 700 "${config_dir}" "${data_dir}"
+
+if [[ ! -x "${venv_dir}/bin/python" ]]; then
+  python3 -m venv "${venv_dir}"
+fi
+"${venv_dir}/bin/pip" install --editable "${backend_dir}"
+
+(
+  cd "${backend_dir}"
+  "${venv_dir}/bin/python" -m app.bootstrap
+)
+
+if [[ -f "${database_path}" ]]; then
+  backup_dir="${data_dir}/backups"
+  mkdir -p "${backup_dir}"
+  chmod 700 "${backup_dir}"
+  timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  cp --preserve=mode,timestamps "${database_path}" \
+    "${backup_dir}/tiktok_manager.pre-install-${timestamp}.db"
+  "${venv_dir}/bin/python" -c \
+    'import sqlite3,sys; value=sqlite3.connect(sys.argv[1]).execute("PRAGMA integrity_check").fetchone()[0]; print("integrity="+value); raise SystemExit(value != "ok")' \
+    "${database_path}"
+fi
+
+(
+  cd "${backend_dir}"
+  "${venv_dir}/bin/alembic" upgrade head
+  "${venv_dir}/bin/python" -m app.bootstrap --ensure-key
+)
+
+escaped_root="${project_root//&/\\&}"
+sed "s|@PROJECT_ROOT@|${escaped_root}|g" \
+  "${project_root}/deploy/tiktok-manager-backend.service" > "${unit_path}"
+chmod 600 "${unit_path}"
+
+systemctl --user daemon-reload
+systemctl --user enable --now tiktok-manager-backend.service
+systemctl --user --no-pager status tiktok-manager-backend.service

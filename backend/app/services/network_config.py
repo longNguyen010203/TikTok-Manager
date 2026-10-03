@@ -7,6 +7,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.config import load_application_config
+
 
 class NetworkConfigurationError(ValueError):
     """Raised when trusted network service configuration is unsafe."""
@@ -43,24 +45,18 @@ class RuntimeNetworkSettings:
 
     @classmethod
     def from_environment(cls) -> "RuntimeNetworkSettings":
+        application = load_application_config()
         try:
             return cls(
-                bridge_port_start=int(os.getenv("RUNTIME_NETWORK_BRIDGE_PORT_START", "8800")),
-                bridge_port_end=int(os.getenv("RUNTIME_NETWORK_BRIDGE_PORT_END", "8899")),
-                bridge_device_port=int(os.getenv("RUNTIME_NETWORK_BRIDGE_DEVICE_PORT", "8888")),
-                lock_directory=Path(os.getenv("RUNTIME_NETWORK_LOCK_DIRECTORY", "/tmp/tiktok-manager-network-locks")),
-                bridge_state_directory=Path(
-                    os.getenv(
-                        "RUNTIME_NETWORK_BRIDGE_STATE_DIRECTORY",
-                        f"/run/user/{os.getuid()}/tiktok-manager-network",
-                    )
-                ),
+                bridge_port_start=application.bridge_port_start,
+                bridge_port_end=application.bridge_port_end,
+                bridge_device_port=application.bridge_device_port,
+                lock_directory=application.bridge_lock_directory,
+                bridge_state_directory=application.bridge_state_directory,
                 bridge_python_executable=Path(
                     os.getenv("RUNTIME_NETWORK_BRIDGE_PYTHON", sys.executable)
                 ),
-                bridge_systemd_scope=os.getenv(
-                    "RUNTIME_NETWORK_BRIDGE_SYSTEMD_SCOPE", "user"
-                ),
+                bridge_systemd_scope=application.bridge_systemd_scope,
             )
         except ValueError as error:
             raise NetworkConfigurationError("network port settings must be integers") from error

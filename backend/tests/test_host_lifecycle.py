@@ -176,14 +176,14 @@ def test_startup_fails_clearly_when_binder_is_not_ready(
     engine.dispose()
 
 
-def test_managed_device_shutdown_configuration_defaults_true_and_accepts_false(
+def test_managed_device_shutdown_configuration_defaults_false_and_accepts_true(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv(STOP_MANAGED_DEVICES_ON_SHUTDOWN, raising=False)
-    assert stop_managed_devices_on_shutdown_from_environment() is True
-
-    monkeypatch.setenv(STOP_MANAGED_DEVICES_ON_SHUTDOWN, "false")
     assert stop_managed_devices_on_shutdown_from_environment() is False
+
+    monkeypatch.setenv(STOP_MANAGED_DEVICES_ON_SHUTDOWN, "true")
+    assert stop_managed_devices_on_shutdown_from_environment() is True
 
 
 @patch("app.services.host_lifecycle.shutil.which")

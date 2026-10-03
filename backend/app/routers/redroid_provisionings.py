@@ -25,10 +25,12 @@ from app.services.redroid_provisioning import (
 from app.services.redroid_runtime import RedroidRuntimeAdapter
 from app.services.android_network import AndroidNetworkAdapter
 from app.services.network_config import RuntimeNetworkSettings
+from app.services.network_credentials import MasterKeyManager, NetworkCredentialProvider
 from app.services.network_operation_lock import RuntimeNetworkOperationGuard
 from app.services.network_secrets import SecretResolver
 from app.services.runtime_network_orchestration import RuntimeNetworkCleanupCoordinator
 from app.services.systemd_proxy_bridge import SystemdHostProxyBridgeSupervisor
+from app.config import load_application_config
 from app.services.redroid_provisioning_adapter import (
     ProvisioningConflictError,
     ProvisioningVerificationError,
@@ -52,6 +54,7 @@ def get_redroid_provisioning_service() -> RedroidProvisioningService:
         ) from error
     runtime_adapter = RedroidRuntimeAdapter()
     network_settings = RuntimeNetworkSettings.from_environment()
+    application_config = load_application_config()
     return RedroidProvisioningService(
         SessionLocal,
         RedroidProvisioningAdapter(settings),
@@ -65,6 +68,9 @@ def get_redroid_provisioning_service() -> RedroidProvisioningService:
             bridge_supervisor=SystemdHostProxyBridgeSupervisor(network_settings),
             secret_resolver=SecretResolver(),
             guard=RuntimeNetworkOperationGuard(network_settings.lock_directory),
+            credential_provider=NetworkCredentialProvider(
+                MasterKeyManager(application_config.credential_key_path)
+            ),
         ),
     )
 

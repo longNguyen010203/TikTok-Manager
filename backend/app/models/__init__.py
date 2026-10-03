@@ -9,6 +9,7 @@ from app.models.runtime import Runtime
 from app.models.runtime_network import (
     RuntimeNetworkConfig,
     RuntimeNetworkConfigRevision,
+    RuntimeNetworkCredential,
     RuntimeNetworkState,
 )
 
@@ -22,5 +23,6 @@ __all__ = [
     "Runtime",
     "RuntimeNetworkConfig",
     "RuntimeNetworkConfigRevision",
+    "RuntimeNetworkCredential",
     "RuntimeNetworkState",
 ]

@@ -41,10 +41,18 @@ PostgreSQL advisory locks.
 
 ## Secrets
 
-`SecretResolver` accepts only `env:TIKTOK_PROXY_...` references. It rejects file
-paths and unrelated environment variables. Resolved values use a wrapper whose
-ordinary string and repr forms are redacted. Values are passed separately from
-`BridgeSpec`; the bridge specification contains no credentials.
+New API writes accept a username/password pair and store it with authenticated
+Fernet encryption in the Runtime credential row. The installation master key
+is a mode-0600, non-symlink file outside SQLite at
+`~/.config/tiktok-manager/credentials.key`. A clean install creates it
+automatically. If encrypted rows exist and the key is missing, invalid, or
+wrong, startup/application fails safely rather than generating a replacement.
+
+`NetworkCredentialProvider` resolves either encrypted storage or the temporary
+legacy `env:TIKTOK_PROXY_...` source. The legacy resolver rejects file paths and
+unrelated variables. Resolved values use a wrapper whose ordinary string and
+repr forms are redacted. Values are passed separately from `BridgeSpec`; the
+bridge specification contains no credentials.
 
 API-oriented desired-state views contain only `username_configured` and
 `password_configured` booleans. They omit both resolved values and stored
@@ -69,7 +77,7 @@ fingerprint before it reports or stops a bridge. A PID, port, or executable
 name alone is never accepted as ownership. Conflicting evidence returns
 `BRIDGE_OWNERSHIP_CONFLICT` and leaves the process untouched.
 
-Credentials are written to a unique mode-0600 attempt file and imported with
+Resolved credentials are written to a unique mode-0600 attempt file and imported with
 systemd `LoadCredential`. They do not appear in the worker argv, unit
 description, manifest, or database, and the source attempt file is removed
 after systemd has loaded it. The worker replaces any client-supplied upstream
@@ -84,6 +92,11 @@ network failure is persisted separately and cannot turn a lifecycle-ready
 Runtime into stopped/offline state.
 
 ## Trusted settings
+
+Stable host settings are read from
+`~/.config/tiktok-manager/config.toml`; normal operation requires no exported
+variables. Explicit environment overrides remain available for isolated
+development/tests.
 
 - `RUNTIME_NETWORK_BRIDGE_PORT_START` defaults to `8800`.
 - `RUNTIME_NETWORK_BRIDGE_PORT_END` defaults to `8899`.

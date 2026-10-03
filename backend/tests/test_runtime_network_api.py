@@ -12,16 +12,18 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import get_db, init_db
-from app.models import Device, Runtime, RuntimeNetworkConfig, RuntimeNetworkConfigRevision, RuntimeNetworkState
+from app.models import Device, Runtime, RuntimeNetworkConfig, RuntimeNetworkConfigRevision, RuntimeNetworkCredential, RuntimeNetworkState
 from app.routers.runtime_networks import (
     get_android_network_adapter,
     get_host_proxy_bridge_supervisor,
     get_network_runtime_adapter,
+    get_network_credential_provider,
     get_runtime_network_settings,
 )
 from app.services.android_network import AdbReverseRule, AndroidNetworkCommandError, AndroidProxySettings
 from app.services.network_config import RuntimeNetworkSettings
 from app.services.network_operation_lock import RuntimeNetworkOperationGuard
+from app.services.network_credentials import MasterKeyManager, NetworkCredentialProvider
 from app.services.network_secrets import SecretResolver
 from app.services.proxy_bridge import (
     BridgeOwnershipConflict,
@@ -98,14 +100,28 @@ class ConflictedBridge(FakeHostProxyBridgeSupervisor):
         raise BridgeOwnershipConflict("BRIDGE_OWNERSHIP_CONFLICT")
 
 
+class CapturingBridge(FakeHostProxyBridgeSupervisor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.resolved_credentials: tuple[str | None, str | None] | None = None
+
+    def ensure_started(self, spec, credentials):
+        self.resolved_credentials = (
+            credentials.username.reveal() if credentials.username else None,
+            credentials.password.reveal() if credentials.password else None,
+        )
+        return super().ensure_started(spec, credentials)
+
+
 @dataclass
 class NetworkApiEnvironment:
     client: TestClient
     factory: sessionmaker[Session]
     android: FakeAndroidNetwork
     runtime_adapter: FakeRuntimeReadiness
-    bridge: FakeHostProxyBridgeSupervisor
+    bridge: CapturingBridge
     settings: RuntimeNetworkSettings
+    credential_provider: NetworkCredentialProvider
 
 
 @pytest.fixture
@@ -119,7 +135,10 @@ def network_api(tmp_path: Path, monkeypatch) -> Iterator[NetworkApiEnvironment]:
     app = create_test_app()
     android = FakeAndroidNetwork()
     runtime_adapter = FakeRuntimeReadiness()
-    bridge = FakeHostProxyBridgeSupervisor()
+    bridge = CapturingBridge()
+    credential_provider = NetworkCredentialProvider(
+        MasterKeyManager(tmp_path / "credentials.key")
+    )
     settings = RuntimeNetworkSettings(
         bridge_port_start=19800,
         bridge_port_end=19820,
@@ -138,9 +157,18 @@ def network_api(tmp_path: Path, monkeypatch) -> Iterator[NetworkApiEnvironment]:
     app.dependency_overrides[get_network_runtime_adapter] = lambda: runtime_adapter
     app.dependency_overrides[get_host_proxy_bridge_supervisor] = lambda: bridge
     app.dependency_overrides[get_runtime_network_settings] = lambda: settings
+    app.dependency_overrides[get_network_credential_provider] = lambda: credential_provider
     try:
         with TestClient(app) as client:
-            yield NetworkApiEnvironment(client, factory, android, runtime_adapter, bridge, settings)
+            yield NetworkApiEnvironment(
+                client,
+                factory,
+                android,
+                runtime_adapter,
+                bridge,
+                settings,
+                credential_provider,
+            )
     finally:
         app.dependency_overrides.clear()
         engine.dispose()
@@ -210,6 +238,166 @@ def test_put_first_direct_and_http_proxy_are_desired_only(network_api: NetworkAp
     assert network_api.android.calls == []
     assert network_api.bridge._bridges == {}
     assert_redacted(proxy)
+
+
+def test_plaintext_credentials_are_encrypted_redacted_and_resolved_for_bridge(
+    network_api: NetworkApiEnvironment,
+) -> None:
+    username = "phase6b-user-plaintext"
+    password = "phase6b-password-plaintext"
+    runtime_id = add_runtime(network_api, 20)
+
+    response = network_api.client.put(
+        f"/runtimes/{runtime_id}/network",
+        json={
+            "mode": "http_proxy",
+            "proxy_host": "proxy.example.net",
+            "proxy_port": 3128,
+            "username": username,
+            "password": password,
+            "expected_revision": 0,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["credentials"] == {
+        "username_configured": True,
+        "password_configured": True,
+    }
+    assert username not in response.text
+    assert password not in response.text
+    with network_api.factory() as session:
+        config = session.scalar(
+            select(RuntimeNetworkConfig).where(
+                RuntimeNetworkConfig.runtime_id == runtime_id
+            )
+        )
+        stored = session.get(RuntimeNetworkCredential, runtime_id)
+        assert config.credential_source == "stored_encrypted"
+        assert config.proxy_username_secret_ref is None
+        assert config.proxy_password_secret_ref is None
+        assert stored.encrypted_username != username.encode()
+        assert stored.encrypted_password != password.encode()
+    database_path = Path(network_api.factory.kw["bind"].url.database)
+    database_bytes = database_path.read_bytes()
+    assert username.encode() not in database_bytes
+    assert password.encode() not in database_bytes
+
+    applied = network_api.client.post(f"/runtimes/{runtime_id}/network/apply")
+    assert applied.status_code == 200
+    assert network_api.bridge.resolved_credentials == (username, password)
+    assert username not in applied.text
+    assert password not in applied.text
+
+
+def test_retain_replace_and_clear_stored_credentials(
+    network_api: NetworkApiEnvironment,
+) -> None:
+    runtime_id = add_runtime(network_api, 21, status="stopped")
+    first = network_api.client.put(
+        f"/runtimes/{runtime_id}/network",
+        json={
+            "mode": "http_proxy",
+            "proxy_host": "one.example.net",
+            "proxy_port": 3128,
+            "username": "first-user",
+            "password": "first-password",
+            "expected_revision": 0,
+        },
+    )
+    assert first.status_code == 200
+    with network_api.factory() as session:
+        initial_ciphertext = session.get(
+            RuntimeNetworkCredential, runtime_id
+        ).encrypted_password
+
+    retained = network_api.client.put(
+        f"/runtimes/{runtime_id}/network",
+        json={
+            "mode": "http_proxy",
+            "proxy_host": "two.example.net",
+            "proxy_port": 8080,
+            "credential_action": "retain",
+            "expected_revision": 1,
+        },
+    )
+    assert retained.status_code == 200
+    with network_api.factory() as session:
+        assert (
+            session.get(RuntimeNetworkCredential, runtime_id).encrypted_password
+            == initial_ciphertext
+        )
+
+    replaced = network_api.client.put(
+        f"/runtimes/{runtime_id}/network",
+        json={
+            "mode": "http_proxy",
+            "proxy_host": "two.example.net",
+            "proxy_port": 8080,
+            "credential_action": "replace",
+            "username": "second-user",
+            "password": "second-password",
+            "expected_revision": 2,
+        },
+    )
+    assert replaced.status_code == 200
+    with network_api.factory() as session:
+        config = session.scalar(
+            select(RuntimeNetworkConfig).where(
+                RuntimeNetworkConfig.runtime_id == runtime_id
+            )
+        )
+        resolved = network_api.credential_provider.resolve(session, config)
+        assert resolved.username.reveal() == "second-user"
+        assert resolved.password.reveal() == "second-password"
+
+    cleared = network_api.client.put(
+        f"/runtimes/{runtime_id}/network",
+        json={
+            "mode": "http_proxy",
+            "proxy_host": "two.example.net",
+            "proxy_port": 8080,
+            "credential_action": "clear",
+            "expected_revision": 3,
+        },
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["credentials"] == {
+        "username_configured": False,
+        "password_configured": False,
+    }
+    with network_api.factory() as session:
+        assert session.get(RuntimeNetworkCredential, runtime_id) is None
+        config = session.scalar(
+            select(RuntimeNetworkConfig).where(
+                RuntimeNetworkConfig.runtime_id == runtime_id
+            )
+        )
+        assert config.credential_source == "none"
+
+
+def test_credential_write_rejects_ambiguous_partial_or_empty_values(
+    network_api: NetworkApiEnvironment,
+) -> None:
+    runtime_id = add_runtime(network_api, 22, status="stopped")
+    for credentials in (
+        {"username": "only-user"},
+        {"username": "", "password": "secret"},
+        {"credential_action": "replace"},
+        {"credential_action": "clear", "username": "user", "password": "secret"},
+    ):
+        response = network_api.client.put(
+            f"/runtimes/{runtime_id}/network",
+            json={
+                "mode": "http_proxy",
+                "proxy_host": "proxy.example.net",
+                "proxy_port": 3128,
+                "expected_revision": 0,
+                **credentials,
+            },
+        )
+        assert response.status_code == 422
+        assert "secret" not in response.text
 
 
 def test_expected_revision_conflict_is_safe(network_api: NetworkApiEnvironment) -> None:
@@ -355,6 +543,7 @@ def test_revision_race_never_marks_old_revision_ready(network_api: NetworkApiEnv
                 proxy_host=config.proxy_host, proxy_port=config.proxy_port,
                 proxy_username_secret_ref=config.proxy_username_secret_ref,
                 proxy_password_secret_ref=config.proxy_password_secret_ref,
+                credential_source=config.credential_source,
                 bridge_host_port=config.bridge_host_port,
                 bridge_device_port=config.bridge_device_port,
             ))

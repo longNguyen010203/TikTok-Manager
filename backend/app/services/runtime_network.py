@@ -16,7 +16,9 @@ from app.models import Runtime, RuntimeNetworkConfig, RuntimeNetworkConfigRevisi
 from app.models.runtime_network import BRIDGE_STATUSES, NETWORK_STATUSES, OBSERVED_NETWORK_MODES
 from app.models.timestamps import utc_now
 from app.services.network_config import RuntimeNetworkSettings
+from app.services.network_credentials import NetworkCredentialError, NetworkCredentialProvider
 from app.services.network_operation_lock import RuntimeNetworkOperationGuard
+from app.services.network_secrets import SecretValue
 from app.services.network_validation import (
     NetworkValidationError,
     validate_host,
@@ -53,6 +55,9 @@ class DesiredNetworkInput:
     proxy_username_secret_ref: str | None = None
     proxy_password_secret_ref: str | None = None
     bridge_device_port: int | None = None
+    credential_action: str = "retain"
+    username: SecretValue | None = None
+    password: SecretValue | None = None
 
     def validated(self, default_device_port: int) -> "DesiredNetworkInput":
         if self.mode == "direct":
@@ -64,6 +69,8 @@ class DesiredNetworkInput:
                     self.proxy_username_secret_ref,
                     self.proxy_password_secret_ref,
                     self.bridge_device_port,
+                    self.username,
+                    self.password,
                 )
             ):
                 raise NetworkValidationError("direct mode does not accept proxy or bridge fields")
@@ -72,6 +79,19 @@ class DesiredNetworkInput:
             raise NetworkValidationError("mode must be direct or http_proxy")
         if self.proxy_host is None or self.proxy_port is None:
             raise NetworkValidationError("http_proxy mode requires proxy_host and proxy_port")
+        if self.credential_action not in {"retain", "replace", "clear"}:
+            raise NetworkValidationError("Unsupported credential action")
+        if self.proxy_username_secret_ref or self.proxy_password_secret_ref:
+            if self.credential_action != "retain" or self.username or self.password:
+                raise NetworkValidationError("Legacy references cannot be combined with stored credentials")
+        if self.credential_action == "replace" and (
+            self.username is None or self.password is None
+        ):
+            raise NetworkValidationError("Credential replacement requires username and password")
+        if self.credential_action != "replace" and (
+            self.username is not None or self.password is not None
+        ):
+            raise NetworkValidationError("Plaintext credentials require replace semantics")
         return DesiredNetworkInput(
             mode=self.mode,
             proxy_host=validate_host(self.proxy_host),
@@ -79,6 +99,9 @@ class DesiredNetworkInput:
             proxy_username_secret_ref=validate_optional_secret_reference(self.proxy_username_secret_ref),
             proxy_password_secret_ref=validate_optional_secret_reference(self.proxy_password_secret_ref),
             bridge_device_port=validate_port(self.bridge_device_port or default_device_port, "bridge_device_port"),
+            credential_action=self.credential_action,
+            username=self.username,
+            password=self.password,
         )
 
 
@@ -112,8 +135,14 @@ class DesiredNetworkView:
             bridge_host_port=config.bridge_host_port,
             bridge_device_port=config.bridge_device_port,
             desired_revision=config.desired_revision,
-            username_configured=config.proxy_username_secret_ref is not None,
-            password_configured=config.proxy_password_secret_ref is not None,
+            username_configured=(
+                config.credential_source == "stored_encrypted"
+                or config.proxy_username_secret_ref is not None
+            ),
+            password_configured=(
+                config.credential_source == "stored_encrypted"
+                or config.proxy_password_secret_ref is not None
+            ),
         )
 
 
@@ -185,11 +214,13 @@ class RuntimeNetworkService:
         settings: RuntimeNetworkSettings,
         guard: RuntimeNetworkOperationGuard | None = None,
         port_allocator: BridgePortAllocator | None = None,
+        credential_provider: NetworkCredentialProvider | None = None,
     ) -> None:
         self.session = session
         self.settings = settings
         self.guard = guard or RuntimeNetworkOperationGuard(settings.lock_directory)
         self.port_allocator = port_allocator or BridgePortAllocator(settings, self.guard)
+        self.credential_provider = credential_provider
 
     def read_desired(self, runtime_id: int) -> DesiredNetworkView:
         self._require_runtime(runtime_id)
@@ -344,7 +375,16 @@ class RuntimeNetworkService:
                     and config.mode == "http_proxy"
                     and not cleanup_complete
                 )
-                values = self._desired_values(validated, bridge_host_port)
+                credential_source, username_ref, password_ref = self._update_credentials(
+                    runtime.id, config, validated
+                )
+                values = self._desired_values(
+                    validated,
+                    bridge_host_port,
+                    credential_source=credential_source,
+                    username_reference=username_ref,
+                    password_reference=password_ref,
+                )
                 if config is None:
                     config = RuntimeNetworkConfig(runtime_id=runtime_id, desired_revision=revision, **values)
                     self.session.add(config)
@@ -370,7 +410,7 @@ class RuntimeNetworkService:
                 self.session.commit()
                 self.session.refresh(config)
                 return DesiredNetworkView.from_model(config)
-            except (RuntimeNetworkError, NetworkValidationError):
+            except (RuntimeNetworkError, NetworkValidationError, NetworkCredentialError):
                 self.session.rollback()
                 raise
             except IntegrityError as error:
@@ -427,14 +467,60 @@ class RuntimeNetworkService:
             state.last_applied_at = now
             state.last_verified_at = now
 
+    def _update_credentials(
+        self,
+        runtime_id: int,
+        current: RuntimeNetworkConfig | None,
+        desired: DesiredNetworkInput,
+    ) -> tuple[str, str | None, str | None]:
+        if desired.mode == "direct":
+            if self.credential_provider:
+                self.credential_provider.clear(self.session, runtime_id)
+            return "none", None, None
+        if desired.proxy_username_secret_ref or desired.proxy_password_secret_ref:
+            if self.credential_provider:
+                self.credential_provider.clear(self.session, runtime_id)
+            return (
+                "environment_reference",
+                desired.proxy_username_secret_ref,
+                desired.proxy_password_secret_ref,
+            )
+        if desired.credential_action == "replace":
+            if self.credential_provider is None:
+                raise RuntimeNetworkError("Encrypted credential storage is unavailable")
+            assert desired.username is not None and desired.password is not None
+            self.credential_provider.replace(
+                self.session, runtime_id, desired.username, desired.password
+            )
+            return "stored_encrypted", None, None
+        if desired.credential_action == "clear":
+            if self.credential_provider:
+                self.credential_provider.clear(self.session, runtime_id)
+            return "none", None, None
+        if current is not None and current.mode == "http_proxy":
+            return (
+                current.credential_source,
+                current.proxy_username_secret_ref,
+                current.proxy_password_secret_ref,
+            )
+        return "none", None, None
+
     @staticmethod
-    def _desired_values(desired: DesiredNetworkInput, bridge_host_port: int | None) -> dict[str, object]:
+    def _desired_values(
+        desired: DesiredNetworkInput,
+        bridge_host_port: int | None,
+        *,
+        credential_source: str = "none",
+        username_reference: str | None = None,
+        password_reference: str | None = None,
+    ) -> dict[str, object]:
         return {
             "mode": desired.mode,
             "proxy_host": desired.proxy_host,
             "proxy_port": desired.proxy_port,
-            "proxy_username_secret_ref": desired.proxy_username_secret_ref,
-            "proxy_password_secret_ref": desired.proxy_password_secret_ref,
+            "proxy_username_secret_ref": username_reference,
+            "proxy_password_secret_ref": password_reference,
+            "credential_source": credential_source,
             "bridge_host_port": bridge_host_port,
             "bridge_device_port": desired.bridge_device_port,
         }

@@ -15,7 +15,7 @@ PRE_JOB_LOG_REVISION = "20260918_0003"
 PRE_REDROID_CONFIG_REVISION = "20260918_0004"
 PRE_UNIQUE_CONFIG_REVISION = "20261001_0005"
 PRE_PROVISIONING_REVISION = "20261001_0006"
-LATEST_REVISION = "20261003_0009"
+LATEST_REVISION = "20261004_0010"
 
 
 def test_upgrade_head_creates_accounts_table(
@@ -45,6 +45,7 @@ def test_upgrade_head_creates_accounts_table(
         assert {
             "runtime_network_configs",
             "runtime_network_config_revisions",
+            "runtime_network_credentials",
             "runtime_network_states",
         }.issubset(inspector.get_table_names())
         account_columns = {
@@ -142,6 +143,7 @@ def test_upgrade_head_creates_accounts_table(
         assert network_config_columns == {
             "id", "runtime_id", "mode", "proxy_host", "proxy_port",
             "proxy_username_secret_ref", "proxy_password_secret_ref",
+            "credential_source",
             "bridge_host_port", "bridge_device_port", "desired_revision",
             "created_at", "updated_at",
         }
@@ -164,10 +166,101 @@ def test_upgrade_head_creates_accounts_table(
             column["name"] for column in inspector.get_columns("runtime_network_states")
         }
         assert {"runtime_id", "status", "desired_revision", "applied_revision", "observed_mode"}.issubset(state_columns)
+        revision_columns = {
+            column["name"]
+            for column in inspector.get_columns(
+                "runtime_network_config_revisions"
+            )
+        }
+        assert "credential_source" in revision_columns
+        credential_columns = {
+            column["name"]
+            for column in inspector.get_columns("runtime_network_credentials")
+        }
+        assert credential_columns == {
+            "runtime_id",
+            "encrypted_username",
+            "encrypted_password",
+            "encryption_version",
+            "created_at",
+            "updated_at",
+        }
 
         with test_engine.connect() as connection:
             migration_context = MigrationContext.configure(connection)
             assert migration_context.get_current_revision() == LATEST_REVISION
+    finally:
+        test_engine.dispose()
+
+
+def test_network_credential_migration_preserves_legacy_environment_references(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database_path = tmp_path / "legacy-network.db"
+    database_url = URL.create(drivername="sqlite", database=str(database_path))
+    monkeypatch.setenv(
+        "DATABASE_URL", database_url.render_as_string(hide_password=False)
+    )
+    config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
+    command.upgrade(config, "20261003_0009")
+    test_engine = create_engine(database_url)
+    try:
+        with test_engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO devices (id,name,device_type,platform,os_version,status,created_at,updated_at) "
+                    "VALUES (1,'Legacy','virtual','android','12','offline',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO runtimes (id,device_id,name,runtime_type,docker_container_name,adb_serial,status,created_at,updated_at) "
+                    "VALUES (1,1,'Legacy Runtime','redroid','legacy-runtime','localhost:5998','stopped',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
+                )
+            )
+            for table, revision_column in (
+                ("runtime_network_configs", "desired_revision"),
+                ("runtime_network_config_revisions", "revision"),
+            ):
+                connection.execute(
+                    text(
+                        f"INSERT INTO {table} (runtime_id,mode,proxy_host,proxy_port,"
+                        "proxy_username_secret_ref,proxy_password_secret_ref,bridge_host_port,"
+                        f"bridge_device_port,{revision_column},created_at"
+                        + (",updated_at" if table == "runtime_network_configs" else "")
+                        + ") VALUES (1,'http_proxy','proxy.example',3128,"
+                        "'env:TIKTOK_PROXY_LEGACY_USER','env:TIKTOK_PROXY_LEGACY_PASSWORD',"
+                        "18880,18888,1,CURRENT_TIMESTAMP"
+                        + (",CURRENT_TIMESTAMP" if table == "runtime_network_configs" else "")
+                        + ")"
+                    )
+                )
+
+        command.upgrade(config, "head")
+
+        with test_engine.connect() as connection:
+            current = connection.execute(
+                text(
+                    "SELECT credential_source,proxy_username_secret_ref,proxy_password_secret_ref "
+                    "FROM runtime_network_configs WHERE runtime_id=1"
+                )
+            ).one()
+            history = connection.execute(
+                text(
+                    "SELECT credential_source FROM runtime_network_config_revisions "
+                    "WHERE runtime_id=1 AND revision=1"
+                )
+            ).scalar_one()
+            encrypted_count = connection.execute(
+                text("SELECT count(*) FROM runtime_network_credentials")
+            ).scalar_one()
+        assert current == (
+            "environment_reference",
+            "env:TIKTOK_PROXY_LEGACY_USER",
+            "env:TIKTOK_PROXY_LEGACY_PASSWORD",
+        )
+        assert history == "environment_reference"
+        assert encrypted_count == 0
     finally:
         test_engine.dispose()
 
