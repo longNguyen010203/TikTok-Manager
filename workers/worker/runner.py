@@ -10,7 +10,6 @@ from typing import Any, Protocol
 from worker.client import BackendClientError, BackendExecutionError
 from worker.config import WorkerConfig
 from worker.handlers import create_default_registry
-from worker.recovery import LifecycleRecoveryStore, PendingLifecycleReport
 from worker.registry import HandlerRegistry, JobExecutionContext
 
 logger = logging.getLogger(__name__)
@@ -26,12 +25,11 @@ class JobClient(Protocol):
 
 
 class Worker:
-    def __init__(self, config: WorkerConfig, client: JobClient, stop_event: Event | None = None, registry: HandlerRegistry | None = None, clock=None, recovery_store: LifecycleRecoveryStore | None = None) -> None:
+    def __init__(self, config: WorkerConfig, client: JobClient, stop_event: Event | None = None, registry: HandlerRegistry | None = None, clock=None) -> None:
         self._config = config
         self._client = client
         self._stop_event = stop_event or Event()
         self._registry = registry or create_default_registry()
-        self._recovery_store = recovery_store or LifecycleRecoveryStore()
 
     @property
     def stop_event(self) -> Event:
@@ -39,18 +37,20 @@ class Worker:
 
     def run(self) -> None:
         logger.info("worker startup backend_url=%s", self._config.backend_url)
+        reconnect_delay = self._config.backend_backoff_initial_seconds
         try:
             while not self._stop_event.is_set():
-                pending = self._recovery_store.next()
-                if pending is not None:
-                    self._recover_lifecycle_report(pending)
-                    continue
                 try:
                     job = self._client.claim_job()
                 except BackendClientError as error:
                     logger.error("job polling failed: %s", error)
-                    self._stop_event.wait(self._config.poll_interval_seconds)
+                    self._stop_event.wait(reconnect_delay)
+                    reconnect_delay = min(
+                        reconnect_delay * 2,
+                        self._config.backend_backoff_max_seconds,
+                    )
                     continue
+                reconnect_delay = self._config.backend_backoff_initial_seconds
                 if job is None:
                     self._stop_event.wait(self._config.poll_interval_seconds)
                     continue
@@ -80,7 +80,15 @@ class Worker:
             if cancelled.is_set():
                 self._client.acknowledge_cancel(job_id, token, attempt)
             else:
-                self._client.report_succeeded(job_id, result, token, attempt)
+                try:
+                    self._client.report_succeeded(job_id, result, token, attempt)
+                except BackendClientError as error:
+                    logger.error(
+                        "success report unavailable; lease recovery owns outcome "
+                        "job_id=%s error=%s",
+                        job_id,
+                        error,
+                    )
         except BackendExecutionError as error:
             if error.code == "AUTOMATION_CANCELLED":
                 try:
@@ -108,18 +116,9 @@ class Worker:
         try:
             self._client.report_failed(int(job["id"]), message, str(job["claim_token"]), int(job["attempt_count"]), error_code=code, retryable=retryable)
         except BackendClientError as error:
-            logger.error("lifecycle report failed job_id=%s action=fail error=%s", job["id"], error)
-            self._recovery_store.add(PendingLifecycleReport(dict(job), "fail", {"message": message, "code": code, "retryable": retryable}))
-
-    def _recover_lifecycle_report(self, report: PendingLifecycleReport) -> None:
-        job = report.job
-        try:
-            if report.action == "succeed":
-                self._client.report_succeeded(report.job_id, report.value, job["claim_token"], job["attempt_count"])
-            else:
-                value = report.value
-                self._client.report_failed(report.job_id, value["message"], job["claim_token"], job["attempt_count"], error_code=value["code"], retryable=value["retryable"])
-        except BackendClientError:
-            self._stop_event.wait(self._config.poll_interval_seconds)
-            return
-        self._recovery_store.complete(report.job_id)
+            logger.error(
+                "failure report unavailable; lease recovery owns outcome "
+                "job_id=%s error=%s",
+                job["id"],
+                error,
+            )

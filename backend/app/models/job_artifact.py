@@ -20,7 +20,7 @@ class JobArtifact(Base):
     __table_args__ = (
         CheckConstraint("size_bytes >= 0", name="ck_job_artifacts_size_nonnegative"),
         CheckConstraint(
-            "cleanup_status IN ('active', 'deleted', 'failed')",
+            "cleanup_status IN ('active', 'expired', 'deleted', 'failed')",
             name="ck_job_artifacts_cleanup_status",
         ),
     )

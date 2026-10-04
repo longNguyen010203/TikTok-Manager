@@ -602,9 +602,14 @@ Error cases:
 ## Artifact upload and download
 
 - `POST /artifacts` accepts bounded multipart content with validated filename,
-  MIME, and content signature. It returns safe metadata only.
+  MIME, and content signature. It returns safe metadata only, including
+  `state`, `created_at`, and `expires_at`. Quota exhaustion returns HTTP 507
+  with stable code `ARTIFACT_STORAGE_FULL`.
+- `GET /artifacts/{artifact_id}` returns metadata with state `available`,
+  `expired`, or `deleted`. It never returns the storage key or host path.
 - `GET /jobs/{job_id}/artifacts/{artifact_id}` requires exact association and
-  never accepts a storage path or returns a storage key.
+  never accepts a storage path or returns a storage key. Expired/deleted bytes
+  return `410 Gone`; the Job and artifact metadata remain queryable.
 
 ## Device object
 
@@ -945,11 +950,16 @@ Error cases:
 ```
 
 Only a completed `redroid_provisionings` record can authorize this operation.
-The backend closes its tracked screen, stops a running container, verifies the
-recorded Docker IDs and ownership labels, removes the owned container and its
-dedicated network, then removes the active Device/Runtime records. The
-provisioning record remains as a tombstone with historical Device/Runtime IDs.
-The allocated device number is permanently reserved.
+The backend first acquires the shared Runtime operation lock. Active automation
+or another Runtime mutation returns `409 Conflict` and is not interrupted.
+Pending/retrying `device.*` Jobs for that exact Runtime are cancelled with a
+durable `runtime_deprovisioned` event; no Job is redirected. The backend then
+closes its tracked screen, stops a running container, verifies the recorded
+Docker IDs and ownership labels, removes the owned container and its dedicated
+network, and removes the active Device/Runtime records. Historical Jobs and
+JobLogs remain, with the Runtime foreign key cleared. The provisioning record
+remains as a tombstone with historical Device/Runtime IDs, and the allocated
+device number is permanently reserved.
 
 The persistent data directory and its ownership marker are preserved. There is
 no API for destructive data removal.

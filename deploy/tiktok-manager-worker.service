@@ -1,0 +1,18 @@
+[Unit]
+Description=TikTok Manager automation worker
+Wants=tiktok-manager-backend.service
+After=tiktok-manager-backend.service
+
+[Service]
+Type=simple
+WorkingDirectory=@PROJECT_ROOT@/workers
+ExecStart=@PROJECT_ROOT@/backend/.venv/bin/python -m worker
+Environment=WORKER_BACKEND_URL=http://127.0.0.1:8000
+Environment=PYTHONDONTWRITEBYTECODE=1
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=330
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

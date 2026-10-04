@@ -10,6 +10,7 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 
 
 _SERIAL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$")
@@ -47,6 +48,41 @@ class AdbBinaryResult:
 
 CommandRunner = Callable[..., subprocess.CompletedProcess[bytes]]
 CancellationHook = Callable[[], bool]
+
+
+class OwnedAdbProcessRegistry:
+    """Track only ADB child process groups spawned by this backend process."""
+
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self._processes: set[subprocess.Popen[bytes]] = set()
+
+    def register(self, process: subprocess.Popen[bytes]) -> None:
+        with self._lock:
+            self._processes.add(process)
+
+    def unregister(self, process: subprocess.Popen[bytes]) -> None:
+        with self._lock:
+            self._processes.discard(process)
+
+    def terminate_all(self) -> int:
+        with self._lock:
+            processes = tuple(self._processes)
+        terminated = 0
+        for process in processes:
+            if process.poll() is None:
+                AdbExecutor._terminate_owned_process(process)
+                terminated += 1
+            self.unregister(process)
+        return terminated
+
+
+owned_adb_processes = OwnedAdbProcessRegistry()
+
+
+def terminate_owned_adb_children() -> int:
+    """Terminate exact backend-owned automation children, never the ADB server."""
+    return owned_adb_processes.terminate_all()
 
 
 class AdbExecutor:
@@ -346,20 +382,26 @@ class AdbExecutor:
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             start_new_session=True,
         )
-        deadline = time.monotonic() + timeout
-        while True:
-            if self.cancellation_hook is not None and self.cancellation_hook():
-                self._terminate_owned_process(process)
-                raise AdbExecutorError("cancelled", "ADB automation was cancelled")
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                self._terminate_owned_process(process)
-                raise subprocess.TimeoutExpired(command, timeout)
-            try:
-                stdout, stderr = process.communicate(timeout=min(0.1, remaining))
-                return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
-            except subprocess.TimeoutExpired:
-                continue
+        owned_adb_processes.register(process)
+        try:
+            deadline = time.monotonic() + timeout
+            while True:
+                if self.cancellation_hook is not None and self.cancellation_hook():
+                    self._terminate_owned_process(process)
+                    raise AdbExecutorError("cancelled", "ADB automation was cancelled")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    self._terminate_owned_process(process)
+                    raise subprocess.TimeoutExpired(command, timeout)
+                try:
+                    stdout, stderr = process.communicate(timeout=min(0.1, remaining))
+                    return subprocess.CompletedProcess(
+                        command, process.returncode, stdout, stderr
+                    )
+                except subprocess.TimeoutExpired:
+                    continue
+        finally:
+            owned_adb_processes.unregister(process)
 
     @staticmethod
     def _terminate_owned_process(process: subprocess.Popen[bytes]) -> None:

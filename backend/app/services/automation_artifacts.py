@@ -3,21 +3,24 @@
 from __future__ import annotations
 
 import hashlib
+import fcntl
 import os
 import re
 import stat
 import unicodedata
 import uuid
 from contextlib import contextmanager
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
 
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.config import load_application_config
-from app.models import JobArtifact
+from app.models import Job, JobArtifact
+from app.models.timestamps import utc_now
 from app.services.automation_errors import AutomationError, automation_error
 
 
@@ -28,10 +31,31 @@ class ArtifactConfigurationError(ValueError):
     """Raised when the trusted artifact-store configuration is unsafe."""
 
 
+class ArtifactCleanupBusy(RuntimeError):
+    """Raised when another process already owns artifact maintenance."""
+
+
+@dataclass(frozen=True)
+class ArtifactCleanupResult:
+    expired: int
+    missing: int
+    failed: int
+    bytes_released: int
+    active_bytes: int
+
+
 class AutomationArtifactStore:
     """Store files beneath one private, manager-owned directory."""
 
-    def __init__(self, root: Path, *, max_size_bytes: int) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        max_size_bytes: int,
+        max_total_bytes: int = 1024 * 1024 * 1024,
+        retention_days: int = 30,
+        upload_retention_days: int = 7,
+    ) -> None:
         self.root = Path(root).expanduser()
         if not self.root.is_absolute():
             raise ArtifactConfigurationError("artifact root must be absolute")
@@ -40,6 +64,15 @@ class AutomationArtifactStore:
                 "artifact maximum size must be greater than zero"
             )
         self.max_size_bytes = max_size_bytes
+        if max_total_bytes < max_size_bytes:
+            raise ArtifactConfigurationError(
+                "artifact total quota must not be smaller than one artifact"
+            )
+        if retention_days <= 0 or upload_retention_days <= 0:
+            raise ArtifactConfigurationError("artifact retention must be positive")
+        self.max_total_bytes = max_total_bytes
+        self.retention_days = retention_days
+        self.upload_retention_days = upload_retention_days
 
     @classmethod
     def from_application_config(cls) -> "AutomationArtifactStore":
@@ -47,6 +80,9 @@ class AutomationArtifactStore:
         return cls(
             config.artifact_root,
             max_size_bytes=config.artifact_max_size_bytes,
+            max_total_bytes=config.artifact_max_total_bytes,
+            retention_days=config.artifact_retention_days,
+            upload_retention_days=config.artifact_upload_retention_days,
         )
 
     def store_bytes(
@@ -84,57 +120,112 @@ class AutomationArtifactStore:
                 self.path_for(existing)
                 return existing
         self._prepare_root()
-        storage_key = uuid.uuid4().hex
-        temporary_name = f".incoming-{uuid.uuid4().hex}"
-        directory_fd = self._open_root()
-        finalized = False
-        try:
-            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-            descriptor = os.open(temporary_name, flags, 0o600, dir_fd=directory_fd)
+        with self.maintenance_lock():
+            self._cleanup_locked(session, now=utc_now(), required_bytes=len(data))
+            active_bytes = self._active_bytes(session)
+            if active_bytes + len(data) > self.max_total_bytes:
+                raise automation_error("ARTIFACT_STORAGE_FULL")
+            storage_key = uuid.uuid4().hex
+            temporary_name = f".incoming-{uuid.uuid4().hex}"
+            directory_fd = self._open_root()
+            finalized = False
             try:
-                with os.fdopen(descriptor, "wb", closefd=False) as stream:
-                    stream.write(data)
-                    stream.flush()
-                    os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
-            os.replace(
-                temporary_name,
-                storage_key,
-                src_dir_fd=directory_fd,
-                dst_dir_fd=directory_fd,
-            )
-            finalized = True
-        except OSError as error:
-            raise automation_error("ARTIFACT_POLICY_VIOLATION") from error
-        finally:
-            if not finalized:
+                flags = (
+                    os.O_WRONLY
+                    | os.O_CREAT
+                    | os.O_EXCL
+                    | getattr(os, "O_NOFOLLOW", 0)
+                )
+                descriptor = os.open(
+                    temporary_name, flags, 0o600, dir_fd=directory_fd
+                )
                 try:
-                    os.unlink(temporary_name, dir_fd=directory_fd)
-                except FileNotFoundError:
-                    pass
-            os.close(directory_fd)
+                    with os.fdopen(descriptor, "wb", closefd=False) as stream:
+                        stream.write(data)
+                        stream.flush()
+                        os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
+                os.replace(
+                    temporary_name,
+                    storage_key,
+                    src_dir_fd=directory_fd,
+                    dst_dir_fd=directory_fd,
+                )
+                finalized = True
+            except OSError as error:
+                raise automation_error("ARTIFACT_POLICY_VIOLATION") from error
+            finally:
+                if not finalized:
+                    try:
+                        os.unlink(temporary_name, dir_fd=directory_fd)
+                    except FileNotFoundError:
+                        pass
+                os.close(directory_fd)
 
-        artifact = JobArtifact(
-            job_id=job_id,
-            kind=kind,
-            original_filename=safe_name,
-            storage_key=storage_key,
-            mime_type=mime_type,
-            size_bytes=len(data),
-            sha256=digest,
-            expires_at=expires_at,
-            cleanup_status="active",
-        )
-        try:
-            session.add(artifact)
-            session.commit()
-            session.refresh(artifact)
-        except Exception:
-            session.rollback()
-            self._unlink_storage_key(storage_key)
-            raise
+            artifact = JobArtifact(
+                job_id=job_id,
+                kind=kind,
+                original_filename=safe_name,
+                storage_key=storage_key,
+                mime_type=mime_type,
+                size_bytes=len(data),
+                sha256=digest,
+                expires_at=expires_at or self._default_expiry(kind),
+                cleanup_status="active",
+            )
+            try:
+                session.add(artifact)
+                session.commit()
+                session.refresh(artifact)
+            except Exception:
+                session.rollback()
+                self._unlink_storage_key(storage_key)
+                raise
         return artifact
+
+    def cleanup(
+        self,
+        session: Session,
+        *,
+        now: datetime | None = None,
+        wait: bool = False,
+    ) -> ArtifactCleanupResult:
+        """Expire eligible bytes while preserving durable artifact metadata."""
+        self._prepare_root()
+        with self.maintenance_lock(wait=wait):
+            return self._cleanup_locked(session, now=now or utc_now())
+
+    @contextmanager
+    def maintenance_lock(self, *, wait: bool = True) -> Iterator[None]:
+        """Serialize writers and cleanup across backend/timer processes."""
+        self._prepare_root()
+        directory_fd = self._open_root()
+        descriptor: int | None = None
+        try:
+            descriptor = os.open(
+                ".cleanup.lock",
+                os.O_RDWR
+                | os.O_CREAT
+                | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+                dir_fd=directory_fd,
+            )
+            operation = fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB)
+            try:
+                fcntl.flock(descriptor, operation)
+            except BlockingIOError as error:
+                raise ArtifactCleanupBusy(
+                    "artifact maintenance is already running"
+                ) from error
+            yield
+        finally:
+            if descriptor is not None:
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+                finally:
+                    os.close(descriptor)
+            os.close(directory_fd)
 
     def get(self, session: Session, artifact_id: int) -> JobArtifact:
         """Load an active artifact and verify its backing file is safe."""
@@ -275,3 +366,116 @@ class AutomationArtifactStore:
             (self.root / storage_key).unlink()
         except FileNotFoundError:
             pass
+
+    def _cleanup_locked(
+        self,
+        session: Session,
+        *,
+        now: datetime,
+        required_bytes: int = 0,
+    ) -> ArtifactCleanupResult:
+        artifacts = list(
+            session.scalars(
+                select(JobArtifact)
+                .where(JobArtifact.cleanup_status == "active")
+                .order_by(JobArtifact.created_at, JobArtifact.id)
+            )
+        )
+        active_bytes = sum(artifact.size_bytes for artifact in artifacts)
+        expired = missing = failed = released = 0
+        for artifact in artifacts:
+            over_quota = active_bytes + required_bytes > self.max_total_bytes
+            if self._job_is_active(artifact.job):
+                continue
+            if not over_quota and not self._is_expired(artifact, now):
+                continue
+            try:
+                was_missing = self._delete_managed_file(artifact)
+            except AutomationError:
+                artifact.cleanup_status = "failed"
+                failed += 1
+                continue
+            artifact.cleanup_status = "expired"
+            active_bytes -= artifact.size_bytes
+            released += 0 if was_missing else artifact.size_bytes
+            if was_missing:
+                missing += 1
+            else:
+                expired += 1
+        session.commit()
+        return ArtifactCleanupResult(
+            expired=expired,
+            missing=missing,
+            failed=failed,
+            bytes_released=released,
+            active_bytes=active_bytes,
+        )
+
+    def _delete_managed_file(self, artifact: JobArtifact) -> bool:
+        if not _STORAGE_KEY.fullmatch(artifact.storage_key):
+            raise automation_error("ARTIFACT_POLICY_VIOLATION")
+        directory_fd = self._open_root()
+        try:
+            try:
+                info = os.stat(
+                    artifact.storage_key,
+                    dir_fd=directory_fd,
+                    follow_symlinks=False,
+                )
+            except FileNotFoundError:
+                return True
+            if (
+                stat.S_ISLNK(info.st_mode)
+                or not stat.S_ISREG(info.st_mode)
+                or info.st_uid != os.getuid()
+                or stat.S_IMODE(info.st_mode) & 0o077
+                or info.st_size != artifact.size_bytes
+            ):
+                raise automation_error("ARTIFACT_POLICY_VIOLATION")
+            os.unlink(artifact.storage_key, dir_fd=directory_fd)
+            return False
+        finally:
+            os.close(directory_fd)
+
+    def _default_expiry(self, kind: str) -> datetime:
+        days = (
+            self.upload_retention_days
+            if kind == "upload"
+            else self.retention_days
+        )
+        return utc_now() + timedelta(days=days)
+
+    def _is_expired(self, artifact: JobArtifact, now: datetime) -> bool:
+        deadline = artifact.expires_at
+        if deadline is None:
+            days = (
+                self.upload_retention_days
+                if artifact.kind == "upload"
+                else self.retention_days
+            )
+            deadline = artifact.created_at + timedelta(days=days)
+        if deadline.tzinfo is None:
+            deadline = deadline.replace(tzinfo=timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        return deadline <= now
+
+    @staticmethod
+    def _job_is_active(job: Job | None) -> bool:
+        return job is not None and job.status in {
+            "pending",
+            "retrying",
+            "running",
+            "cancelling",
+        }
+
+    @staticmethod
+    def _active_bytes(session: Session) -> int:
+        return int(
+            session.scalar(
+                select(func.coalesce(func.sum(JobArtifact.size_bytes), 0)).where(
+                    JobArtifact.cleanup_status == "active"
+                )
+            )
+            or 0
+        )

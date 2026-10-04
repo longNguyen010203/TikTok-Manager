@@ -89,10 +89,16 @@ Manager host lifecycle:
 - Automation artifacts are stored beneath the private per-user application
   data directory. Results expose generated artifact IDs and safe metadata,
   never arbitrary host paths or raw screenshot bytes.
+- Artifact writes and scheduled retention cleanup share a cross-process lock.
+  A total-byte quota prevents unbounded growth; artifact bytes may expire while
+  immutable Job and JobLog history remains available.
 - Device Jobs use a typed registry and a lease-protected backend execution
   boundary. Workers receive complete execution context but never execute ADB;
   every heartbeat and terminal mutation is fenced by a hashed claim token and
   attempt number.
+- The installed user-level automation worker starts after the backend, uses
+  bounded reconnect backoff, and relies only on durable backend claims and
+  leases for crash recovery.
 - Deprovision rejects a Runtime with active automation and cancels queued
   `device.*` Jobs for that exact Runtime without redirecting them.
 - Redroid containers use private Binder mounts. Host Binder device nodes must

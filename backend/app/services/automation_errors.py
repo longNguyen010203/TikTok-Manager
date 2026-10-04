@@ -30,6 +30,7 @@ def automation_error(code: str, *, retryable: bool = False) -> AutomationError:
         "MEDIA_IMPORT_FAILED": "Android media import failed",
         "ARTIFACT_NOT_FOUND": "Managed artifact was not found",
         "ARTIFACT_POLICY_VIOLATION": "Managed artifact policy rejected the operation",
+        "ARTIFACT_STORAGE_FULL": "Managed artifact storage quota is full",
         "AUTOMATION_CANCELLED": "Android automation operation was cancelled",
     }
     return AutomationError(code, messages[code], retryable=retryable)

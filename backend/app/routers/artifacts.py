@@ -17,10 +17,17 @@ DatabaseSession = Annotated[Session, Depends(get_db)]
 
 
 def _metadata(artifact: JobArtifact) -> ArtifactMetadata:
+    state = {
+        "active": "available",
+        "expired": "expired",
+        "deleted": "deleted",
+        "failed": "deleted",
+    }[artifact.cleanup_status]
     return ArtifactMetadata(
         id=artifact.id, job_id=artifact.job_id, kind=artifact.kind,
         filename=artifact.original_filename, mime_type=artifact.mime_type,
         size_bytes=artifact.size_bytes, sha256=artifact.sha256,
+        state=state, created_at=artifact.created_at, expires_at=artifact.expires_at,
     )
 
 
@@ -58,7 +65,19 @@ async def upload_artifact(session: DatabaseSession, file: Annotated[UploadFile, 
             mime_type=content_type,
         ))
     except AutomationError as error:
-        raise HTTPException(status_code=422, detail={"code": error.code, "message": error.safe_message}) from error
+        status_code = 507 if error.code == "ARTIFACT_STORAGE_FULL" else 422
+        raise HTTPException(status_code=status_code, detail={"code": error.code, "message": error.safe_message}) from error
+
+
+@router.get("/artifacts/{artifact_id}", response_model=ArtifactMetadata)
+def get_artifact_metadata(
+    artifact_id: Annotated[int, Path(gt=0)],
+    session: DatabaseSession,
+) -> ArtifactMetadata:
+    artifact = session.get(JobArtifact, artifact_id)
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return _metadata(artifact)
 
 
 @router.get("/jobs/{job_id}/artifacts/{artifact_id}")
@@ -69,8 +88,13 @@ def download_artifact(
     if session.get(Job, job_id) is None:
         raise HTTPException(status_code=404, detail="Job not found")
     artifact = session.get(JobArtifact, artifact_id)
-    if artifact is None or artifact.job_id != job_id or artifact.cleanup_status != "active":
+    if artifact is None or artifact.job_id != job_id:
         raise HTTPException(status_code=404, detail="Artifact not found for Job")
+    if artifact.cleanup_status != "active":
+        raise HTTPException(
+            status_code=410,
+            detail={"code": "ARTIFACT_EXPIRED", "message": "Artifact bytes have expired"},
+        )
     store = AutomationArtifactStore.from_application_config()
     try:
         path = store.path_for(artifact)

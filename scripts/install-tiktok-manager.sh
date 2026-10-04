@@ -13,7 +13,10 @@ config_dir="${XDG_CONFIG_HOME:-${HOME}/.config}/tiktok-manager"
 data_dir="${XDG_DATA_HOME:-${HOME}/.local/share}/tiktok-manager"
 database_path="${data_dir}/tiktok_manager.db"
 unit_dir="${XDG_CONFIG_HOME:-${HOME}/.config}/systemd/user"
-unit_path="${unit_dir}/tiktok-manager-backend.service"
+backend_unit_path="${unit_dir}/tiktok-manager-backend.service"
+worker_unit_path="${unit_dir}/tiktok-manager-worker.service"
+cleanup_service_path="${unit_dir}/tiktok-manager-artifact-cleanup.service"
+cleanup_timer_path="${unit_dir}/tiktok-manager-artifact-cleanup.timer"
 user_runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 
 if [[ ! -S "${user_runtime_dir}/bus" ]]; then
@@ -56,9 +59,27 @@ fi
 
 escaped_root="${project_root//&/\\&}"
 sed "s|@PROJECT_ROOT@|${escaped_root}|g" \
-  "${project_root}/deploy/tiktok-manager-backend.service" > "${unit_path}"
-chmod 600 "${unit_path}"
+  "${project_root}/deploy/tiktok-manager-backend.service" > "${backend_unit_path}"
+sed "s|@PROJECT_ROOT@|${escaped_root}|g" \
+  "${project_root}/deploy/tiktok-manager-worker.service" > "${worker_unit_path}"
+sed "s|@PROJECT_ROOT@|${escaped_root}|g" \
+  "${project_root}/deploy/tiktok-manager-artifact-cleanup.service" \
+  > "${cleanup_service_path}"
+cleanup_interval="$(
+  cd "${backend_dir}"
+  "${venv_dir}/bin/python" -c \
+    'from app.config import load_application_config; print(load_application_config().artifact_cleanup_interval_hours)'
+)"
+sed "s|@CLEANUP_INTERVAL@|${cleanup_interval}|g" \
+  "${project_root}/deploy/tiktok-manager-artifact-cleanup.timer" \
+  > "${cleanup_timer_path}"
+chmod 600 "${backend_unit_path}" "${worker_unit_path}" \
+  "${cleanup_service_path}" "${cleanup_timer_path}"
 
 systemctl --user daemon-reload
 systemctl --user enable --now tiktok-manager-backend.service
+systemctl --user enable --now tiktok-manager-worker.service
+systemctl --user enable --now tiktok-manager-artifact-cleanup.timer
 systemctl --user --no-pager status tiktok-manager-backend.service
+systemctl --user --no-pager status tiktok-manager-worker.service
+systemctl --user --no-pager status tiktok-manager-artifact-cleanup.timer

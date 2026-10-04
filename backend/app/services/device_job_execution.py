@@ -81,6 +81,9 @@ class DeviceJobExecutionService:
             artifacts=AutomationArtifactStore(
                 config.artifact_root,
                 max_size_bytes=config.artifact_max_size_bytes,
+                max_total_bytes=config.artifact_max_total_bytes,
+                retention_days=config.artifact_retention_days,
+                upload_retention_days=config.artifact_upload_retention_days,
             ),
             screen_inspector=self.screen_manager,
             readiness_timeout=min(30, definition.handler_timeout_seconds),

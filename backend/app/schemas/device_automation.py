@@ -1,5 +1,8 @@
 """Internal typed results for safe Android automation primitives."""
 
+from datetime import datetime
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -64,3 +67,6 @@ class ArtifactMetadata(BaseModel):
     mime_type: str
     size_bytes: int = Field(ge=0)
     sha256: str
+    state: Literal["available", "expired", "deleted"]
+    created_at: datetime
+    expires_at: datetime | None = None

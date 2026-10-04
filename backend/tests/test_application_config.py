@@ -141,6 +141,10 @@ def test_config_bootstrap_is_private_persistent_and_loadable(
     assert second.bridge_systemd_scope == "user"
     assert second.artifact_root == tmp_path / "data/tiktok-manager/artifacts"
     assert second.artifact_max_size_bytes == 100 * 1024 * 1024
+    assert second.artifact_max_total_bytes == 1024 * 1024 * 1024
+    assert second.artifact_retention_days == 30
+    assert second.artifact_upload_retention_days == 7
+    assert second.artifact_cleanup_interval_hours == 6
     assert stat.S_IMODE(first.config_path.stat().st_mode) == 0o600
     assert stat.S_IMODE(first.config_path.parent.stat().st_mode) == 0o700
     assert first.config_path.read_bytes() == original
@@ -158,6 +162,38 @@ def test_config_loader_rejects_symlink(
 
     with pytest.raises(ApplicationConfigurationError, match="unsafe"):
         load_application_config(link)
+
+
+def test_config_bootstrap_adds_new_retention_defaults_without_overwriting(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    clean_environment(monkeypatch, tmp_path)
+    first = bootstrap_application_config()
+    legacy = "\n".join(
+        line
+        for line in first.config_path.read_text(encoding="utf-8").splitlines()
+        if not line.startswith(
+            (
+                "artifact_max_total_bytes",
+                "artifact_retention_days",
+                "artifact_upload_retention_days",
+                "artifact_cleanup_interval_hours",
+            )
+        )
+    )
+    legacy = legacy.replace(
+        "artifact_max_size_bytes = 104857600",
+        "artifact_max_size_bytes = 52428800",
+    )
+    first.config_path.write_text(legacy + "\n", encoding="utf-8")
+    first.config_path.chmod(0o600)
+
+    upgraded = bootstrap_application_config()
+
+    assert upgraded.artifact_max_size_bytes == 50 * 1024 * 1024
+    assert upgraded.artifact_max_total_bytes == 1024 * 1024 * 1024
+    assert upgraded.artifact_retention_days == 30
+    assert stat.S_IMODE(first.config_path.stat().st_mode) == 0o600
 
 
 def credential_database(tmp_path: Path):
@@ -304,3 +340,33 @@ def test_user_service_uses_native_user_manager_and_contains_no_secrets() -> None
     assert "alembic\" upgrade head" in installer
     assert "app.bootstrap --ensure-key" in installer
     assert "systemctl --user enable --now" in installer
+
+
+def test_worker_and_artifact_cleanup_service_assets_are_production_safe() -> None:
+    root = Path(__file__).parents[2]
+    worker = (root / "deploy/tiktok-manager-worker.service").read_text(
+        encoding="utf-8"
+    )
+    cleanup = (
+        root / "deploy/tiktok-manager-artifact-cleanup.service"
+    ).read_text(encoding="utf-8")
+    timer = (
+        root / "deploy/tiktok-manager-artifact-cleanup.timer"
+    ).read_text(encoding="utf-8")
+    installer = (root / "scripts/install-tiktok-manager.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "After=tiktok-manager-backend.service" in worker
+    assert "WorkingDirectory=@PROJECT_ROOT@/workers" in worker
+    assert "@PROJECT_ROOT@/backend/.venv/bin/python -m worker" in worker
+    assert "WORKER_BACKEND_URL=http://127.0.0.1:8000" in worker
+    assert "PYTHONDONTWRITEBYTECODE=1" in worker
+    assert "Restart=on-failure" in worker
+    assert "claim_token" not in worker.lower()
+    assert "password" not in worker.lower()
+    assert "python -m app.artifact_cleanup" in cleanup
+    assert "OnUnitActiveSec=@CLEANUP_INTERVAL@h" in timer
+    assert "Persistent=true" in timer
+    assert "enable --now tiktok-manager-worker.service" in installer
+    assert "enable --now tiktok-manager-artifact-cleanup.timer" in installer

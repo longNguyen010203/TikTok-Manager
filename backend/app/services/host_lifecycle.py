@@ -18,6 +18,7 @@ from app.config import load_application_config
 from app.services.device_lifecycle import DeviceLifecycleService
 from app.services.device_screen import ScreenProcessManager
 from app.services.redroid_runtime import RedroidRuntimeAdapter
+from app.services.adb_executor import terminate_owned_adb_children
 
 logger = logging.getLogger(__name__)
 STOP_MANAGED_DEVICES_ON_SHUTDOWN = "STOP_MANAGED_DEVICES_ON_SHUTDOWN"
@@ -192,6 +193,11 @@ class HostLifecycleManager:
 
     def shutdown(self) -> None:
         """Close screens and stop configured Redroid containers without deletion."""
+        terminated = terminate_owned_adb_children()
+        logger.info(
+            "Shutdown automation child cleanup complete: terminated=%s",
+            terminated,
+        )
         self._close_screens()
         if self.stop_managed_devices_on_shutdown:
             self._stop_redroid_containers()

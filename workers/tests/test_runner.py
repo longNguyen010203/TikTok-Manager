@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from threading import Event
 from typing import Any
 
-from worker.client import BackendExecutionError
+from worker.client import BackendClientError, BackendExecutionError
 from worker.config import WorkerConfig
 from worker.registry import HandlerRegistry, JobExecutionContext
 from worker.runner import Worker
@@ -95,3 +95,62 @@ def test_automation_cancelled_is_acknowledged() -> None:
     registry.register("example", handler)
     Worker(WorkerConfig(heartbeat_interval_seconds=0.01), client, stop, registry).run()
     assert client.acks == [(8, "t" * 43, 1)]
+
+
+def test_backend_reconnect_uses_bounded_exponential_backoff() -> None:
+    class RecordingStop:
+        def __init__(self) -> None:
+            self.stopped = False
+            self.waits: list[float] = []
+
+        def is_set(self) -> bool:
+            return self.stopped
+
+        def wait(self, seconds: float) -> bool:
+            self.waits.append(seconds)
+            return self.stopped
+
+        def set(self) -> None:
+            self.stopped = True
+
+    class UnavailableClient:
+        def __init__(self, stop: RecordingStop) -> None:
+            self.calls = 0
+            self.stop = stop
+
+        def claim_job(self):
+            self.calls += 1
+            if self.calls <= 4:
+                raise BackendClientError("offline")
+            self.stop.set()
+            return None
+
+    stop = RecordingStop()
+    worker = Worker(
+        WorkerConfig(
+            backend_backoff_initial_seconds=1,
+            backend_backoff_max_seconds=4,
+        ),
+        UnavailableClient(stop),
+        stop,
+    )
+
+    worker.run()
+
+    assert stop.waits == [1, 2, 4, 4, worker._config.poll_interval_seconds]
+
+
+def test_unconfirmed_success_is_left_for_durable_lease_recovery() -> None:
+    stop = Event()
+
+    class ReportUnavailableClient(StubClient):
+        def report_succeeded(self, job_id, result, claim_token, attempt):
+            self.stop.set()
+            raise BackendClientError("backend restarting")
+
+    client = ReportUnavailableClient(claimed("device.screenshot"), stop)
+
+    Worker(WorkerConfig(heartbeat_interval_seconds=0.01), client, stop).run()
+
+    assert client.failures == []
+    assert client.acks == []

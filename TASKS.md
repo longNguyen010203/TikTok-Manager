@@ -665,7 +665,7 @@ Acceptance criteria:
 ---
 
 ## TIK-020
-Status: IN PROGRESS
+Status: DONE
 Owner: Codex + Antigravity
 Type: Backend / Worker / Device Automation
 

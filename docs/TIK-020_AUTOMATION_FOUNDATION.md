@@ -116,3 +116,26 @@ Job progress events are buffered while an ADB operation owns the Runtime lock,
 preventing a long SQLite write transaction from blocking independent worker
 heartbeats and cancellation requests. No claim token, raw ADB output, artifact
 bytes, or host storage path is written to JobLog metadata.
+
+## Phase 6 production operation
+
+The installed `tiktok-manager-worker.service` runs the real worker from the
+project virtualenv and automatically resumes polling after backend or worker
+restart. Backend connection failures use bounded exponential backoff. A worker
+starts without any remembered claim token; durable backend leases and the
+lease reaper are the only authority for abandoned work and stale completions.
+
+Artifact storage has a configurable per-file limit, total-byte quota, and
+separate upload/result lifetimes. Writes and cleanup share a private
+cross-process `flock`. Cleanup never follows symlinks, never removes bytes for
+an active Job, and preserves artifact metadata as `expired` after bytes are
+removed. Job and JobLog history remains durable. The persistent user-systemd
+cleanup timer runs at a low frequency and skips safely if another maintenance
+process owns the lock.
+
+The backend tracks only exact ADB child process groups that it starts for
+cancellable automation. Graceful shutdown terminates those registered groups;
+it never invokes `adb kill-server` or targets another Runtime. After an
+ungraceful backend crash, the OS may allow an already-running ADB client to
+finish, so the durable lease/idempotency policy treats uncertain post-dispatch
+work conservatively rather than blindly replaying it.

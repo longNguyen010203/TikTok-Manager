@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import stat
 import tomllib
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -58,7 +59,29 @@ class ApplicationConfig:
     bridge_systemd_scope: str
     artifact_root: Path
     artifact_max_size_bytes: int
+    artifact_max_total_bytes: int
+    artifact_retention_days: int
+    artifact_upload_retention_days: int
+    artifact_cleanup_interval_hours: int
     stop_managed_devices_on_shutdown: bool
+
+    def __post_init__(self) -> None:
+        if self.artifact_max_size_bytes <= 0:
+            raise ApplicationConfigurationError(
+                "Artifact maximum size must be positive"
+            )
+        if self.artifact_max_total_bytes < self.artifact_max_size_bytes:
+            raise ApplicationConfigurationError(
+                "Artifact total quota must not be smaller than one artifact"
+            )
+        if (
+            self.artifact_retention_days <= 0
+            or self.artifact_upload_retention_days <= 0
+            or self.artifact_cleanup_interval_hours <= 0
+        ):
+            raise ApplicationConfigurationError(
+                "Artifact retention settings must be positive"
+            )
 
 
 def default_application_config(path: Path | None = None) -> ApplicationConfig:
@@ -82,6 +105,10 @@ def default_application_config(path: Path | None = None) -> ApplicationConfig:
         bridge_systemd_scope="user",
         artifact_root=data_directory / "artifacts",
         artifact_max_size_bytes=100 * 1024 * 1024,
+        artifact_max_total_bytes=1024 * 1024 * 1024,
+        artifact_retention_days=30,
+        artifact_upload_retention_days=7,
+        artifact_cleanup_interval_hours=6,
         stop_managed_devices_on_shutdown=False,
     )
 
@@ -100,6 +127,7 @@ def bootstrap_application_config(path: Path | None = None) -> ApplicationConfig:
             0o600,
         )
     except FileExistsError:
+        _upgrade_automation_defaults(desired.config_path, desired)
         return load_application_config(desired.config_path)
     with os.fdopen(descriptor, "wb") as stream:
         stream.write(payload)
@@ -146,6 +174,18 @@ def load_application_config(
             ).expanduser(),
             artifact_max_size_bytes=int(
                 automation.get("artifact_max_size_bytes", 100 * 1024 * 1024)
+            ),
+            artifact_max_total_bytes=int(
+                automation.get("artifact_max_total_bytes", 1024 * 1024 * 1024)
+            ),
+            artifact_retention_days=int(
+                automation.get("artifact_retention_days", 30)
+            ),
+            artifact_upload_retention_days=int(
+                automation.get("artifact_upload_retention_days", 7)
+            ),
+            artifact_cleanup_interval_hours=int(
+                automation.get("artifact_cleanup_interval_hours", 6)
             ),
             stop_managed_devices_on_shutdown=bool(
                 runtime.get("stop_managed_devices_on_shutdown", False)
@@ -207,6 +247,30 @@ def _with_environment_overrides(config: ApplicationConfig) -> ApplicationConfig:
                     str(config.artifact_max_size_bytes),
                 )
             ),
+            artifact_max_total_bytes=int(
+                os.getenv(
+                    "TIKTOK_MANAGER_ARTIFACT_MAX_TOTAL_BYTES",
+                    str(config.artifact_max_total_bytes),
+                )
+            ),
+            artifact_retention_days=int(
+                os.getenv(
+                    "TIKTOK_MANAGER_ARTIFACT_RETENTION_DAYS",
+                    str(config.artifact_retention_days),
+                )
+            ),
+            artifact_upload_retention_days=int(
+                os.getenv(
+                    "TIKTOK_MANAGER_ARTIFACT_UPLOAD_RETENTION_DAYS",
+                    str(config.artifact_upload_retention_days),
+                )
+            ),
+            artifact_cleanup_interval_hours=int(
+                os.getenv(
+                    "TIKTOK_MANAGER_ARTIFACT_CLEANUP_INTERVAL_HOURS",
+                    str(config.artifact_cleanup_interval_hours),
+                )
+            ),
             stop_managed_devices_on_shutdown=_environment_bool(
                 "STOP_MANAGED_DEVICES_ON_SHUTDOWN",
                 config.stop_managed_devices_on_shutdown,
@@ -249,6 +313,89 @@ def _quote(value: object) -> str:
     return f'"{text}"'
 
 
+def _upgrade_automation_defaults(
+    config_path: Path, defaults: ApplicationConfig
+) -> None:
+    """Add new non-secret automation keys without replacing operator values."""
+    _require_safe_file(config_path, maximum_mode=0o644)
+    text = config_path.read_text(encoding="utf-8")
+    try:
+        parsed = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as error:
+        raise ApplicationConfigurationError("Application config is invalid") from error
+    automation = parsed.get("automation", {})
+    desired = {
+        "artifact_root": _quote(defaults.artifact_root),
+        "artifact_max_size_bytes": str(defaults.artifact_max_size_bytes),
+        "artifact_max_total_bytes": str(defaults.artifact_max_total_bytes),
+        "artifact_retention_days": str(defaults.artifact_retention_days),
+        "artifact_upload_retention_days": str(
+            defaults.artifact_upload_retention_days
+        ),
+        "artifact_cleanup_interval_hours": str(
+            defaults.artifact_cleanup_interval_hours
+        ),
+    }
+    missing = [(key, value) for key, value in desired.items() if key not in automation]
+    if not missing:
+        return
+
+    lines = text.splitlines()
+    try:
+        section_start = lines.index("[automation]")
+    except ValueError:
+        if lines and lines[-1]:
+            lines.append("")
+        lines.append("[automation]")
+        lines.extend(f"{key} = {value}" for key, value in missing)
+    else:
+        section_end = len(lines)
+        for index in range(section_start + 1, len(lines)):
+            if lines[index].startswith("["):
+                section_end = index
+                break
+        insertion = [f"{key} = {value}" for key, value in missing]
+        lines[section_end:section_end] = insertion
+
+    payload = ("\n".join(lines).rstrip() + "\n").encode("utf-8")
+    temporary = f".{config_path.name}.update-{uuid.uuid4().hex}"
+    directory_fd = os.open(
+        config_path.parent,
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0),
+    )
+    try:
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+            dir_fd=directory_fd,
+        )
+        try:
+            with os.fdopen(descriptor, "wb", closefd=False) as stream:
+                stream.write(payload)
+                stream.flush()
+                os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        os.replace(
+            temporary,
+            config_path.name,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
+    finally:
+        try:
+            os.unlink(temporary, dir_fd=directory_fd)
+        except FileNotFoundError:
+            pass
+        os.close(directory_fd)
+
+
 def _serialize(config: ApplicationConfig) -> str:
     return "\n".join(
         [
@@ -277,6 +424,12 @@ def _serialize(config: ApplicationConfig) -> str:
             "[automation]",
             f"artifact_root = {_quote(config.artifact_root)}",
             f"artifact_max_size_bytes = {config.artifact_max_size_bytes}",
+            f"artifact_max_total_bytes = {config.artifact_max_total_bytes}",
+            f"artifact_retention_days = {config.artifact_retention_days}",
+            "artifact_upload_retention_days = "
+            f"{config.artifact_upload_retention_days}",
+            "artifact_cleanup_interval_hours = "
+            f"{config.artifact_cleanup_interval_hours}",
             "",
             "[runtime]",
             "stop_managed_devices_on_shutdown = "

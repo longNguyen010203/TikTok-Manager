@@ -186,6 +186,25 @@ def test_managed_device_shutdown_configuration_defaults_false_and_accepts_true(
     assert stop_managed_devices_on_shutdown_from_environment() is True
 
 
+@patch("app.services.host_lifecycle.terminate_owned_adb_children")
+def test_shutdown_terminates_only_registered_automation_children(
+    terminate_children, tmp_path: Path
+) -> None:
+    factory, engine = session_factory(tmp_path)
+    terminate_children.return_value = 2
+    screens = MagicMock(spec=ScreenProcessManager)
+    screens.close_all.return_value = ScreenCleanupResult((), ())
+
+    host_manager(
+        factory,
+        screens=screens,
+        stop_managed_devices_on_shutdown=False,
+    ).shutdown()
+
+    terminate_children.assert_called_once_with()
+    engine.dispose()
+
+
 @patch("app.services.host_lifecycle.shutil.which")
 @patch("app.services.host_lifecycle.subprocess.run")
 def test_startup_succeeds_when_host_dependencies_are_available(

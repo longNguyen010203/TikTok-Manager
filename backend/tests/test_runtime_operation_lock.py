@@ -1,6 +1,7 @@
 """Shared Runtime operation-lock tests."""
 
 from pathlib import Path
+from multiprocessing import Event, Process
 from unittest.mock import MagicMock
 
 import pytest
@@ -16,6 +17,13 @@ from app.services.runtime_operation_lock import (
     RuntimeOperationLockBusy,
     RuntimeOperationLockError,
 )
+
+
+def _hold_runtime_lock(lock_directory: str, ready) -> None:
+    guard = RuntimeOperationGuard(Path(lock_directory))
+    with guard.acquire_runtime(17):
+        ready.set()
+        Event().wait(30)
 
 
 def test_network_and_automation_use_the_same_runtime_lock(tmp_path: Path) -> None:
@@ -65,6 +73,27 @@ def test_lock_releases_and_different_runtimes_do_not_contend(tmp_path: Path) -> 
         with second.acquire_runtime(2, blocking=False):
             pass
     with second.acquire_runtime(1, blocking=False):
+        pass
+
+
+def test_lock_is_released_when_owner_process_dies(tmp_path: Path) -> None:
+    lock_directory = tmp_path / "locks"
+    ready = Event()
+    process = Process(
+        target=_hold_runtime_lock,
+        args=(str(lock_directory), ready),
+    )
+    process.start()
+    assert ready.wait(5)
+    contender = RuntimeOperationGuard(lock_directory)
+    with pytest.raises(RuntimeOperationLockBusy):
+        with contender.acquire_runtime(17, blocking=False):
+            pass
+
+    process.terminate()
+    process.join(5)
+    assert not process.is_alive()
+    with contender.acquire_runtime(17, blocking=False):
         pass
 
 

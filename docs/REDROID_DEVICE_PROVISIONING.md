@@ -79,6 +79,13 @@ mapping, derived allocation, and data ownership marker. Resource names are only
 checked for conflicts and never authorize deletion. An ownership mismatch sets
 `deprovision_failed` and preserves resources for manual recovery.
 
+The Runtime-specific operation lock is also checked before removal. Active
+automation or another Runtime mutation returns a busy conflict and is never
+interrupted. Once the lock is owned, pending/retrying `device.*` Jobs for that
+exact Runtime are cancelled with a durable `runtime_deprovisioned` log event;
+Jobs are never redirected to another Runtime. Historical Jobs and JobLogs are
+preserved after the Runtime foreign key is cleared.
+
 The normal order is: close the tracked screen, stop a running container by its
 verified ID, remove that stopped container by ID, remove the verified empty
 dedicated network by ID, and atomically remove the active Device/Runtime rows.

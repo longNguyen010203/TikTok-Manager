@@ -16,7 +16,7 @@ from app.services.redroid_provisioning_config import RedroidProvisioningSettings
 # Uvicorn configures this logger for the installed service, making the database
 # identity visible in the journal without requiring a separate logging setup.
 logger = logging.getLogger("uvicorn.error")
-LATEST_ALEMBIC_REVISION = "20261004_0012"
+LATEST_ALEMBIC_REVISION = "20261004_0013"
 
 
 class DatabaseStartupError(RuntimeError):

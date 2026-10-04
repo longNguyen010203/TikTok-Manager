@@ -13,7 +13,7 @@ from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import get_db, init_db
-from app.models import Job, JobLog
+from app.models import Job, JobArtifact, JobLog
 from app.models.timestamps import utc_now
 from app.services.job_lifecycle import claim_next_job, mark_job_failed, recover_expired_jobs
 from tests.app_factory import create_test_app
@@ -148,6 +148,7 @@ def test_artifact_upload_association_and_download(phase3_api: TestClient) -> Non
     assert upload.status_code == 201
     artifact = upload.json()
     assert "storage_key" not in artifact
+    assert artifact["state"] == "available"
     job = phase3_api.post("/jobs", json={
         "job_type": "device.push_file", "runtime_id": runtime["id"],
         "payload": {"artifact_id": artifact["id"]},
@@ -156,3 +157,36 @@ def test_artifact_upload_association_and_download(phase3_api: TestClient) -> Non
     download = phase3_api.get(f"/jobs/{job.json()['id']}/artifacts/{artifact['id']}")
     assert download.status_code == 200 and download.content == b"hello"
     assert phase3_api.get(f"/jobs/{job.json()['id'] + 1}/artifacts/{artifact['id']}").status_code == 404
+
+
+def test_expired_artifact_metadata_preserves_job_history(
+    phase3_api: TestClient,
+) -> None:
+    runtime = add_redroid(phase3_api)
+    artifact = phase3_api.post(
+        "/artifacts",
+        files={"file": ("history.txt", b"history", "text/plain")},
+    ).json()
+    job = phase3_api.post(
+        "/jobs",
+        json={
+            "job_type": "device.push_file",
+            "runtime_id": runtime["id"],
+            "payload": {"artifact_id": artifact["id"]},
+        },
+    ).json()
+    with phase3_api.app.state.phase3_factory() as session:
+        stored = session.get(JobArtifact, artifact["id"])
+        stored.cleanup_status = "expired"
+        session.commit()
+
+    metadata = phase3_api.get(f"/artifacts/{artifact['id']}")
+    download = phase3_api.get(
+        f"/jobs/{job['id']}/artifacts/{artifact['id']}"
+    )
+
+    assert metadata.status_code == 200
+    assert metadata.json()["state"] == "expired"
+    assert "storage_key" not in metadata.json()
+    assert download.status_code == 410
+    assert phase3_api.get(f"/jobs/{job['id']}").status_code == 200

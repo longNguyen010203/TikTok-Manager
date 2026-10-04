@@ -4,7 +4,11 @@ import subprocess
 
 import pytest
 
-from app.services.adb_executor import AdbExecutor, AdbExecutorError
+from app.services.adb_executor import (
+    AdbExecutor,
+    AdbExecutorError,
+    OwnedAdbProcessRegistry,
+)
 
 
 class RecordingRunner:
@@ -130,6 +134,29 @@ def test_cancellation_terminates_only_owned_child(
         executor.get_state("localhost:5588")
     assert raised.value.kind == "cancelled"
     assert signals and signals[0][0] == 43210
+
+
+def test_owned_process_registry_terminates_only_registered_children(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    terminated: list[object] = []
+
+    class FakeProcess:
+        def poll(self):
+            return None
+
+    owned = FakeProcess()
+    registry = OwnedAdbProcessRegistry()
+    registry.register(owned)  # type: ignore[arg-type]
+    monkeypatch.setattr(
+        AdbExecutor,
+        "_terminate_owned_process",
+        lambda process: terminated.append(process),
+    )
+
+    assert registry.terminate_all() == 1
+    assert terminated == [owned]
+    assert registry.terminate_all() == 0
 
 
 @pytest.mark.parametrize("serial", ["", "serial with spaces", "$(unsafe)"])
