@@ -134,7 +134,7 @@ def list_jobs(
     jobs = session.scalars(
         select(Job)
         .where(*filters)
-        .order_by(Job.id)
+        .order_by(Job.created_at.desc(), Job.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()

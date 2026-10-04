@@ -1,6 +1,7 @@
 """API tests for Job CRUD, filtering, and target validation."""
 
 from collections.abc import Iterator
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,7 @@ from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import get_db, init_db
+from app.models import Job
 from tests.app_factory import create_test_app
 
 
@@ -27,6 +29,7 @@ def job_api(tmp_path: Path) -> Iterator[TestClient]:
     )
     init_db(test_engine)
     application = create_test_app()
+    application.state.testing_session = testing_session
 
     def override_get_db() -> Iterator[Session]:
         with testing_session() as session:
@@ -182,6 +185,14 @@ def test_list_jobs_supports_pagination_and_exact_filters(job_api: TestClient) ->
         assert response.status_code == 201
         created.append(response.json())
 
+    # Give every row the same timestamp so ID ordering deterministically proves
+    # that ordering happens before pagination and after filtering.
+    with job_api.app.state.testing_session() as session:
+        shared_created_at = datetime(2026, 10, 4, 12, 0, tzinfo=timezone.utc)
+        for item in created:
+            session.get(Job, item["id"]).created_at = shared_created_at
+        session.commit()
+
     page_response = job_api.get("/jobs?page=2&page_size=2")
     assert page_response.status_code == 200
     page = page_response.json()
@@ -189,20 +200,21 @@ def test_list_jobs_supports_pagination_and_exact_filters(job_api: TestClient) ->
     assert page["page"] == 2
     assert page["page_size"] == 2
     assert [item["id"] for item in page["items"]] == [
-        created[2]["id"],
-        created[3]["id"],
+        created[1]["id"],
+        created[0]["id"],
     ]
 
     filter_expectations = [
-        ("status=pending", 2),
-        ("job_type=sync_analytics", 2),
-        (f"account_id={first_account['id']}", 2),
-        (f"runtime_id={second_runtime['id']}", 2),
+        ("status=pending", [created[3]["id"], created[0]["id"]]),
+        ("job_type=sync_analytics", [created[1]["id"], created[0]["id"]]),
+        (f"account_id={first_account['id']}", [created[2]["id"], created[0]["id"]]),
+        (f"runtime_id={second_runtime['id']}", [created[2]["id"], created[1]["id"]]),
     ]
-    for query, expected_total in filter_expectations:
+    for query, expected_ids in filter_expectations:
         response = job_api.get(f"/jobs?{query}")
         assert response.status_code == 200
-        assert response.json()["total"] == expected_total
+        assert response.json()["total"] == len(expected_ids)
+        assert [item["id"] for item in response.json()["items"]] == expected_ids
 
     combined_response = job_api.get(
         "/jobs?status=failed&job_type=publish_video"
@@ -217,6 +229,52 @@ def test_list_jobs_supports_pagination_and_exact_filters(job_api: TestClient) ->
     assert empty_response.status_code == 200
     assert empty_response.json()["items"] == []
     assert empty_response.json()["total"] == 0
+
+
+def test_list_jobs_orders_by_created_at_descending(job_api: TestClient) -> None:
+    created = [
+        job_api.post("/jobs", json=job_payload(job_type=f"ordered-{index}")).json()
+        for index in range(3)
+    ]
+    with job_api.app.state.testing_session() as session:
+        timestamps = (
+            datetime(2026, 10, 4, 12, 0, tzinfo=timezone.utc),
+            datetime(2026, 10, 4, 14, 0, tzinfo=timezone.utc),
+            datetime(2026, 10, 4, 13, 0, tzinfo=timezone.utc),
+        )
+        for item, created_at in zip(created, timestamps, strict=True):
+            session.get(Job, item["id"]).created_at = created_at
+        session.commit()
+
+    response = job_api.get("/jobs")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == [
+        created[1]["id"],
+        created[2]["id"],
+        created[0]["id"],
+    ]
+
+
+def test_list_jobs_uses_descending_id_for_equal_timestamps(
+    job_api: TestClient,
+) -> None:
+    created = [
+        job_api.post("/jobs", json=job_payload(job_type=f"tied-{index}")).json()
+        for index in range(3)
+    ]
+    with job_api.app.state.testing_session() as session:
+        shared_created_at = datetime(2026, 10, 4, 12, 0, tzinfo=timezone.utc)
+        for item in created:
+            session.get(Job, item["id"]).created_at = shared_created_at
+        session.commit()
+
+    response = job_api.get("/jobs")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == [
+        item["id"] for item in reversed(created)
+    ]
 
 
 @pytest.mark.parametrize("method", ["get", "patch", "delete"])
