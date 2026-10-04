@@ -70,6 +70,16 @@ class RuntimeTarget:
     docker_container_name: str
 
 
+@dataclass(frozen=True)
+class ManagedFileSource:
+    """Backend-resolved file identity; never constructed from request paths."""
+
+    path: Path
+    size_bytes: int
+    sha256: str
+    mime_type: str
+
+
 class ScreenSessionInspector(Protocol):
     def is_runtime_active(self, runtime_id: int) -> bool: ...
 
@@ -470,6 +480,57 @@ class AndroidAutomationService:
                 media_imported=True,
                 media_uri=f"content://media/external/file/{media_id}",
             )
+
+        return self._with_ready_target(runtime_id, operation)
+
+    def deliver_managed_file(
+        self,
+        runtime_id: int,
+        source: ManagedFileSource,
+        *,
+        filename: str,
+        import_media: bool,
+    ) -> dict[str, object]:
+        """Push one trusted managed source to the fixed manager directory."""
+        remote_name = self.artifacts.normalize_filename(filename)
+        remote_path = str(_REMOTE_ROOT / remote_name)
+        if source.size_bytes <= 0 or len(source.sha256) != 64:
+            raise automation_error("ARTIFACT_POLICY_VIOLATION")
+        if import_media and not source.mime_type.startswith(("image/", "video/", "audio/")):
+            raise automation_error("ARTIFACT_POLICY_VIOLATION")
+
+        def operation(target: RuntimeTarget, _state: DeviceStateResult) -> dict[str, object]:
+            try:
+                self.adb.ensure_managed_remote_directory(target.adb_serial)
+                self.adb.push(target.adb_serial, source.path, remote_path)
+                remote_size = self.adb.remote_file_size(target.adb_serial, remote_path)
+                if remote_size != source.size_bytes:
+                    raise automation_error("FILE_TRANSFER_FAILED", retryable=True)
+                media_uri = None
+                if import_media:
+                    self.adb.scan_media(target.adb_serial, remote_path)
+                    media_id = self._wait_for_media(target.adb_serial, remote_name)
+                    if media_id is None:
+                        raise automation_error("MEDIA_IMPORT_FAILED", retryable=True)
+                    media_uri = f"content://media/external/file/{media_id}"
+            except AutomationError:
+                raise
+            except AdbExecutorError as error:
+                if error.kind == "cancelled":
+                    raise automation_error("AUTOMATION_CANCELLED") from error
+                raise automation_error(
+                    "MEDIA_IMPORT_FAILED" if import_media else "FILE_TRANSFER_FAILED",
+                    retryable=True,
+                ) from error
+            return {
+                "runtime_id": target.runtime_id,
+                "remote_path": remote_path,
+                "filename": remote_name,
+                "size_bytes": source.size_bytes,
+                "sha256": source.sha256,
+                "media_imported": import_media,
+                "media_uri": media_uri,
+            }
 
         return self._with_ready_target(runtime_id, operation)
 

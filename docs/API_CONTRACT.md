@@ -611,6 +611,72 @@ Error cases:
   never accepts a storage path or returns a storage key. Expired/deleted bytes
   return `410 Gone`; the Job and artifact metadata remain queryable.
 
+## Content library
+
+Reusable content is separate from JobArtifact execution data. No content
+endpoint accepts a host path or storage key, and responses expose neither.
+
+- `POST /content` accepts one multipart `file` plus required `display_name` and
+  optional `notes` and repeated `tags`. It streams into private staging with a
+  500 MiB default limit, detects an allowlisted media signature, checks filename
+  extension and declared MIME as hints, deduplicates the physical blob by
+  SHA-256, and creates an independent logical asset/version. Accepted uploads
+  return `202 Accepted`, asset status `processing`, version processing status
+  `processing`, no current version, and an atomically created internal
+  `content.inspect` Job. Duplicate bytes may therefore produce multiple asset
+  IDs and inspection Jobs but only one physical blob. Quota exhaustion returns
+  HTTP 507 with `CONTENT_STORAGE_FULL`.
+- `GET /content` supports `query`, `asset_type`, `status`, `tag`, `source`,
+  `page`, and `page_size`. The default selection omits archived/deleted assets
+  and orders by `created_at DESC, id DESC` before pagination.
+- `GET /content/{id}` returns safe logical metadata, normalized tags, current
+  version metadata when available, and immutable version history. It never
+  returns a host path or blob storage key.
+- `PATCH /content/{id}` changes only display name, notes, tags, and archive or
+  restore state. It never replaces bytes.
+- `DELETE /content/{id}` soft-deletes and records history. It does not purge a
+  physical blob and refuses protected active delivery state.
+- `GET /content/{id}/versions` returns safe immutable version metadata.
+- `POST /content/{id}/versions` admits an immutable same-type replacement and
+  returns `202`. The previous ready current version remains downloadable while
+  the replacement is processing and remains selected if inspection fails.
+- `GET /content/{id}/download` resolves the current version server-side and
+  streams it with a sanitized filename, known MIME, and `nosniff`. Processing or
+  invalid assets without a ready current version return `409` with
+  `CONTENT_NOT_READY`. Deleted content returns `410`.
+- `POST /content/{id}/deliver` accepts an exact `runtime_id`, optional ready
+  `version_id`, optional display filename, `import_media`, `allow_repeat`, and
+  optional `idempotency_key`. It returns the durable Delivery and internal Job
+  status with HTTP 202.
+- `GET /content/{id}/deliveries` lists newest-first with optional status and
+  Runtime filters plus pagination. `GET /content-deliveries/{id}` returns one
+  delivery. Responses expose safe Android remote identity and optional
+  MediaStore URI, never blob keys or host paths.
+
+`content.inspect` is server-created only, has no Runtime or Account target, and
+is not a public Device Automation action. It reuses Job claims, leases,
+heartbeats, idempotent retry, stale-worker fencing, and cooperative cancellation.
+Its payload contains only asset/version IDs, which the backend revalidates
+against the durable version-to-Job pointer before resolving managed storage.
+Safe inspection results contain normalized dimensions, duration, codecs,
+container, rates, channel/audio state, rotation/orientation, frame count, and
+animation state where applicable. They never contain paths, commands, raw
+ffprobe JSON/stderr, or uploaded bytes.
+
+`content.deliver` is also server-created only, but requires one exact Runtime.
+Its payload contains only `content_delivery_id`; the pinned version, verified
+blob, generated destination, and database-owned ADB serial are resolved again
+inside the backend. Explicit keys return the same Delivery/Job. Without a key,
+`allow_repeat=false` avoids an existing active/successful duplicate, while
+`allow_repeat=true` creates a distinct generated filename. Delivery shares the
+Runtime operation lock and never changes lifecycle truth.
+
+Initial signatures are PNG, JPEG, WebP, MP4, MOV, WebM, MP3, M4A/AAC, WAV, and
+Ogg audio. Empty, oversized, executable, archive, unsupported, obvious malformed,
+and inconsistent MIME/extension uploads are rejected. Full media decoding,
+Thumbnail variants, transcoding, promotion, and application-specific posting
+remain outside this phase.
+
 ## Device object
 
 ```json
@@ -952,13 +1018,16 @@ Error cases:
 Only a completed `redroid_provisionings` record can authorize this operation.
 The backend first acquires the shared Runtime operation lock. Active automation
 or another Runtime mutation returns `409 Conflict` and is not interrupted.
-Pending/retrying `device.*` Jobs for that exact Runtime are cancelled with a
-durable `runtime_deprovisioned` event; no Job is redirected. The backend then
+Pending/retrying `device.*` and `content.deliver` Jobs for that exact Runtime
+are cancelled with a durable `runtime_deprovisioned` event; no Job or Delivery
+is redirected. Active delivery/automation blocks deprovision. The backend then
 closes its tracked screen, stops a running container, verifies the recorded
 Docker IDs and ownership labels, removes the owned container and its dedicated
 network, and removes the active Device/Runtime records. Historical Jobs and
 JobLogs remain, with the Runtime foreign key cleared. The provisioning record
-remains as a tombstone with historical Device/Runtime IDs, and the allocated
+remains as a tombstone with historical Device/Runtime IDs; ContentDelivery
+clears its nullable Runtime pointer while preserving `runtime_id_snapshot`.
+The allocated
 device number is permanently reserved.
 
 The persistent data directory and its ownership marker are preserved. There is

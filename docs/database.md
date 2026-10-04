@@ -306,6 +306,59 @@ to thirty days. A one-GiB total active-byte quota may evict the oldest eligible
 completed/unattached artifacts sooner. If protected artifacts consume the
 quota, new storage fails safely with `ARTIFACT_STORAGE_FULL`.
 
+## Content library
+
+Migration `20261004_0014` adds reusable content independently from
+`job_artifacts`. It does not migrate, copy, or change historical JobArtifacts.
+
+`content_blobs` describes immutable physical files. `storage_key` is a
+generated 32-character hexadecimal identifier and is never accepted from or
+returned to an API caller. `sha256` is a unique lowercase 64-character digest;
+identical bytes reuse one blob even when several logical assets have different
+names, notes, or tags. Positive size, bounded detected MIME type, status, and
+verification timestamps support quota and reconciliation. Blob status is
+`active`, `orphaned`, `missing`, or `deleted`.
+
+`content_assets` is the long-lived logical library object. It stores type,
+display name, notes, source, lifecycle status, an application-validated
+nullable current-version pointer, and archive/delete timestamps. Status is
+`processing`, `ready`, `invalid`, `archived`, or `deleted`. Bytes are never
+updated in place.
+
+`content_asset_versions` stores immutable version membership, the blob foreign
+key, original safe filename, detected MIME/canonical extension, processing
+state, future media metadata fields, bounded metadata JSON, and safe processing
+errors. `(content_asset_id, version_number)` is unique. Migration
+`20261004_0015` adds a unique nullable `inspection_job_id` foreign key to the
+current internal Job and expands the event constraint for processing history.
+Admission creates a version as `processing`; successful authoritative
+inspection changes it to `ready` and atomically selects an appropriate current
+version. Deterministic invalid media becomes `invalid`. `content_variants` reserves the
+same blob-backed model for thumbnails or prepared derivatives but Phase 2 does
+not generate them.
+
+`content_asset_tags` stores normalized lowercase tags with a composite unique
+key. `content_events` is append-only business history for uploaded, queued,
+processing-started, ready, invalid, metadata-updated, archived, restored,
+deleted, and version-added events.
+`content_deliveries` pins an immutable ready version and Runtime snapshot to an
+internal delivery Job. Revision `20261004_0016` adds MediaStore intent,
+started/completed timestamps, scoped nullable idempotency, required safe remote
+identifiers, and delivery history events. States are `pending`, `delivering`,
+`succeeded`, `failed`, and `cancelled`. Runtime deletion clears `runtime_id` but
+preserves `runtime_id_snapshot`; deliveries never retarget to a newer version or
+different Runtime.
+
+Physical files live under `~/.local/share/tiktok-manager/content/blobs/` with a
+private staging directory and cross-process maintenance lock. Directories are
+mode `0700`, files are mode `0600`, and generated storage identities, canonical
+containment, no-follow opens, streamed hashing, fsync, and atomic rename protect
+the storage boundary. The default quota is 500 MiB per upload and 20 GiB of
+unique active/orphaned physical blob bytes. Ready content is not automatically
+evicted. Reconciliation deletes only proven-owned abandoned generated staging
+files, marks proven missing DB blobs, marks unreferenced rows orphaned, and
+reports uncertain filesystem entries without deleting them.
+
 ## Relationships
 
 - One Device has zero or more Runtime records. Deleting a Device cascades to its
@@ -329,3 +382,7 @@ quota, new storage fails safely with `ARTIFACT_STORAGE_FULL`.
 - One Job has zero or more JobArtifact records. A pre-ingested artifact may
   temporarily have no Job association. Deleting an associated Job cascades to
   its artifact metadata; file cleanup is handled by the artifact service.
+- One ContentAsset has one or more immutable ContentAssetVersion rows and zero
+  or more normalized tags, events, variants, and delivery records. Multiple
+  asset versions or assets may reference one deduplicated ContentBlob. Blob
+  deletion is restricted while referenced; asset deletion is soft in Phase 2.

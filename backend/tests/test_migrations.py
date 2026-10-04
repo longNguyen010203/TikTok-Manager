@@ -15,7 +15,7 @@ PRE_JOB_LOG_REVISION = "20260918_0003"
 PRE_REDROID_CONFIG_REVISION = "20260918_0004"
 PRE_UNIQUE_CONFIG_REVISION = "20261001_0005"
 PRE_PROVISIONING_REVISION = "20261001_0006"
-LATEST_REVISION = "20261004_0013"
+LATEST_REVISION = "20261004_0016"
 
 
 def test_upgrade_head_creates_accounts_table(
@@ -39,6 +39,13 @@ def test_upgrade_head_creates_accounts_table(
             "redroid_provisionings",
             "runtimes",
             "job_artifacts",
+            "content_assets",
+            "content_asset_versions",
+            "content_asset_tags",
+            "content_blobs",
+            "content_variants",
+            "content_deliveries",
+            "content_events",
         }.issubset(
             inspector.get_table_names()
         )
@@ -49,6 +56,20 @@ def test_upgrade_head_creates_accounts_table(
             "runtime_network_credentials",
             "runtime_network_states",
         }.issubset(inspector.get_table_names())
+        delivery_columns = {
+            column["name"]: column
+            for column in inspector.get_columns("content_deliveries")
+        }
+        assert delivery_columns["import_media"]["nullable"] is False
+        assert delivery_columns["remote_filename"]["nullable"] is False
+        assert {"started_at", "completed_at"}.issubset(delivery_columns)
+        delivery_uniques = {
+            tuple(constraint["column_names"])
+            for constraint in inspector.get_unique_constraints("content_deliveries")
+        }
+        assert (
+            "content_asset_version_id", "runtime_id_snapshot", "idempotency_key"
+        ) in delivery_uniques
         account_columns = {
             column["name"] for column in inspector.get_columns("accounts")
         }
@@ -216,6 +237,27 @@ def test_upgrade_head_creates_accounts_table(
         artifact_fk = inspector.get_foreign_keys("job_artifacts")[0]
         assert artifact_fk["referred_table"] == "jobs"
         assert artifact_fk["options"]["ondelete"] == "CASCADE"
+
+        content_blob_uniques = {
+            tuple(constraint["column_names"])
+            for constraint in inspector.get_unique_constraints("content_blobs")
+        }
+        assert {("sha256",), ("storage_key",)}.issubset(content_blob_uniques)
+        content_version_uniques = {
+            tuple(constraint["column_names"])
+            for constraint in inspector.get_unique_constraints("content_asset_versions")
+        }
+        assert ("content_asset_id", "version_number") in content_version_uniques
+        assert ("inspection_job_id",) in content_version_uniques
+        content_version_fks = {
+            tuple(foreign_key["constrained_columns"]): foreign_key
+            for foreign_key in inspector.get_foreign_keys("content_asset_versions")
+        }
+        assert content_version_fks[("content_asset_id",)]["options"]["ondelete"] == "CASCADE"
+        assert content_version_fks[("blob_id",)]["options"]["ondelete"] == "RESTRICT"
+        assert content_version_fks[("source_job_artifact_id",)]["options"]["ondelete"] == "SET NULL"
+        assert content_version_fks[("inspection_job_id",)]["referred_table"] == "jobs"
+        assert content_version_fks[("inspection_job_id",)]["options"]["ondelete"] == "SET NULL"
 
         with test_engine.connect() as connection:
             migration_context = MigrationContext.configure(connection)

@@ -145,6 +145,15 @@ def test_config_bootstrap_is_private_persistent_and_loadable(
     assert second.artifact_retention_days == 30
     assert second.artifact_upload_retention_days == 7
     assert second.artifact_cleanup_interval_hours == 6
+    assert second.content_root == tmp_path / "data/tiktok-manager/content"
+    assert second.content_max_upload_bytes == 500 * 1024 * 1024
+    assert second.content_max_total_bytes == 20 * 1024 * 1024 * 1024
+    assert second.content_ffprobe_path == Path("/usr/bin/ffprobe")
+    assert second.content_ffprobe_timeout_seconds == 30
+    assert second.content_ffprobe_max_output_bytes == 1024 * 1024
+    assert second.content_max_image_dimension == 32768
+    assert second.content_max_image_pixels == 100_000_000
+    assert second.content_max_image_frames == 500
     assert stat.S_IMODE(first.config_path.stat().st_mode) == 0o600
     assert stat.S_IMODE(first.config_path.parent.stat().st_mode) == 0o700
     assert first.config_path.read_bytes() == original
@@ -193,6 +202,11 @@ def test_config_bootstrap_adds_new_retention_defaults_without_overwriting(
     assert upgraded.artifact_max_size_bytes == 50 * 1024 * 1024
     assert upgraded.artifact_max_total_bytes == 1024 * 1024 * 1024
     assert upgraded.artifact_retention_days == 30
+    assert upgraded.content_root == tmp_path / "data/tiktok-manager/content"
+    assert upgraded.content_max_upload_bytes == 500 * 1024 * 1024
+    assert upgraded.content_max_total_bytes == 20 * 1024 * 1024 * 1024
+    text = first.config_path.read_text(encoding="utf-8")
+    assert text.count("[content]") == 1
     assert stat.S_IMODE(first.config_path.stat().st_mode) == 0o600
 
 
@@ -340,6 +354,7 @@ def test_user_service_uses_native_user_manager_and_contains_no_secrets() -> None
     assert "alembic\" upgrade head" in installer
     assert "app.bootstrap --ensure-key" in installer
     assert "systemctl --user enable --now" in installer
+    assert "Configured ffprobe is missing or unsafe" in installer
 
 
 def test_worker_and_artifact_cleanup_service_assets_are_production_safe() -> None:

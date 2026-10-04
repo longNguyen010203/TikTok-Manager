@@ -39,6 +39,18 @@ fi
   "${venv_dir}/bin/python" -m app.bootstrap
 )
 
+configured_ffprobe="$(
+  cd "${backend_dir}"
+  "${venv_dir}/bin/python" -c \
+    'from app.config import load_application_config; print(load_application_config().content_ffprobe_path)'
+)"
+if [[ "${configured_ffprobe}" != /* || ! -f "${configured_ffprobe}" || \
+      -L "${configured_ffprobe}" || ! -x "${configured_ffprobe}" ]]; then
+  echo "Configured ffprobe is missing or unsafe: ${configured_ffprobe}" >&2
+  echo "Install ffmpeg/ffprobe and configure an absolute trusted executable path." >&2
+  exit 1
+fi
+
 if [[ -f "${database_path}" ]]; then
   backup_dir="${data_dir}/backups"
   mkdir -p "${backup_dir}"

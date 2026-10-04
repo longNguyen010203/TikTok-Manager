@@ -14,10 +14,17 @@ from sqlalchemy.orm import Session
 from app.models import Job, JobStatus
 from app.models.timestamps import utc_now
 from app.services.device_jobs import get_device_job_definition
+from app.services.content_jobs import get_content_job_definition, is_content_job_type
 from app.services.job_logs import append_job_log
 
 DEFAULT_LEASE_DURATION = timedelta(seconds=60)
 DEFAULT_RETRY_DELAY = timedelta(seconds=5)
+
+
+def _job_definition(job_type: str):
+    if is_content_job_type(job_type):
+        return get_content_job_definition(job_type)
+    return get_device_job_definition(job_type, required=False)
 
 
 @dataclass(frozen=True)
@@ -79,7 +86,7 @@ def recover_expired_jobs(session: Session, *, now: datetime | None = None, retry
     )).all())
     for job in jobs:
         append_job_log(session, job, level="warning", event_type="worker_lease_expired", message="Worker lease expired")
-        definition = get_device_job_definition(job.job_type, required=False)
+        definition = _job_definition(job.job_type)
         safe_to_retry = job.execution_started_at is None or (definition is not None and definition.idempotency == "safe")
         if job.status == JobStatus.CANCELLING.value:
             job.status = JobStatus.CANCELLED.value
@@ -154,7 +161,7 @@ def mark_job_succeeded(session: Session, job: Job, claim_token: str, attempt: in
 
 def mark_job_failed(session: Session, job: Job, claim_token: str, attempt: int, *, error_message: str | None = None, error_code: str | None = None, retryable: bool = False) -> Job:
     validate_job_claim(job, claim_token, attempt)
-    definition = get_device_job_definition(job.job_type, required=False)
+    definition = _job_definition(job.job_type)
     policy_allows = definition is None or error_code in definition.retryable_codes
     should_retry = retryable and policy_allows and job.attempt_count < job.max_attempts
     job.error_code = error_code or "JOB_EXECUTION_FAILED"

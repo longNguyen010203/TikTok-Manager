@@ -90,7 +90,11 @@ class Worker:
                         error,
                     )
         except BackendExecutionError as error:
-            if error.code == "AUTOMATION_CANCELLED":
+            if error.code in {
+                "AUTOMATION_CANCELLED",
+                "CONTENT_PROCESSING_CANCELLED",
+                "CONTENT_DELIVERY_CANCELLED",
+            }:
                 try:
                     self._client.acknowledge_cancel(job_id, token, attempt)
                 except BackendClientError:

@@ -10,7 +10,10 @@ from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import init_db
-from app.models import Account, Device, Job, RedroidProvisioning, Runtime
+from app.models import (
+    Account, ContentAsset, ContentAssetVersion, ContentBlob, ContentDelivery,
+    Device, Job, RedroidProvisioning, Runtime,
+)
 from app.services.redroid_provisioning import (
     DeprovisioningFailedError,
     ProvisioningRequest,
@@ -206,9 +209,39 @@ def test_deprovision_removes_owned_resources_and_preserves_data(
             runtime_id=runtime_id,
         )
         job = Job(job_type="deprovision-test", runtime_id=runtime_id)
-        session.add_all([account, job])
+        blob = ContentBlob(
+            storage_key=("a" if running else "b") * 32,
+            sha256=("c" if running else "d") * 64,
+            size_bytes=1,
+            detected_mime_type="image/png",
+            status="active",
+        )
+        asset = ContentAsset(
+            asset_type="image", display_name="Historical delivery", source="upload",
+            status="ready",
+        )
+        version = ContentAssetVersion(
+            version_number=1, blob=blob, original_filename="history.png",
+            detected_mime_type="image/png", canonical_extension=".png",
+            processing_status="ready",
+        )
+        asset.versions.append(version)
+        session.add_all([account, job, asset])
+        session.flush()
+        asset.current_version_id = version.id
+        delivery_job = Job(job_type="content.deliver", runtime_id=runtime_id)
+        session.add(delivery_job)
+        session.flush()
+        delivery = ContentDelivery(
+            content_asset_id=asset.id, content_asset_version_id=version.id,
+            runtime_id=runtime_id, runtime_id_snapshot=runtime_id,
+            job_id=delivery_job.id, status="succeeded", import_media=False,
+            remote_filename="history-d1.png",
+            remote_path="/sdcard/Download/TikTokManager/history-d1.png",
+        )
+        session.add(delivery)
         session.commit()
-        account_id, job_id = account.id, job.id
+        account_id, job_id, delivery_id = account.id, job.id, delivery.id
 
     result = service.deprovision(attempt.id)
 
@@ -228,6 +261,9 @@ def test_deprovision_removes_owned_resources_and_preserves_data(
         assert session.get(RedroidProvisioning, attempt.id) is not None
         assert session.get(Account, account_id).runtime_id is None
         assert session.get(Job, job_id).runtime_id is None
+        historical_delivery = session.get(ContentDelivery, delivery_id)
+        assert historical_delivery.runtime_id is None
+        assert historical_delivery.runtime_id_snapshot == runtime_id
 
 
 def test_repeated_deprovision_is_idempotent(deprovision_context) -> None:

@@ -92,6 +92,29 @@ Manager host lifecycle:
 - Artifact writes and scheduled retention cleanup share a cross-process lock.
   A total-byte quota prevents unbounded growth; artifact bytes may expire while
   immutable Job and JobLog history remains available.
+- Reusable library media is modeled separately from JobArtifact execution
+  input/output. Logical ContentAssets own immutable versions, while
+  SHA-256-addressed ContentBlobs provide physical deduplication beneath the
+  private per-user content root. Content has its own quota and is never evicted
+  by JobArtifact retention or quota cleanup.
+- Content upload admission performs bounded signature, filename, extension,
+  and MIME checks without executing uploaded bytes. It atomically creates a
+  runtime-free internal `content.inspect` Job. Workers call the backend
+  inspection boundary, which serializes each immutable version with a private
+  cross-process lock, authoritatively decodes images with Pillow or probes
+  local video/audio with a constrained ffprobe process, and atomically selects
+  only a validated ready current version. Processing is idempotent and
+  lease/cancellation/retry fenced; it never uses a Runtime lock or ADB.
+- Failed replacement inspection leaves the previous ready current version in
+  service. Processing recovery can recreate a missing or retryably failed
+  inspection Job from the durable version pointer.
+- Content delivery pins one ready immutable version and exact Runtime before
+  creating an internal `content.deliver` Job. The backend verifies the private
+  ContentBlob and passes a typed managed-file source to AndroidAutomationService;
+  workers receive IDs only. Delivery shares the Runtime operation lock and can
+  write only below `/sdcard/Download/TikTokManager/`.
+- Transcoding, thumbnails, variants, and application UI automation remain
+  separate later operations.
 - Device Jobs use a typed registry and a lease-protected backend execution
   boundary. Workers receive complete execution context but never execute ADB;
   every heartbeat and terminal mutation is fenced by a hashed claim token and

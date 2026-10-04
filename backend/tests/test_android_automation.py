@@ -21,6 +21,7 @@ from app.models import (
 )
 from app.services.android_automation import (
     AndroidAutomationService,
+    ManagedFileSource,
     RuntimeAutomationOwnershipProbe,
     require_network_ready,
 )
@@ -225,6 +226,32 @@ def test_package_state_launch_stop_and_exact_runtime_isolation(
         assert state.installed and not state.running
         assert launched.running and launched.pid == 4321
         assert not stopped.running
+        assert set(adb.serials) == {target.adb_serial}
+        assert control.adb_serial not in adb.serials
+
+
+def test_managed_content_source_push_and_media_import_use_exact_runtime(
+    engine: Engine, tmp_path: Path
+) -> None:
+    with Session(engine, expire_on_commit=False) as session:
+        target = add_runtime(session, "21")
+        control = add_runtime(session, "22")
+        source_path = tmp_path / "managed-content"
+        source_path.write_bytes(b"safe-content")
+        source = ManagedFileSource(
+            path=source_path,
+            size_bytes=len(b"safe-content"),
+            sha256="a" * 64,
+            mime_type="image/png",
+        )
+        service, adb, _ = make_service(session, tmp_path)
+        result = service.deliver_managed_file(
+            target.id, source, filename="asset-d1.png", import_media=True
+        )
+        assert result["remote_path"] == "/sdcard/Download/TikTokManager/asset-d1.png"
+        assert result["media_uri"] == "content://media/external/file/71"
+        assert ("push", result["remote_path"]) in adb.commands
+        assert ("scan", result["remote_path"]) in adb.commands
         assert set(adb.serials) == {target.adb_serial}
         assert control.adb_serial not in adb.serials
 

@@ -12,8 +12,8 @@ def echo(context: JobExecutionContext) -> Any:
     return context.payload
 
 
-def execute_device_job(context: JobExecutionContext) -> Any:
-    """Ask the backend to execute a registered device Job; never invoke ADB here."""
+def execute_backend_job(context: JobExecutionContext) -> Any:
+    """Ask the backend to execute a registered typed Job."""
     return context.backend_client.execute_job(
         context.job_id, context.claim_token, context.attempt
     )
@@ -28,5 +28,7 @@ def create_default_registry() -> HandlerRegistry:
         "device.stop_app", "device.push_file", "device.pull_file",
         "device.import_media",
     ):
-        registry.register(job_type, execute_device_job)
+        registry.register(job_type, execute_backend_job)
+    registry.register("content.inspect", execute_backend_job)
+    registry.register("content.deliver", execute_backend_job)
     return registry

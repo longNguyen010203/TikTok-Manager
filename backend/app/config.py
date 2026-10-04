@@ -63,6 +63,16 @@ class ApplicationConfig:
     artifact_retention_days: int
     artifact_upload_retention_days: int
     artifact_cleanup_interval_hours: int
+    content_root: Path
+    content_max_upload_bytes: int
+    content_max_total_bytes: int
+    content_ffprobe_path: Path
+    content_ffprobe_timeout_seconds: int
+    content_ffprobe_max_output_bytes: int
+    content_max_image_dimension: int
+    content_max_image_pixels: int
+    content_max_image_frames: int
+    content_inspection_lock_directory: Path
     stop_managed_devices_on_shutdown: bool
 
     def __post_init__(self) -> None:
@@ -82,6 +92,22 @@ class ApplicationConfig:
             raise ApplicationConfigurationError(
                 "Artifact retention settings must be positive"
             )
+        if self.content_max_upload_bytes <= 0:
+            raise ApplicationConfigurationError(
+                "Content maximum upload size must be positive"
+            )
+        if self.content_max_total_bytes < self.content_max_upload_bytes:
+            raise ApplicationConfigurationError(
+                "Content total quota must not be smaller than one upload"
+            )
+        if (
+            self.content_ffprobe_timeout_seconds <= 0
+            or self.content_ffprobe_max_output_bytes <= 0
+            or self.content_max_image_dimension <= 0
+            or self.content_max_image_pixels <= 0
+            or self.content_max_image_frames <= 0
+        ):
+            raise ApplicationConfigurationError("Content inspection limits must be positive")
 
 
 def default_application_config(path: Path | None = None) -> ApplicationConfig:
@@ -109,6 +135,16 @@ def default_application_config(path: Path | None = None) -> ApplicationConfig:
         artifact_retention_days=30,
         artifact_upload_retention_days=7,
         artifact_cleanup_interval_hours=6,
+        content_root=data_directory / "content",
+        content_max_upload_bytes=500 * 1024 * 1024,
+        content_max_total_bytes=20 * 1024 * 1024 * 1024,
+        content_ffprobe_path=Path("/usr/bin/ffprobe"),
+        content_ffprobe_timeout_seconds=30,
+        content_ffprobe_max_output_bytes=1024 * 1024,
+        content_max_image_dimension=32768,
+        content_max_image_pixels=100_000_000,
+        content_max_image_frames=500,
+        content_inspection_lock_directory=Path("/tmp/tiktok-manager-content-locks"),
         stop_managed_devices_on_shutdown=False,
     )
 
@@ -149,6 +185,7 @@ def load_application_config(
         provisioning = data["provisioning"]
         network = data["network"]
         automation = data.get("automation", {})
+        content = data.get("content", {})
         runtime = data.get("runtime", {})
         security = data.get("security", {})
         result = ApplicationConfig(
@@ -187,6 +224,39 @@ def load_application_config(
             artifact_cleanup_interval_hours=int(
                 automation.get("artifact_cleanup_interval_hours", 6)
             ),
+            content_root=Path(
+                str(content.get("root", default_data_directory() / "content"))
+            ).expanduser(),
+            content_max_upload_bytes=int(
+                content.get("max_upload_bytes", 500 * 1024 * 1024)
+            ),
+            content_max_total_bytes=int(
+                content.get("max_total_bytes", 20 * 1024 * 1024 * 1024)
+            ),
+            content_ffprobe_path=Path(
+                str(content.get("ffprobe_path", "/usr/bin/ffprobe"))
+            ).expanduser(),
+            content_ffprobe_timeout_seconds=int(
+                content.get("ffprobe_timeout_seconds", 30)
+            ),
+            content_ffprobe_max_output_bytes=int(
+                content.get("ffprobe_max_output_bytes", 1024 * 1024)
+            ),
+            content_max_image_dimension=int(
+                content.get("max_image_dimension", 32768)
+            ),
+            content_max_image_pixels=int(
+                content.get("max_image_pixels", 100_000_000)
+            ),
+            content_max_image_frames=int(content.get("max_image_frames", 500)),
+            content_inspection_lock_directory=Path(
+                str(
+                    content.get(
+                        "inspection_lock_directory",
+                        "/tmp/tiktok-manager-content-locks",
+                    )
+                )
+            ).expanduser(),
             stop_managed_devices_on_shutdown=bool(
                 runtime.get("stop_managed_devices_on_shutdown", False)
             ),
@@ -271,6 +341,60 @@ def _with_environment_overrides(config: ApplicationConfig) -> ApplicationConfig:
                     str(config.artifact_cleanup_interval_hours),
                 )
             ),
+            content_root=Path(
+                os.getenv("TIKTOK_MANAGER_CONTENT_ROOT", str(config.content_root))
+            ),
+            content_max_upload_bytes=int(
+                os.getenv(
+                    "TIKTOK_MANAGER_CONTENT_MAX_UPLOAD_BYTES",
+                    str(config.content_max_upload_bytes),
+                )
+            ),
+            content_max_total_bytes=int(
+                os.getenv(
+                    "TIKTOK_MANAGER_CONTENT_MAX_TOTAL_BYTES",
+                    str(config.content_max_total_bytes),
+                )
+            ),
+            content_ffprobe_path=Path(
+                os.getenv("TIKTOK_MANAGER_FFPROBE_PATH", str(config.content_ffprobe_path))
+            ),
+            content_ffprobe_timeout_seconds=int(
+                os.getenv(
+                    "TIKTOK_MANAGER_FFPROBE_TIMEOUT_SECONDS",
+                    str(config.content_ffprobe_timeout_seconds),
+                )
+            ),
+            content_ffprobe_max_output_bytes=int(
+                os.getenv(
+                    "TIKTOK_MANAGER_FFPROBE_MAX_OUTPUT_BYTES",
+                    str(config.content_ffprobe_max_output_bytes),
+                )
+            ),
+            content_max_image_dimension=int(
+                os.getenv(
+                    "TIKTOK_MANAGER_CONTENT_MAX_IMAGE_DIMENSION",
+                    str(config.content_max_image_dimension),
+                )
+            ),
+            content_max_image_pixels=int(
+                os.getenv(
+                    "TIKTOK_MANAGER_CONTENT_MAX_IMAGE_PIXELS",
+                    str(config.content_max_image_pixels),
+                )
+            ),
+            content_max_image_frames=int(
+                os.getenv(
+                    "TIKTOK_MANAGER_CONTENT_MAX_IMAGE_FRAMES",
+                    str(config.content_max_image_frames),
+                )
+            ),
+            content_inspection_lock_directory=Path(
+                os.getenv(
+                    "TIKTOK_MANAGER_CONTENT_INSPECTION_LOCK_DIRECTORY",
+                    str(config.content_inspection_lock_directory),
+                )
+            ),
             stop_managed_devices_on_shutdown=_environment_bool(
                 "STOP_MANAGED_DEVICES_ON_SHUTDOWN",
                 config.stop_managed_devices_on_shutdown,
@@ -336,26 +460,29 @@ def _upgrade_automation_defaults(
             defaults.artifact_cleanup_interval_hours
         ),
     }
+    content = parsed.get("content", {})
+    content_desired = {
+        "root": _quote(defaults.content_root),
+        "max_upload_bytes": str(defaults.content_max_upload_bytes),
+        "max_total_bytes": str(defaults.content_max_total_bytes),
+        "ffprobe_path": _quote(defaults.content_ffprobe_path),
+        "ffprobe_timeout_seconds": str(defaults.content_ffprobe_timeout_seconds),
+        "ffprobe_max_output_bytes": str(defaults.content_ffprobe_max_output_bytes),
+        "max_image_dimension": str(defaults.content_max_image_dimension),
+        "max_image_pixels": str(defaults.content_max_image_pixels),
+        "max_image_frames": str(defaults.content_max_image_frames),
+        "inspection_lock_directory": _quote(defaults.content_inspection_lock_directory),
+    }
     missing = [(key, value) for key, value in desired.items() if key not in automation]
-    if not missing:
+    missing_content = [
+        (key, value) for key, value in content_desired.items() if key not in content
+    ]
+    if not missing and not missing_content:
         return
 
     lines = text.splitlines()
-    try:
-        section_start = lines.index("[automation]")
-    except ValueError:
-        if lines and lines[-1]:
-            lines.append("")
-        lines.append("[automation]")
-        lines.extend(f"{key} = {value}" for key, value in missing)
-    else:
-        section_end = len(lines)
-        for index in range(section_start + 1, len(lines)):
-            if lines[index].startswith("["):
-                section_end = index
-                break
-        insertion = [f"{key} = {value}" for key, value in missing]
-        lines[section_end:section_end] = insertion
+    _insert_missing_section(lines, "automation", missing)
+    _insert_missing_section(lines, "content", missing_content)
 
     payload = ("\n".join(lines).rstrip() + "\n").encode("utf-8")
     temporary = f".{config_path.name}.update-{uuid.uuid4().hex}"
@@ -396,6 +523,28 @@ def _upgrade_automation_defaults(
         os.close(directory_fd)
 
 
+def _insert_missing_section(
+    lines: list[str], section: str, missing: list[tuple[str, str]]
+) -> None:
+    if not missing:
+        return
+    header = f"[{section}]"
+    try:
+        section_start = lines.index(header)
+    except ValueError:
+        if lines and lines[-1]:
+            lines.append("")
+        lines.append(header)
+        lines.extend(f"{key} = {value}" for key, value in missing)
+        return
+    section_end = len(lines)
+    for index in range(section_start + 1, len(lines)):
+        if lines[index].startswith("["):
+            section_end = index
+            break
+    lines[section_end:section_end] = [f"{key} = {value}" for key, value in missing]
+
+
 def _serialize(config: ApplicationConfig) -> str:
     return "\n".join(
         [
@@ -430,6 +579,19 @@ def _serialize(config: ApplicationConfig) -> str:
             f"{config.artifact_upload_retention_days}",
             "artifact_cleanup_interval_hours = "
             f"{config.artifact_cleanup_interval_hours}",
+            "",
+            "[content]",
+            f"root = {_quote(config.content_root)}",
+            f"max_upload_bytes = {config.content_max_upload_bytes}",
+            f"max_total_bytes = {config.content_max_total_bytes}",
+            f"ffprobe_path = {_quote(config.content_ffprobe_path)}",
+            f"ffprobe_timeout_seconds = {config.content_ffprobe_timeout_seconds}",
+            f"ffprobe_max_output_bytes = {config.content_ffprobe_max_output_bytes}",
+            f"max_image_dimension = {config.content_max_image_dimension}",
+            f"max_image_pixels = {config.content_max_image_pixels}",
+            f"max_image_frames = {config.content_max_image_frames}",
+            "inspection_lock_directory = "
+            f"{_quote(config.content_inspection_lock_directory)}",
             "",
             "[runtime]",
             "stop_managed_devices_on_shutdown = "

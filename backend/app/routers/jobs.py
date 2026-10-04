@@ -24,6 +24,17 @@ from app.schemas.job import (
     JobUpdate,
 )
 from app.services.automation_errors import AutomationError
+from app.config import load_application_config
+from app.services.content_inspection import ContentProcessingError
+from app.services.content_delivery import ContentDeliveryError, ContentDeliveryService
+from app.services.content_delivery_job_execution import ContentDeliveryJobExecutionService
+from app.services.content_job_execution import ContentJobExecutionService
+from app.services.content_jobs import (
+    ContentJobValidationError,
+    is_content_job_type,
+    reconcile_content_inspections,
+)
+from app.services.content_operation_lock import ContentVersionOperationGuard
 from app.services.device_job_execution import DeviceJobExecutionService
 from app.services.device_jobs import (
     DeviceJobValidationError,
@@ -167,6 +178,10 @@ def list_job_logs(job_id: JobId, session: DatabaseSession) -> list[JobLog]:
 )
 def claim_job(session: DatabaseSession, payload: JobClaimRequest | None = None) -> JobClaimRead | Response:
     """Claim the next pending job that is ready to run."""
+    config = load_application_config()
+    reconcile_content_inspections(
+        session, ContentVersionOperationGuard(config.content_inspection_lock_directory)
+    )
     claimed = claim_next_job(session, claimed_by=(payload or JobClaimRequest()).claimed_by)
     if claimed is None:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -177,6 +192,8 @@ def claim_job(session: DatabaseSession, payload: JobClaimRequest | None = None) 
 @router.post("", response_model=JobRead, status_code=status.HTTP_201_CREATED)
 def create_job(payload: JobCreate, session: DatabaseSession) -> Job:
     """Create a job with optional Account and Runtime targets."""
+    if is_content_job_type(payload.job_type):
+        raise HTTPException(status_code=422, detail="Internal content Jobs are server-created only")
     _validate_account_id(payload.account_id, session)
     _validate_runtime_id(payload.runtime_id, session)
     data = payload.model_dump()
@@ -203,6 +220,8 @@ def update_job(job_id: JobId, payload: JobUpdate, session: DatabaseSession) -> J
     """Update fields supplied for a job."""
     job = _get_job_or_404(job_id, session)
     update_data = payload.model_dump(exclude_unset=True)
+    if is_content_job_type(job.job_type) or is_content_job_type(update_data.get("job_type")):
+        raise HTTPException(status_code=409, detail="Internal content Jobs are immutable")
     if is_device_job_type(job.job_type) and job.attempt_count > 0 and any(field in update_data for field in {"job_type", "runtime_id", "account_id", "payload"}):
         raise HTTPException(status_code=409, detail="Claimed device Job targets and payload are immutable")
     if "status" in update_data and update_data["status"] != job.status:
@@ -248,7 +267,11 @@ def fail_job(job_id: JobId, payload: JobFailed, session: DatabaseSession, claim_
     """Mark a running job as failed."""
     job = _get_job_for_update_or_404(job_id, session)
     try:
-        return mark_job_failed(session, job, claim_token, attempt, error_message=payload.error_message, error_code=payload.error_code, retryable=payload.retryable)
+        result = mark_job_failed(session, job, claim_token, attempt, error_message=payload.error_message, error_code=payload.error_code, retryable=payload.retryable)
+        ContentDeliveryService.sync_failed_job(session, result)
+        session.commit()
+        session.refresh(result)
+        return result
     except InvalidJobTransitionError as error:
         _raise_invalid_transition(error)
     except JobClaimOwnershipError as error:
@@ -269,12 +292,42 @@ def heartbeat(job_id: JobId, session: DatabaseSession, claim_token: ClaimToken, 
 def execute_job(job_id: JobId, session: DatabaseSession, claim_token: ClaimToken, attempt: ClaimAttempt) -> JobExecuteRead:
     job = _get_job_for_update_or_404(job_id, session)
     try:
-        result = DeviceJobExecutionService(session, screen_manager=screen_process_manager).execute(job, claim_token, attempt)
+        if is_content_job_type(job.job_type):
+            if job.job_type == "content.inspect":
+                result = ContentJobExecutionService(session).execute(job, claim_token, attempt)
+            else:
+                result = ContentDeliveryJobExecutionService(
+                    session, screen_manager=screen_process_manager
+                ).execute(job, claim_token, attempt)
+        else:
+            result = DeviceJobExecutionService(session, screen_manager=screen_process_manager).execute(job, claim_token, attempt)
         return JobExecuteRead(result=result)
     except JobClaimOwnershipError as error:
         _raise_claim(error)
     except DeviceJobValidationError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    except ContentJobValidationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except ContentProcessingError as error:
+        code = 409 if error.code in {
+            "CONTENT_PROCESSING_BUSY", "CONTENT_PROCESSING_CANCELLED"
+        } else (503 if error.retryable else 422)
+        raise HTTPException(
+            status_code=code,
+            detail={
+                "code": error.code,
+                "message": error.safe_message,
+                "retryable": error.retryable,
+            },
+        ) from error
+    except ContentDeliveryError as error:
+        code = 409 if error.code in {
+            "CONTENT_DELIVERY_CANCELLED", "CONTENT_DELIVERY_UNCERTAIN"
+        } else (503 if error.retryable else 422)
+        raise HTTPException(
+            status_code=code,
+            detail={"code": error.code, "message": error.safe_message, "retryable": error.retryable},
+        ) from error
     except AutomationError as error:
         code = 409 if error.code in {"RUNTIME_BUSY", "RUNTIME_STOPPED", "RUNTIME_DEPROVISIONING", "RUNTIME_SCREEN_ACTIVE", "AUTOMATION_CANCELLED"} else 502
         raise HTTPException(status_code=code, detail={"code": error.code, "message": error.safe_message, "retryable": error.retryable}) from error
@@ -285,7 +338,12 @@ def cancel_job(job_id: JobId, session: DatabaseSession) -> Job:
     """Cancel a pending, running, or retrying job."""
     job = _get_job_for_update_or_404(job_id, session)
     try:
-        return cancel_job_service(session, job)
+        result = cancel_job_service(session, job)
+        if result.status == JobStatus.CANCELLED.value:
+            ContentDeliveryService.mark_cancelled_for_job(session, result)
+            session.commit()
+            session.refresh(result)
+        return result
     except InvalidJobTransitionError as error:
         _raise_invalid_transition(error)
 
@@ -294,7 +352,11 @@ def cancel_job(job_id: JobId, session: DatabaseSession) -> Job:
 def acknowledge_cancel(job_id: JobId, _payload: JobCancelAcknowledgement, session: DatabaseSession, claim_token: ClaimToken, attempt: ClaimAttempt) -> Job:
     job = _get_job_for_update_or_404(job_id, session)
     try:
-        return acknowledge_job_cancellation(session, job, claim_token, attempt)
+        result = acknowledge_job_cancellation(session, job, claim_token, attempt)
+        ContentDeliveryService.mark_cancelled_for_job(session, result)
+        session.commit()
+        session.refresh(result)
+        return result
     except InvalidJobTransitionError as error:
         _raise_invalid_transition(error)
     except JobClaimOwnershipError as error:

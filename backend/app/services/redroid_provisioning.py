@@ -13,10 +13,10 @@ from typing import Iterator, Protocol
 
 import fcntl
 
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models import Device, RedroidProvisioning, Runtime
+from app.models import ContentDelivery, Device, RedroidProvisioning, Runtime
 from app.services.runtime_automation_cleanup import RuntimeAutomationBusyError
 from app.services.redroid_provisioning_adapter import (
     OccupiedResources,
@@ -533,6 +533,15 @@ class RedroidProvisioningService:
             attempt.state = "deprovisioned"
             attempt.error_code = None
             attempt.error_message = None
+            # Do not depend on a connection-local SQLite foreign_keys pragma
+            # for historical delivery preservation. Clear the nullable live
+            # pointer in the same authoritative transaction that removes the
+            # Runtime; runtime_id_snapshot remains immutable.
+            session.execute(
+                update(ContentDelivery)
+                .where(ContentDelivery.runtime_id == runtime.id)
+                .values(runtime_id=None)
+            )
             session.delete(device)
             session.commit()
             session.refresh(attempt)
