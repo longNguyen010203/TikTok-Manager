@@ -707,3 +707,46 @@ Acceptance criteria:
 - Device lifecycle state is not corrupted by automation failures.
 - Existing provisioning, screen, networking, and lifecycle flows remain unaffected.
 - Backend tests, frontend build, and live disposable-device verification pass.
+
+---
+
+## TIK-021
+Status: IN PROGRESS
+Owner: Codex + Antigravity
+Type: Backend / Content Pipeline / Frontend
+
+Title:
+Add Media and Content Pipeline
+
+Dependencies:
+- TIK-018
+- TIK-020
+
+Scope:
+- backend/
+- workers/
+- frontend/
+- docs/
+
+Phases:
+1. Content pipeline architecture
+2. Content asset backend foundation
+3. Media processing and preparation
+4. Device delivery integration
+5. Content library frontend
+6. End-to-end workflow and retention
+7. Final verification
+
+Acceptance criteria:
+- Media assets can be uploaded and stored durably.
+- Assets have validated metadata, hashes, MIME type, dimensions/duration where applicable.
+- Duplicate content is detected safely.
+- Content can be organized independently from Jobs.
+- Jobs can reference Content Assets without arbitrary host paths.
+- Content can be prepared and delivered to an exact Runtime.
+- Device delivery uses the existing TIK-020 automation layer.
+- Imported media can be verified on a disposable Redroid device.
+- Content usage/history is tracked.
+- Artifact and content retention responsibilities are clearly separated.
+- Existing Jobs, device automation, networking, provisioning, and lifecycle remain unaffected.
+- Backend tests, frontend build, and live disposable-device verification pass.
