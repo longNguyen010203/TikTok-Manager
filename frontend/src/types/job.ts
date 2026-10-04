@@ -146,9 +146,15 @@ export const AUTOMATION_ACTION_TYPES = [
   },
 ] as const;
 
+const GENERIC_JOB_ACTION_LABELS: Record<string, string> = {
+  "content.inspect": "Inspect Content",
+  "content.deliver": "Deliver Content",
+};
+
 export function getJobActionLabel(jobType: string): string {
   const match = AUTOMATION_ACTION_TYPES.find((a) => a.type === jobType);
   if (match) return match.label;
+  if (GENERIC_JOB_ACTION_LABELS[jobType]) return GENERIC_JOB_ACTION_LABELS[jobType];
   return jobType
     .replace(/[._]/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());

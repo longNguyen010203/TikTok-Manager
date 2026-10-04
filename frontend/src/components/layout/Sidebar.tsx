@@ -30,7 +30,7 @@ const navItems: NavItem[] = [
   { label: "Accounts", href: "/accounts", icon: Users, badge: "3" },
   { label: "Devices", href: "/devices", icon: Smartphone },
   { label: "Runtimes", href: "/runtimes", icon: Cpu },
-  { label: "Content & Posts", href: "/content", icon: Video },
+  { label: "Content", href: "/content", icon: Video },
   { label: "Analytics", href: "/analytics", icon: BarChart3 },
   { label: "Job Queue", href: "/jobs", icon: CheckSquare, badge: "Active" },
   { label: "Settings", href: "/settings", icon: Settings },
