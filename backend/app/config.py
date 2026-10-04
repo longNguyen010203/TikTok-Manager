@@ -56,6 +56,8 @@ class ApplicationConfig:
     bridge_state_directory: Path
     bridge_lock_directory: Path
     bridge_systemd_scope: str
+    artifact_root: Path
+    artifact_max_size_bytes: int
     stop_managed_devices_on_shutdown: bool
 
 
@@ -78,6 +80,8 @@ def default_application_config(path: Path | None = None) -> ApplicationConfig:
         bridge_state_directory=Path(f"/run/user/{os.getuid()}/tiktok-manager-network"),
         bridge_lock_directory=Path("/tmp/tiktok-manager-network-locks"),
         bridge_systemd_scope="user",
+        artifact_root=data_directory / "artifacts",
+        artifact_max_size_bytes=100 * 1024 * 1024,
         stop_managed_devices_on_shutdown=False,
     )
 
@@ -116,6 +120,7 @@ def load_application_config(
         database = data["database"]
         provisioning = data["provisioning"]
         network = data["network"]
+        automation = data.get("automation", {})
         runtime = data.get("runtime", {})
         security = data.get("security", {})
         result = ApplicationConfig(
@@ -136,6 +141,12 @@ def load_application_config(
             bridge_state_directory=Path(str(network["bridge_state_directory"])).expanduser(),
             bridge_lock_directory=Path(str(network["bridge_lock_directory"])).expanduser(),
             bridge_systemd_scope=str(network.get("bridge_systemd_scope", "user")),
+            artifact_root=Path(
+                str(automation.get("artifact_root", default_data_directory() / "artifacts"))
+            ).expanduser(),
+            artifact_max_size_bytes=int(
+                automation.get("artifact_max_size_bytes", 100 * 1024 * 1024)
+            ),
             stop_managed_devices_on_shutdown=bool(
                 runtime.get("stop_managed_devices_on_shutdown", False)
             ),
@@ -186,6 +197,15 @@ def _with_environment_overrides(config: ApplicationConfig) -> ApplicationConfig:
             ),
             bridge_systemd_scope=os.getenv(
                 "RUNTIME_NETWORK_BRIDGE_SYSTEMD_SCOPE", config.bridge_systemd_scope
+            ),
+            artifact_root=Path(
+                os.getenv("TIKTOK_MANAGER_ARTIFACT_ROOT", str(config.artifact_root))
+            ),
+            artifact_max_size_bytes=int(
+                os.getenv(
+                    "TIKTOK_MANAGER_ARTIFACT_MAX_SIZE_BYTES",
+                    str(config.artifact_max_size_bytes),
+                )
             ),
             stop_managed_devices_on_shutdown=_environment_bool(
                 "STOP_MANAGED_DEVICES_ON_SHUTDOWN",
@@ -253,6 +273,10 @@ def _serialize(config: ApplicationConfig) -> str:
             f"bridge_state_directory = {_quote(config.bridge_state_directory)}",
             f"bridge_lock_directory = {_quote(config.bridge_lock_directory)}",
             f"bridge_systemd_scope = {_quote(config.bridge_systemd_scope)}",
+            "",
+            "[automation]",
+            f"artifact_root = {_quote(config.artifact_root)}",
+            f"artifact_max_size_bytes = {config.artifact_max_size_bytes}",
             "",
             "[runtime]",
             "stop_managed_devices_on_shutdown = "

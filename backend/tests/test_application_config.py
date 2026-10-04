@@ -139,6 +139,8 @@ def test_config_bootstrap_is_private_persistent_and_loadable(
     assert second.database_path == tmp_path / "data/tiktok-manager/tiktok_manager.db"
     assert second.redroid_base_adb_port == 5554
     assert second.bridge_systemd_scope == "user"
+    assert second.artifact_root == tmp_path / "data/tiktok-manager/artifacts"
+    assert second.artifact_max_size_bytes == 100 * 1024 * 1024
     assert stat.S_IMODE(first.config_path.stat().st_mode) == 0o600
     assert stat.S_IMODE(first.config_path.parent.stat().st_mode) == 0o700
     assert first.config_path.read_bytes() == original

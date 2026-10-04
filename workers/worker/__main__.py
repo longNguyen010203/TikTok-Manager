@@ -18,7 +18,7 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
     config = parse_config()
-    worker = Worker(config, BackendClient(config.backend_url))
+    worker = Worker(config, BackendClient(config.backend_url, worker_id=config.worker_id))
 
     def request_shutdown(
         signum: int, frame: FrameType | None  # noqa: ARG001

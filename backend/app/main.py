@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from app.database import DATABASE_SETTINGS, SessionLocal, engine
 from app.routers.accounts import router as accounts_router
+from app.routers.artifacts import router as artifacts_router
 from app.routers.devices import router as devices_router, screen_process_manager
 from app.routers.health import router as health_router
 from app.routers.jobs import router as jobs_router
@@ -103,6 +104,7 @@ def create_app(
     )
     application.include_router(health_router)
     application.include_router(accounts_router)
+    application.include_router(artifacts_router)
     application.include_router(devices_router)
     application.include_router(jobs_router)
     application.include_router(runtime_networks_router)

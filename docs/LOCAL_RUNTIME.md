@@ -28,11 +28,17 @@ port, username, and password, then Save and Apply.
   `~/.config/tiktok-manager/credentials.key` (mode `0600`)
 - Database backups:
   `~/.local/share/tiktok-manager/backups/`
+- Managed automation artifacts:
+  `~/.local/share/tiktok-manager/artifacts/`
 
 The TOML file stores only non-secret host settings: canonical database path,
 installation identity, Redroid image/data/profile/ADB allocation, bridge port
 range and private runtime directories. Proxy credentials are encrypted in the
 database; their master key remains outside it.
+
+The optional `[automation]` section contains the non-secret artifact root and
+maximum artifact size. Existing installations without that section use safe
+defaults. Normal use does not require artifact-related environment exports.
 
 Back up `credentials.key` separately with access controls equivalent to the
 database backup. A database backup containing encrypted proxy credentials can

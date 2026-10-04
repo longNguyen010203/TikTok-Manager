@@ -23,6 +23,9 @@ class JobLog(Base):
         ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False, index=True
     )
     level: Mapped[str] = mapped_column(String(20), nullable=False)
+    event_type: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
     message: Mapped[str] = mapped_column(Text, nullable=False)
     log_metadata: Mapped[Any | None] = mapped_column(
         "metadata", JSON, nullable=True

@@ -29,6 +29,7 @@ from app.services.device_lifecycle import (
     get_redroid_target,
 )
 from app.services.device_screen import (
+    DeviceScreenBusyError,
     DeviceScreenError,
     ScreenProcessManager,
     ScreenProcessState,
@@ -43,6 +44,8 @@ from app.services.runtime_network_orchestration import (
     NetworkApplyError,
     RuntimeNetworkOrchestrator,
 )
+from app.services.network_config import RuntimeNetworkSettings
+from app.services.runtime_operation_lock import RuntimeOperationGuard
 
 router = APIRouter(prefix="/devices", tags=["devices"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
@@ -58,7 +61,12 @@ RuntimeAdapter = Annotated[
     RedroidRuntimeAdapter, Depends(get_redroid_runtime_adapter)
 ]
 
-screen_process_manager = ScreenProcessManager()
+_runtime_operation_guard = RuntimeOperationGuard(
+    RuntimeNetworkSettings.from_environment().lock_directory
+)
+screen_process_manager = ScreenProcessManager(
+    operation_guard=_runtime_operation_guard
+)
 
 
 def get_screen_process_manager() -> ScreenProcessManager:
@@ -107,7 +115,9 @@ def get_device_status(
 ) -> DeviceLifecycleStatus:
     """Inspect and reconcile a Device's Redroid runtime state."""
     device = _get_device_or_404(device_id, session)
-    service = DeviceLifecycleService(session, adapter)
+    service = DeviceLifecycleService(
+        session, adapter, operation_guard=_runtime_operation_guard
+    )
     return _execute_lifecycle(lambda: service.status(device))
 
 
@@ -120,7 +130,9 @@ def start_device(
 ) -> DeviceLifecycleStatus:
     """Start a Device's Redroid runtime and wait for readiness."""
     device = _get_device_or_404(device_id, session)
-    service = DeviceLifecycleService(session, adapter)
+    service = DeviceLifecycleService(
+        session, adapter, operation_guard=_runtime_operation_guard
+    )
     result = _execute_lifecycle(lambda: service.start(device))
     _reconcile_network_after_ready(device, session, network_cleaner)
     return result
@@ -132,7 +144,9 @@ def stop_device(
 ) -> DeviceLifecycleStatus:
     """Stop a Device's Redroid container without deleting it."""
     device = _get_device_or_404(device_id, session)
-    service = DeviceLifecycleService(session, adapter)
+    service = DeviceLifecycleService(
+        session, adapter, operation_guard=_runtime_operation_guard
+    )
     return _execute_lifecycle(lambda: service.stop(device))
 
 
@@ -145,7 +159,9 @@ def restart_device(
 ) -> DeviceLifecycleStatus:
     """Restart a Device's Redroid runtime and wait for readiness."""
     device = _get_device_or_404(device_id, session)
-    service = DeviceLifecycleService(session, adapter)
+    service = DeviceLifecycleService(
+        session, adapter, operation_guard=_runtime_operation_guard
+    )
     result = _execute_lifecycle(lambda: service.restart(device))
     _reconcile_network_after_ready(device, session, network_cleaner)
     return result
@@ -313,6 +329,8 @@ def _execute_screen(
 ) -> DeviceScreenStatus:
     try:
         return operation()
+    except DeviceScreenBusyError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     except DeviceLifecycleError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     except DeviceScreenError as error:

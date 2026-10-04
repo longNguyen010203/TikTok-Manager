@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
+from typing import Iterator
 
 from sqlalchemy.orm import Session
 
@@ -10,6 +12,10 @@ from app.models import Device, Runtime
 from app.models.timestamps import utc_now
 from app.schemas.device import DeviceLifecycleStatus
 from app.services.redroid_runtime import RedroidRuntimeAdapter
+from app.services.runtime_operation_lock import (
+    RuntimeOperationGuard,
+    RuntimeOperationLockBusy,
+)
 
 
 class DeviceLifecycleError(RuntimeError):
@@ -26,6 +32,10 @@ class UnsupportedRuntimeError(DeviceLifecycleError):
 
 class RuntimeConfigurationError(DeviceLifecycleError):
     """Raised when required Redroid connection settings are missing."""
+
+
+class RuntimeLifecycleBusyError(DeviceLifecycleError):
+    """Raised when another operation currently owns the Runtime."""
 
 
 @dataclass(frozen=True)
@@ -47,11 +57,15 @@ class DeviceLifecycleService:
         *,
         boot_timeout: float = 120,
         adb_timeout: float = 30,
+        operation_guard: RuntimeOperationGuard | None = None,
+        operation_lock_timeout: float = 0,
     ) -> None:
         self.session = session
         self.adapter = adapter
         self.boot_timeout = boot_timeout
         self.adb_timeout = adb_timeout
+        self.operation_guard = operation_guard
+        self.operation_lock_timeout = operation_lock_timeout
 
     def status(self, device: Device) -> DeviceLifecycleStatus:
         """Inspect external state and reconcile it into the database."""
@@ -61,34 +75,37 @@ class DeviceLifecycleService:
     def start(self, device: Device) -> DeviceLifecycleStatus:
         """Start the container and wait until Android and ADB are ready."""
         target = get_redroid_target(device)
-        self.adapter.start_container(target.container_name)
-        self._wait_for_readiness(target)
-        return self._reconcile(
-            device,
-            target,
-            container_status="running",
-            boot_completed=True,
-            adb_connected=True,
-        )
+        with self._runtime_operation(target.runtime.id):
+            self.adapter.start_container(target.container_name)
+            self._wait_for_readiness(target)
+            return self._reconcile(
+                device,
+                target,
+                container_status="running",
+                boot_completed=True,
+                adb_connected=True,
+            )
 
     def stop(self, device: Device) -> DeviceLifecycleStatus:
         """Stop the container without deleting its persistent state."""
         target = get_redroid_target(device)
-        self.adapter.stop_container(target.container_name)
-        return self._observe_and_reconcile(device, target)
+        with self._runtime_operation(target.runtime.id):
+            self.adapter.stop_container(target.container_name)
+            return self._observe_and_reconcile(device, target)
 
     def restart(self, device: Device) -> DeviceLifecycleStatus:
         """Restart the container and wait until Android and ADB are ready."""
         target = get_redroid_target(device)
-        self.adapter.restart_container(target.container_name)
-        self._wait_for_readiness(target)
-        return self._reconcile(
-            device,
-            target,
-            container_status="running",
-            boot_completed=True,
-            adb_connected=True,
-        )
+        with self._runtime_operation(target.runtime.id):
+            self.adapter.restart_container(target.container_name)
+            self._wait_for_readiness(target)
+            return self._reconcile(
+                device,
+                target,
+                container_status="running",
+                boot_completed=True,
+                adb_connected=True,
+            )
 
     def _wait_for_readiness(self, target: RedroidTarget) -> None:
         self.adapter.wait_for_boot(target.container_name, self.boot_timeout)
@@ -148,6 +165,22 @@ class DeviceLifecycleService:
             runtime_status=runtime_status,
             device_status=device_status,
         )
+
+    @contextmanager
+    def _runtime_operation(self, runtime_id: int) -> Iterator[None]:
+        if self.operation_guard is None:
+            with nullcontext():
+                yield
+            return
+        try:
+            with self.operation_guard.acquire_runtime(
+                runtime_id, timeout=self.operation_lock_timeout
+            ):
+                yield
+        except RuntimeOperationLockBusy as error:
+            raise RuntimeLifecycleBusyError(
+                "Runtime is busy with another operation"
+            ) from error
 
 
 

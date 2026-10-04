@@ -3,6 +3,7 @@
 from app.models.account import Account
 from app.models.device import Device
 from app.models.job import Job, JobStatus
+from app.models.job_artifact import JobArtifact
 from app.models.job_log import JobLog
 from app.models.redroid_provisioning import RedroidProvisioning
 from app.models.runtime import Runtime
@@ -17,6 +18,7 @@ __all__ = [
     "Account",
     "Device",
     "Job",
+    "JobArtifact",
     "JobLog",
     "JobStatus",
     "RedroidProvisioning",

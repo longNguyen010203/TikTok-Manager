@@ -4,16 +4,29 @@ from __future__ import annotations
 
 from typing import Any
 
-from worker.registry import HandlerRegistry
+from worker.registry import HandlerRegistry, JobExecutionContext
 
 
-def echo(payload: Any) -> Any:
+def echo(context: JobExecutionContext) -> Any:
     """Return the supplied payload unchanged."""
-    return payload
+    return context.payload
+
+
+def execute_device_job(context: JobExecutionContext) -> Any:
+    """Ask the backend to execute a registered device Job; never invoke ADB here."""
+    return context.backend_client.execute_job(
+        context.job_id, context.claim_token, context.attempt
+    )
 
 
 def create_default_registry() -> HandlerRegistry:
     """Create the registry used by the command-line worker."""
     registry = HandlerRegistry()
     registry.register("echo", echo)
+    for job_type in (
+        "device.screenshot", "device.package_state", "device.launch_app",
+        "device.stop_app", "device.push_file", "device.pull_file",
+        "device.import_media",
+    ):
+        registry.register(job_type, execute_device_job)
     return registry

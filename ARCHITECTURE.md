@@ -80,6 +80,21 @@ Manager host lifecycle:
 - Each managed Redroid lifecycle target uses one Device record with exactly one
   Runtime record. Container name, ADB endpoint, persistent `/data` directory,
   and Docker network are unique per target.
+- Android automation resolves an explicit Runtime ID to its database-owned ADB
+  serial and container name immediately before every operation. Callers cannot
+  provide either host identifier.
+- Runtime mutations use one host-local, cross-process `flock` identity per
+  Runtime. Lifecycle, screen, network, and automation operations therefore
+  fail safely instead of controlling the same Android Runtime concurrently.
+- Automation artifacts are stored beneath the private per-user application
+  data directory. Results expose generated artifact IDs and safe metadata,
+  never arbitrary host paths or raw screenshot bytes.
+- Device Jobs use a typed registry and a lease-protected backend execution
+  boundary. Workers receive complete execution context but never execute ADB;
+  every heartbeat and terminal mutation is fenced by a hashed claim token and
+  attempt number.
+- Deprovision rejects a Runtime with active automation and cancels queued
+  `device.*` Jobs for that exact Runtime without redirecting them.
 - Redroid containers use private Binder mounts. Host Binder device nodes must
   not be bind-mounted into multiple containers.
 - Reproducible Redroid definitions and provisioning steps are documented in

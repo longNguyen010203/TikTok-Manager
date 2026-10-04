@@ -15,7 +15,7 @@ PRE_JOB_LOG_REVISION = "20260918_0003"
 PRE_REDROID_CONFIG_REVISION = "20260918_0004"
 PRE_UNIQUE_CONFIG_REVISION = "20261001_0005"
 PRE_PROVISIONING_REVISION = "20261001_0006"
-LATEST_REVISION = "20261004_0010"
+LATEST_REVISION = "20261004_0012"
 
 
 def test_upgrade_head_creates_accounts_table(
@@ -38,6 +38,7 @@ def test_upgrade_head_creates_accounts_table(
             "jobs",
             "redroid_provisionings",
             "runtimes",
+            "job_artifacts",
         }.issubset(
             inspector.get_table_names()
         )
@@ -102,11 +103,21 @@ def test_upgrade_head_creates_accounts_table(
             "payload",
             "result",
             "error_message",
+            "error_code",
+            "error_retryable",
             "attempt_count",
             "max_attempts",
             "scheduled_at",
             "started_at",
             "completed_at",
+            "claim_token_hash",
+            "claimed_by",
+            "claimed_at",
+            "heartbeat_at",
+            "lease_expires_at",
+            "cancellation_requested_at",
+            "execution_started_at",
+            "execution_stage",
             "created_at",
             "updated_at",
         } == set(job_columns)
@@ -130,6 +141,7 @@ def test_upgrade_head_creates_accounts_table(
             "job_id",
             "level",
             "message",
+            "event_type",
             "metadata",
             "created_at",
         }
@@ -185,6 +197,25 @@ def test_upgrade_head_creates_accounts_table(
             "created_at",
             "updated_at",
         }
+        artifact_columns = {
+            column["name"] for column in inspector.get_columns("job_artifacts")
+        }
+        assert artifact_columns == {
+            "id",
+            "job_id",
+            "kind",
+            "original_filename",
+            "storage_key",
+            "mime_type",
+            "size_bytes",
+            "sha256",
+            "created_at",
+            "expires_at",
+            "cleanup_status",
+        }
+        artifact_fk = inspector.get_foreign_keys("job_artifacts")[0]
+        assert artifact_fk["referred_table"] == "jobs"
+        assert artifact_fk["options"]["ondelete"] == "CASCADE"
 
         with test_engine.connect() as connection:
             migration_context = MigrationContext.configure(connection)

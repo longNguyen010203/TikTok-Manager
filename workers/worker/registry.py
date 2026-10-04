@@ -3,9 +3,26 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime
+from threading import Event
 from typing import Any
 
-JobHandler = Callable[[Any], Any]
+@dataclass(frozen=True)
+class JobExecutionContext:
+    job_id: int
+    job_type: str
+    runtime_id: int | None
+    account_id: int | None
+    payload: Any
+    attempt: int
+    claim_token: str
+    lease_deadline: datetime
+    backend_client: Any
+    cancellation_token: Event
+
+
+JobHandler = Callable[[JobExecutionContext], Any]
 
 
 class UnknownJobTypeError(LookupError):
@@ -39,6 +56,6 @@ class HandlerRegistry:
         except KeyError as error:
             raise UnknownJobTypeError(job_type) from error
 
-    def dispatch(self, job_type: object, payload: Any) -> Any:
-        """Invoke the matching handler with a job payload."""
-        return self.get(job_type)(payload)
+    def dispatch(self, context: JobExecutionContext) -> Any:
+        """Invoke the matching handler with a validated execution context."""
+        return self.get(context.job_type)(context)

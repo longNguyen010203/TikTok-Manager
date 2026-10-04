@@ -4,15 +4,19 @@ from __future__ import annotations
 
 import argparse
 import os
+import socket
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
 BACKEND_URL_ENV = "WORKER_BACKEND_URL"
 POLL_INTERVAL_ENV = "WORKER_POLL_INTERVAL_SECONDS"
 RETRY_DELAY_ENV = "WORKER_RETRY_DELAY_SECONDS"
+HEARTBEAT_INTERVAL_ENV = "WORKER_HEARTBEAT_INTERVAL_SECONDS"
+WORKER_ID_ENV = "WORKER_ID"
 DEFAULT_BACKEND_URL = "http://127.0.0.1:8000"
 DEFAULT_POLL_INTERVAL_SECONDS = 5.0
 DEFAULT_RETRY_DELAY_SECONDS = 30.0
+DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 15.0
 
 
 @dataclass(frozen=True)
@@ -22,6 +26,8 @@ class WorkerConfig:
     backend_url: str = DEFAULT_BACKEND_URL
     poll_interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS
     retry_delay_seconds: float = DEFAULT_RETRY_DELAY_SECONDS
+    heartbeat_interval_seconds: float = DEFAULT_HEARTBEAT_INTERVAL_SECONDS
+    worker_id: str = socket.gethostname()
 
     def __post_init__(self) -> None:
         normalized_url = self.backend_url.rstrip("/")
@@ -32,6 +38,10 @@ class WorkerConfig:
             raise ValueError("polling interval must be greater than zero")
         if self.retry_delay_seconds < 0:
             raise ValueError("retry delay must not be negative")
+        if self.heartbeat_interval_seconds <= 0:
+            raise ValueError("heartbeat interval must be greater than zero")
+        if not self.worker_id or len(self.worker_id) > 100:
+            raise ValueError("worker ID must contain 1 to 100 characters")
         object.__setattr__(self, "backend_url", normalized_url)
 
     @classmethod
@@ -44,6 +54,7 @@ class WorkerConfig:
         retry_delay_text = os.getenv(
             RETRY_DELAY_ENV, str(DEFAULT_RETRY_DELAY_SECONDS)
         )
+        heartbeat_text = os.getenv(HEARTBEAT_INTERVAL_ENV, str(DEFAULT_HEARTBEAT_INTERVAL_SECONDS))
         try:
             poll_interval = float(interval_text)
         except ValueError as error:
@@ -54,10 +65,16 @@ class WorkerConfig:
             retry_delay = float(retry_delay_text)
         except ValueError as error:
             raise ValueError(f"{RETRY_DELAY_ENV} must be a number") from error
+        try:
+            heartbeat_interval = float(heartbeat_text)
+        except ValueError as error:
+            raise ValueError(f"{HEARTBEAT_INTERVAL_ENV} must be a number") from error
         return cls(
             backend_url=backend_url,
             poll_interval_seconds=poll_interval,
             retry_delay_seconds=retry_delay,
+            heartbeat_interval_seconds=heartbeat_interval,
+            worker_id=os.getenv(WORKER_ID_ENV, socket.gethostname()),
         )
 
 
@@ -98,6 +115,8 @@ def parse_config(arguments: list[str] | None = None) -> WorkerConfig:
             backend_url=options.backend_url,
             poll_interval_seconds=options.poll_interval,
             retry_delay_seconds=options.retry_delay,
+            heartbeat_interval_seconds=environment.heartbeat_interval_seconds,
+            worker_id=environment.worker_id,
         )
     except ValueError as error:
         parser.error(str(error))

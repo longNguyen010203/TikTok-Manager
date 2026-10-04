@@ -76,6 +76,10 @@ class JobRead(JobFields):
     id: int
     created_at: datetime
     updated_at: datetime
+    error_code: str | None = None
+    error_retryable: bool | None = None
+    cancellation_requested_at: datetime | None = None
+    execution_stage: str | None = None
 
 
 class JobList(BaseModel):
@@ -101,6 +105,36 @@ class JobFailed(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     error_message: str | None = None
+    error_code: str | None = Field(default=None, min_length=1, max_length=100)
+    retryable: bool = False
+
+
+class JobClaimRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    claimed_by: str = Field(default="legacy-worker", min_length=1, max_length=100)
+
+
+class JobClaimRead(JobRead):
+    claim_token: str
+    claimed_by: str
+    lease_expires_at: datetime
+
+
+class JobHeartbeatRead(BaseModel):
+    job_id: int
+    attempt: int
+    status: str
+    lease_expires_at: datetime
+    cancellation_requested: bool
+
+
+class JobExecuteRead(BaseModel):
+    result: Any
+
+
+class JobCancelAcknowledgement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
 
 class JobRetry(BaseModel):
@@ -119,6 +153,7 @@ class JobLogRead(BaseModel):
     id: int
     job_id: int
     level: str
+    event_type: str | None = None
     message: str
     metadata: Any | None = Field(default=None, validation_alias="log_metadata")
     created_at: datetime

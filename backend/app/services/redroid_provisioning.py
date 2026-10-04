@@ -17,6 +17,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import Device, RedroidProvisioning, Runtime
+from app.services.runtime_automation_cleanup import RuntimeAutomationBusyError
 from app.services.redroid_provisioning_adapter import (
     OccupiedResources,
     ProvisioningAllocation,
@@ -181,6 +182,7 @@ class RedroidProvisioningService:
         screen_manager: ScreenCloser | None = None,
         runtime_adapter: ContainerStopper | None = None,
         network_cleaner: RuntimeNetworkCleaner | None = None,
+        automation_cleaner=None,
     ) -> None:
         self.session_factory = session_factory
         self.adapter = adapter
@@ -192,6 +194,7 @@ class RedroidProvisioningService:
         self.screen_manager = screen_manager
         self.runtime_adapter = runtime_adapter
         self.network_cleaner = network_cleaner
+        self.automation_cleaner = automation_cleaner
 
     def get_or_create_request(
         self, idempotency_key: str, request: ProvisioningRequest
@@ -401,6 +404,9 @@ class RedroidProvisioningService:
                 attempt = self.get(attempt.id)
                 allocation = self._allocation(attempt)
 
+                if self.automation_cleaner is not None:
+                    self.automation_cleaner.cleanup_before_delete(runtime_id)
+
                 # Validate every ownership boundary before the first action.
                 self.adapter.verify_owned_data_directory(allocation)
                 container = None
@@ -449,6 +455,9 @@ class RedroidProvisioningService:
                     )
 
                 return self._complete_deprovision(attempt.id)
+            except RuntimeAutomationBusyError as error:
+                self._record_error(attempt.id, error, state="completed")
+                raise DeprovisioningEligibilityError(str(error)) from error
             except Exception as error:
                 self._record_error(attempt.id, error, state="deprovision_failed")
                 raise DeprovisioningFailedError(attempt.id, error) from error

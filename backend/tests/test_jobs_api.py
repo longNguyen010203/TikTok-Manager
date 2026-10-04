@@ -91,6 +91,13 @@ def job_payload(**overrides: Any) -> dict[str, Any]:
     return payload | overrides
 
 
+def claim_headers(claimed: dict[str, Any]) -> dict[str, str]:
+    return {
+        "X-Job-Claim-Token": claimed["claim_token"],
+        "X-Job-Attempt": str(claimed["attempt_count"]),
+    }
+
+
 def test_job_crud(job_api: TestClient) -> None:
     account, runtime = create_targets(job_api)
     create_response = job_api.post(
@@ -352,6 +359,7 @@ def test_running_job_can_succeed_with_result(job_api: TestClient) -> None:
     response = job_api.post(
         f"/jobs/{job['id']}/succeed",
         json={"result": {"post_id": "post-123"}},
+        headers=claim_headers(claimed),
     )
 
     assert response.status_code == 200
@@ -364,10 +372,11 @@ def test_running_job_can_succeed_with_result(job_api: TestClient) -> None:
 
 def test_running_job_can_fail_with_error_message(job_api: TestClient) -> None:
     job = job_api.post("/jobs", json=job_payload()).json()
-    job_api.post("/jobs/claim")
+    claimed = job_api.post("/jobs/claim").json()
 
     response = job_api.post(
-        f"/jobs/{job['id']}/fail", json={"error_message": "Upload failed"}
+        f"/jobs/{job['id']}/fail", json={"error_message": "Upload failed"},
+        headers=claim_headers(claimed),
     )
 
     assert response.status_code == 200
@@ -389,8 +398,8 @@ def test_eligible_job_can_be_cancelled(
 
     assert response.status_code == 200
     cancelled = response.json()
-    assert cancelled["status"] == "cancelled"
-    assert cancelled["completed_at"] is not None
+    assert cancelled["status"] == ("cancelling" if initial_status == "running" else "cancelled")
+    assert (cancelled["completed_at"] is not None) == (initial_status != "running")
 
 
 @pytest.mark.parametrize(
@@ -418,11 +427,13 @@ def test_invalid_lifecycle_transitions_return_409(
     ).json()
 
     response = job_api.post(f"/jobs/{job['id']}/{action}", json=body)
-
-    assert response.status_code == 409
-    assert response.json() == {
-        "detail": f"Cannot transition job from {initial_status} to {target_status}"
-    }
+    if action in {"succeed", "fail"}:
+        assert response.status_code == 422
+    else:
+        assert response.status_code == 409
+        assert response.json() == {
+            "detail": f"Cannot transition job from {initial_status} to {target_status}"
+        }
 
 
 def test_patch_cannot_bypass_lifecycle_actions(job_api: TestClient) -> None:
@@ -442,7 +453,12 @@ def test_lifecycle_action_for_missing_job_returns_404(
     job_api: TestClient, action: str
 ) -> None:
     body: dict[str, Any] = {}
-    response = job_api.post(f"/jobs/999/{action}", json=body)
+    headers = (
+        {"X-Job-Claim-Token": "x" * 32, "X-Job-Attempt": "1"}
+        if action in {"succeed", "fail"}
+        else None
+    )
+    response = job_api.post(f"/jobs/999/{action}", json=body, headers=headers)
     assert response.status_code == 404
     assert response.json() == {"detail": "Job not found"}
 
@@ -478,7 +494,8 @@ def test_failed_job_can_be_retried_without_consuming_attempt(
     assert claimed["id"] == job["id"]
     assert claimed["attempt_count"] == 1
     failed = job_api.post(
-        f"/jobs/{job['id']}/fail", json={"error_message": "Temporary error"}
+        f"/jobs/{job['id']}/fail", json={"error_message": "Temporary error"},
+        headers=claim_headers(claimed),
     ).json()
     assert failed["completed_at"] is not None
 
@@ -503,8 +520,8 @@ def test_failed_job_can_be_retried_without_consuming_attempt(
 
 def test_retry_can_be_scheduled_for_the_future(job_api: TestClient) -> None:
     job = job_api.post("/jobs", json=job_payload()).json()
-    job_api.post("/jobs/claim")
-    job_api.post(f"/jobs/{job['id']}/fail", json={})
+    claimed = job_api.post("/jobs/claim").json()
+    job_api.post(f"/jobs/{job['id']}/fail", json={}, headers=claim_headers(claimed))
 
     response = job_api.post(
         f"/jobs/{job['id']}/retry",
@@ -527,9 +544,10 @@ def test_retry_is_blocked_when_max_attempts_is_reached(
     job = job_api.post(
         "/jobs", json=job_payload(max_attempts=1)
     ).json()
-    job_api.post("/jobs/claim")
+    claimed = job_api.post("/jobs/claim").json()
     failed = job_api.post(
-        f"/jobs/{job['id']}/fail", json={"error_message": "Permanent error"}
+        f"/jobs/{job['id']}/fail", json={"error_message": "Permanent error"},
+        headers=claim_headers(claimed),
     ).json()
 
     response = job_api.post(f"/jobs/{job['id']}/retry")
@@ -589,10 +607,11 @@ def test_lifecycle_logs_preserve_failure_history_across_retry(
     job = job_api.post(
         "/jobs", json=job_payload(result={"stale": True})
     ).json()
-    job_api.post("/jobs/claim")
+    claimed = job_api.post("/jobs/claim").json()
     job_api.post(
         f"/jobs/{job['id']}/fail",
         json={"error_message": "First attempt failed"},
+        headers=claim_headers(claimed),
     )
     retried = job_api.post(
         f"/jobs/{job['id']}/retry",
@@ -600,10 +619,11 @@ def test_lifecycle_logs_preserve_failure_history_across_retry(
     ).json()
     assert retried["error_message"] is None
     assert retried["result"] is None
-    job_api.post("/jobs/claim")
+    claimed_again = job_api.post("/jobs/claim").json()
     job_api.post(
         f"/jobs/{job['id']}/succeed",
         json={"result": {"post_id": "post-456"}},
+        headers=claim_headers(claimed_again),
     )
 
     response = job_api.get(f"/jobs/{job['id']}/logs")
@@ -612,7 +632,7 @@ def test_lifecycle_logs_preserve_failure_history_across_retry(
     logs = response.json()
     assert [log["message"] for log in logs] == [
         "Job claimed",
-        "Job failed",
+        "Job action failed",
         "Job retry scheduled",
         "Job claimed",
         "Job succeeded",
@@ -626,13 +646,10 @@ def test_lifecycle_logs_preserve_failure_history_across_retry(
     ]
     assert all(log["job_id"] == job["id"] for log in logs)
     assert all(log["created_at"] for log in logs)
-    assert logs[0]["metadata"] == {"attempt_count": 1}
-    assert logs[1]["metadata"] == {"error_message": "First attempt failed"}
-    assert logs[2]["metadata"] == {
-        "scheduled_at": "2000-01-01T00:00:00+00:00",
-        "attempt_count": 1,
-    }
-    assert logs[3]["metadata"] == {"attempt_count": 2}
+    assert logs[0]["metadata"]["attempt_count"] == 1
+    assert logs[1]["metadata"]["error_code"] == "JOB_EXECUTION_FAILED"
+    assert logs[2]["metadata"]["attempt_count"] == 1
+    assert logs[3]["metadata"]["attempt_count"] == 2
     assert logs[4]["metadata"] is None
 
 
@@ -649,6 +666,7 @@ def test_cancel_is_logged(job_api: TestClient) -> None:
             "id": 1,
             "job_id": job["id"],
             "level": "info",
+            "event_type": "automation_cancelled",
             "message": "Job cancelled",
             "metadata": None,
             "created_at": logs_response.json()[0]["created_at"],

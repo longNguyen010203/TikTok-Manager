@@ -1,5 +1,32 @@
 # API Contract
 
+## Device automation Jobs
+
+TIK-020 Phase 3 connects allowlisted `device.*` Jobs to backend-only Android
+automation primitives. Workers use a claim-token-protected execution endpoint
+and never execute ADB. Public types are `device.screenshot`,
+`device.package_state`, `device.launch_app`, `device.stop_app`,
+`device.push_file`, `device.pull_file`, and `device.import_media`. Input-control
+and arbitrary shell Jobs are not exposed.
+
+Every primitive resolves `runtime_id` from the database immediately before
+execution and uses only that Runtime's stored ADB serial. Automation callers
+cannot provide an ADB serial, Docker container, arbitrary host path, arbitrary
+Android destination, raw ADB command, or shell fragment.
+
+Automation failures contain a stable `code`, `retryable` value, and
+`safe_message`. Raw ADB stdout/stderr is never included in an API-facing error.
+The stable codes are `RUNTIME_NOT_FOUND`, `RUNTIME_STOPPED`,
+`RUNTIME_DEPROVISIONING`, `RUNTIME_BUSY`, `RUNTIME_SCREEN_ACTIVE`,
+`DEVICE_NOT_READY`, `ADB_UNAVAILABLE`, `ADB_COMMAND_FAILED`,
+`AUTOMATION_TIMEOUT`, `PACKAGE_NOT_FOUND`, `INVALID_AUTOMATION_PAYLOAD`,
+`FILE_TRANSFER_FAILED`, `MEDIA_IMPORT_FAILED`, `ARTIFACT_NOT_FOUND`,
+`ARTIFACT_POLICY_VIOLATION`, and `AUTOMATION_CANCELLED`.
+
+Screenshots and pulled files become `JobArtifact` records. Service results may
+contain an artifact ID, safe display filename, MIME type, size, and SHA-256,
+but never file bytes or a host storage path.
+
 ## Runtime network configuration
 
 `GET /runtimes/{id}/network` returns safe desired and observed state. An
@@ -466,14 +493,16 @@ Error cases:
 
 - Method: `POST`
 - Path: `/jobs/claim`
-- Request body: none.
-- Success: `200 OK` with the claimed Job object.
+- Request body: optional `{ "claimed_by": "worker-id" }`.
+- Success: `200 OK` with the claimed Job object plus transient `claim_token`,
+  `claimed_by`, and `lease_expires_at` worker fields.
 - No work available: `204 No Content` with an empty body.
 
 Only Jobs with `status=pending` and a `scheduled_at` value that is either null
 or not later than the claim time are eligible. The lowest eligible Job ID is
-claimed first. Claiming changes the status to `running`, records `started_at`,
-and increments `attempt_count`. Row locking with skip-locked behavior is used
+claimed first. Claiming creates a random token, persists only its hash, changes
+status to `running`, creates a lease, records `started_at`, and increments
+`attempt_count`. Row locking with skip-locked behavior is used
 on databases that support it so competing workers do not claim the same Job.
 
 ## Mark job succeeded
@@ -483,6 +512,8 @@ on databases that support it so competing workers do not claim the same Job.
 - Request body: an object with optional `result`, which may contain any JSON
   value or `null`.
 - Success: `200 OK` with the updated Job object.
+
+Worker mutation headers `X-Job-Claim-Token` and `X-Job-Attempt` are required.
 
 The Job must be `running`. The action changes its status to `succeeded`, stores
 the supplied result, and records `completed_at`.
@@ -498,11 +529,13 @@ Error cases:
 
 - Method: `POST`
 - Path: `/jobs/{id}/fail`
-- Request body: an object with optional `error_message` string or `null`.
+- Request body: an object with optional safe `error_message`, `error_code`, and
+  required/default-false `retryable` classification.
 - Success: `200 OK` with the updated Job object.
 
-The Job must be `running`. The action changes its status to `failed`, stores the
-supplied error message, and records `completed_at`.
+The claim and lease must be current. Retryable registered errors are returned
+to `pending` with a delay when attempts remain; other errors become `failed`.
+Unknown exceptions are not assumed retryable.
 
 Error cases:
 
@@ -545,8 +578,9 @@ Error cases:
 - Request body: none.
 - Success: `200 OK` with the updated Job object.
 
-The Job must be `pending`, `running`, or `retrying`. The action changes its
-status to `cancelled` and records `completed_at`.
+Pending/retrying Jobs become `cancelled` immediately. Running Jobs become
+`cancelling`; the worker cooperatively stops its exact owned ADB child and then
+acknowledges through `POST /jobs/{id}/cancel/acknowledge` using its claim.
 
 Error cases:
 
@@ -554,6 +588,23 @@ Error cases:
   exist.
 - `409 Conflict` when the Job is already in a terminal state.
 - `422 Unprocessable Entity` when the ID is not a positive integer.
+
+## Worker heartbeat and device execution
+
+- `POST /jobs/{id}/heartbeat` extends only the matching, unexpired token and
+  attempt lease and reports whether cancellation was requested.
+- `POST /jobs/{id}/execute` revalidates the current claim, registered Job type,
+  payload, exact Runtime, cancellation, readiness, network policy, and shared
+  Runtime lock before dispatching to `AndroidAutomationService`.
+- Stale or expired claims receive `409 Conflict` and cannot overwrite a newer
+  attempt.
+
+## Artifact upload and download
+
+- `POST /artifacts` accepts bounded multipart content with validated filename,
+  MIME, and content signature. It returns safe metadata only.
+- `GET /jobs/{job_id}/artifacts/{artifact_id}` requires exact association and
+  never accepts a storage path or returns a storage key.
 
 ## Device object
 

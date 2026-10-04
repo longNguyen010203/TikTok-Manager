@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import subprocess
+from contextlib import contextmanager
 from dataclasses import dataclass
 from threading import Lock
+
+from app.services.runtime_operation_lock import RuntimeOperationGuard
+from app.services.runtime_operation_lock import RuntimeOperationLockBusy
 
 
 class DeviceScreenError(RuntimeError):
@@ -13,6 +17,10 @@ class DeviceScreenError(RuntimeError):
 
 class DeviceScreenCommandError(DeviceScreenError):
     """Raised when scrcpy cannot be launched or terminated."""
+
+
+class DeviceScreenBusyError(DeviceScreenError):
+    """Raised when another operation owns the Runtime screen target."""
 
 
 @dataclass(frozen=True)
@@ -52,71 +60,79 @@ class _ScreenProcess:
 class ScreenProcessManager:
     """Launch and track at most one scrcpy process for each Device."""
 
-    def __init__(self, *, terminate_timeout: float = 5.0) -> None:
+    def __init__(
+        self,
+        *,
+        terminate_timeout: float = 5.0,
+        operation_guard: RuntimeOperationGuard | None = None,
+    ) -> None:
         self.terminate_timeout = terminate_timeout
         self._processes: dict[int, _ScreenProcess] = {}
         self._lock = Lock()
+        self.operation_guard = operation_guard
 
     def open(
         self, device_id: int, runtime_id: int, adb_serial: str
     ) -> ScreenProcessState:
         """Return an existing live session or launch scrcpy without waiting."""
-        with self._lock:
-            current = self._get_live_process(device_id)
-            if current is not None:
-                return self._open_state(device_id, current)
+        with self._runtime_operation(runtime_id):
+            with self._lock:
+                current = self._get_live_process(device_id)
+                if current is not None:
+                    return self._open_state(device_id, current)
 
-            command = ["scrcpy", "--serial", adb_serial]
-            try:
-                process = subprocess.Popen(
-                    command,
-                    shell=False,
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
+                command = ["scrcpy", "--serial", adb_serial]
+                try:
+                    process = subprocess.Popen(
+                        command,
+                        shell=False,
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                except OSError as error:
+                    raise DeviceScreenCommandError(
+                        f"Unable to launch scrcpy for ADB target {adb_serial!r}: {error}"
+                    ) from error
+
+                tracked = _ScreenProcess(
+                    runtime_id=runtime_id,
+                    adb_serial=adb_serial,
+                    process=process,
                 )
-            except OSError as error:
-                raise DeviceScreenCommandError(
-                    f"Unable to launch scrcpy for ADB target {adb_serial!r}: {error}"
-                ) from error
-
-            tracked = _ScreenProcess(
-                runtime_id=runtime_id,
-                adb_serial=adb_serial,
-                process=process,
-            )
-            self._processes[device_id] = tracked
-            return self._open_state(device_id, tracked)
+                self._processes[device_id] = tracked
+                return self._open_state(device_id, tracked)
 
     def close(
         self, device_id: int, runtime_id: int, adb_serial: str
     ) -> ScreenProcessState:
         """Terminate only the tracked scrcpy process for a Device."""
-        with self._lock:
-            current = self._get_live_process(device_id)
-            if current is None:
-                return self._closed_state(device_id, runtime_id, adb_serial)
+        with self._runtime_operation(runtime_id):
+            with self._lock:
+                current = self._get_live_process(device_id)
+                if current is None:
+                    return self._closed_state(device_id, runtime_id, adb_serial)
 
-            try:
-                current.process.terminate()
-                current.process.wait(timeout=self.terminate_timeout)
-            except subprocess.TimeoutExpired:
                 try:
-                    current.process.kill()
-                    current.process.wait()
+                    current.process.terminate()
+                    current.process.wait(timeout=self.terminate_timeout)
+                except subprocess.TimeoutExpired:
+                    try:
+                        current.process.kill()
+                        current.process.wait()
+                    except OSError as error:
+                        raise DeviceScreenCommandError(
+                            f"Unable to close scrcpy for Device {device_id}: {error}"
+                        ) from error
+                except ProcessLookupError:
+                    pass
                 except OSError as error:
                     raise DeviceScreenCommandError(
                         f"Unable to close scrcpy for Device {device_id}: {error}"
                     ) from error
-            except ProcessLookupError:
-                pass
-            except OSError as error:
-                raise DeviceScreenCommandError(
-                    f"Unable to close scrcpy for Device {device_id}: {error}"
-                ) from error
 
-            self._processes.pop(device_id, None)
-            return self._closed_state(device_id, runtime_id, adb_serial)
+                self._processes.pop(device_id, None)
+                return self._closed_state(device_id, runtime_id, adb_serial)
 
     def status(
         self, device_id: int, runtime_id: int, adb_serial: str
@@ -127,6 +143,15 @@ class ScreenProcessManager:
             if current is None:
                 return self._closed_state(device_id, runtime_id, adb_serial)
             return self._open_state(device_id, current)
+
+    def is_runtime_active(self, runtime_id: int) -> bool:
+        """Return whether a live tracked scrcpy session targets this Runtime."""
+        with self._lock:
+            for device_id, tracked in list(self._processes.items()):
+                current = self._get_live_process(device_id)
+                if current is not None and current.runtime_id == runtime_id:
+                    return True
+            return False
 
     def close_all(self) -> ScreenCleanupResult:
         """Close every tracked scrcpy process, continuing after failures."""
@@ -158,6 +183,19 @@ class ScreenProcessManager:
             return tracked
         self._processes.pop(device_id, None)
         return None
+
+    @contextmanager
+    def _runtime_operation(self, runtime_id: int):
+        if self.operation_guard is None:
+            yield
+            return
+        try:
+            with self.operation_guard.acquire_runtime(runtime_id, blocking=False):
+                yield
+        except RuntimeOperationLockBusy as error:
+            raise DeviceScreenBusyError(
+                "Runtime is busy with another operation"
+            ) from error
 
     @staticmethod
     def _open_state(device_id: int, tracked: _ScreenProcess) -> ScreenProcessState:

@@ -1,118 +1,124 @@
-"""HTTP client for worker-facing backend operations."""
+"""HTTP client for lease-protected worker-facing backend operations."""
 
 from __future__ import annotations
 
 import json
+import socket
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
 class BackendClientError(RuntimeError):
-    """Raised when the worker cannot complete a backend request."""
+    pass
+
+
+class BackendExecutionError(BackendClientError):
+    def __init__(self, code: str, safe_message: str, retryable: bool) -> None:
+        self.code = code
+        self.safe_message = safe_message
+        self.retryable = retryable
+        super().__init__(safe_message)
 
 
 class BackendClient:
-    """Minimal client for the backend job API."""
-
-    def __init__(self, base_url: str, timeout_seconds: float = 30.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        timeout_seconds: float = 30.0,
+        *,
+        worker_id: str | None = None,
+        execute_timeout_seconds: float = 300.0,
+    ) -> None:
         self._base_url = base_url.rstrip("/")
-        self._claim_url = f"{self._base_url}/jobs/claim"
         self._timeout_seconds = timeout_seconds
+        self._execute_timeout_seconds = execute_timeout_seconds
+        self._worker_id = worker_id or socket.gethostname()
 
     def claim_job(self) -> dict[str, Any] | None:
-        """Claim the next eligible job, or return None when the queue is idle."""
-        request = Request(
-            self._claim_url,
-            data=b"",
-            headers={"Accept": "application/json"},
-            method="POST",
-        )
         try:
-            with urlopen(request, timeout=self._timeout_seconds) as response:
-                if response.status == 204:
-                    return None
-                if response.status != 200:
-                    raise BackendClientError(
-                        f"unexpected response from job claim: HTTP {response.status}"
-                    )
-                body = response.read()
-        except HTTPError as error:
-            raise BackendClientError(
-                f"job claim failed: HTTP {error.code}"
-            ) from error
-        except URLError as error:
-            raise BackendClientError(f"job claim failed: {error.reason}") from error
+            job = self._request("/jobs/claim", {"claimed_by": self._worker_id}, allow_empty=True)
+            if job is not None and "id" not in job:
+                raise BackendClientError("invalid job object")
+            return job
+        except BackendClientError as error:
+            raise BackendClientError(f"job claim failed: {error}") from error
 
+    def heartbeat(self, job_id: int, claim_token: str, attempt: int) -> dict[str, Any]:
+        return self._request(f"/jobs/{job_id}/heartbeat", {}, claim_token=claim_token, attempt=attempt)
+
+    def execute_job(self, job_id: int, claim_token: str, attempt: int) -> Any:
         try:
-            job = json.loads(body)
-        except (json.JSONDecodeError, UnicodeDecodeError) as error:
-            raise BackendClientError("job claim returned invalid JSON") from error
-        if not isinstance(job, dict) or "id" not in job:
-            raise BackendClientError("job claim returned an invalid job object")
-        return job
+            response = self._request(
+                f"/jobs/{job_id}/execute",
+                {},
+                claim_token=claim_token,
+                attempt=attempt,
+                timeout_seconds=self._execute_timeout_seconds,
+            )
+            return response["result"]
+        except BackendClientError as error:
+            if isinstance(error, BackendExecutionError):
+                raise
+            raise BackendExecutionError("BACKEND_UNAVAILABLE", "Backend automation execution failed", True) from error
 
-    def report_succeeded(self, job_id: int, result: Any) -> None:
-        """Report a successful handler result to the backend."""
-        self._post_lifecycle(
-            job_id,
-            "succeed",
-            {"result": result},
-            "success",
-        )
+    def report_succeeded(self, job_id: int, result: Any, claim_token: str, attempt: int) -> None:
+        self._request(f"/jobs/{job_id}/succeed", {"result": result}, claim_token=claim_token, attempt=attempt)
 
-    def report_failed(self, job_id: int, error_message: str) -> None:
-        """Report a handler failure to the backend."""
-        self._post_lifecycle(
-            job_id,
-            "fail",
-            {"error_message": error_message},
-            "failure",
-        )
+    def report_failed(self, job_id: int, error_message: str, claim_token: str, attempt: int, *, error_code: str = "JOB_EXECUTION_FAILED", retryable: bool = False) -> None:
+        self._request(f"/jobs/{job_id}/fail", {"error_message": error_message, "error_code": error_code, "retryable": retryable}, claim_token=claim_token, attempt=attempt)
+
+    def acknowledge_cancel(self, job_id: int, claim_token: str, attempt: int) -> None:
+        self._request(f"/jobs/{job_id}/cancel/acknowledge", {}, claim_token=claim_token, attempt=attempt)
 
     def retry_job(self, job_id: int, scheduled_at: str) -> None:
-        """Requeue a failed job for a later attempt."""
-        self._post_lifecycle(
-            job_id,
-            "retry",
-            {"scheduled_at": scheduled_at},
-            "retry",
-        )
+        self._request(f"/jobs/{job_id}/retry", {"scheduled_at": scheduled_at})
 
-    def _post_lifecycle(
+    def _request(
         self,
-        job_id: int,
-        action: str,
+        path: str,
         payload: dict[str, Any],
-        report_name: str,
-    ) -> None:
+        *,
+        claim_token: str | None = None,
+        attempt: int | None = None,
+        allow_empty: bool = False,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any] | None:
         try:
             body = json.dumps(payload).encode()
         except (TypeError, ValueError) as error:
-            raise BackendClientError(
-                f"job {report_name} report contains invalid JSON"
-            ) from error
-
-        request = Request(
-            f"{self._base_url}/jobs/{job_id}/{action}",
-            data=body,
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
+            raise BackendClientError("request contains invalid JSON") from error
+        headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        if claim_token is not None:
+            headers["X-Job-Claim-Token"] = claim_token
+        if attempt is not None:
+            headers["X-Job-Attempt"] = str(attempt)
+        request = Request(f"{self._base_url}{path}", data=body, headers=headers, method="POST")
         try:
-            with urlopen(request, timeout=self._timeout_seconds) as response:
-                if response.status != 200:
-                    raise BackendClientError(
-                        f"job {report_name} report returned HTTP {response.status}"
-                    )
+            with urlopen(
+                request,
+                timeout=self._timeout_seconds
+                if timeout_seconds is None
+                else timeout_seconds,
+            ) as response:
+                if response.status == 204 and allow_empty:
+                    return None
+                raw = response.read()
         except HTTPError as error:
-            raise BackendClientError(
-                f"job {report_name} report failed: HTTP {error.code}"
-            ) from error
-        except URLError as error:
-            raise BackendClientError(
-                f"job {report_name} report failed: {error.reason}"
-            ) from error
+            raw = error.read()
+            try:
+                detail = json.loads(raw).get("detail", {})
+            except Exception:
+                detail = {}
+            if isinstance(detail, dict) and detail.get("code"):
+                raise BackendExecutionError(str(detail["code"]), str(detail.get("message", "Backend execution failed")), bool(detail.get("retryable"))) from error
+            raise BackendClientError(f"HTTP {error.code}") from error
+        except (URLError, TimeoutError) as error:
+            raise BackendClientError("backend is unavailable") from error
+        try:
+            result = json.loads(raw)
+        except (json.JSONDecodeError, UnicodeDecodeError) as error:
+            raise BackendClientError("backend returned invalid JSON") from error
+        if not isinstance(result, dict):
+            raise BackendClientError("backend returned an invalid job object")
+        return result

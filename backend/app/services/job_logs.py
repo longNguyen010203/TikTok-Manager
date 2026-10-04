@@ -13,11 +13,13 @@ def append_job_log(
     level: str,
     message: str,
     metadata: Any | None = None,
+    event_type: str | None = None,
 ) -> JobLog:
     """Append a Job log without committing the surrounding transaction."""
     log = JobLog(
         job=job,
         level=level,
+        event_type=event_type,
         message=message,
         log_metadata=metadata,
     )

@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, JSON, String, Text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -12,6 +12,7 @@ from app.models.timestamps import utc_now
 
 if TYPE_CHECKING:
     from app.models.account import Account
+    from app.models.job_artifact import JobArtifact
     from app.models.job_log import JobLog
     from app.models.runtime import Runtime
 
@@ -21,6 +22,7 @@ class JobStatus(str, Enum):
 
     PENDING = "pending"
     RUNNING = "running"
+    CANCELLING = "cancelling"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     RETRYING = "retrying"
@@ -37,7 +39,7 @@ class Job(Base):
     __table_args__ = (
         CheckConstraint(
             "status IN ('pending', 'running', 'succeeded', 'failed', "
-            "'retrying', 'cancelled')",
+            "'retrying', 'cancelling', 'cancelled')",
             name="ck_jobs_status",
         ),
         CheckConstraint("attempt_count >= 0", name="ck_jobs_attempt_count"),
@@ -61,6 +63,8 @@ class Job(Base):
     payload: Mapped[Any | None] = mapped_column(JSON, nullable=True)
     result: Mapped[Any | None] = mapped_column(JSON, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error_retryable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     attempt_count: Mapped[int] = mapped_column(
         default=0, server_default="0", nullable=False
     )
@@ -76,6 +80,24 @@ class Job(Base):
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    claim_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    claimed_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    heartbeat_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    cancellation_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    execution_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    execution_stage: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -85,5 +107,8 @@ class Job(Base):
     account: Mapped["Account | None"] = relationship(back_populates="jobs")
     runtime: Mapped["Runtime | None"] = relationship(back_populates="jobs")
     logs: Mapped[list["JobLog"]] = relationship(
+        back_populates="job", cascade="all, delete-orphan"
+    )
+    artifacts: Mapped[list["JobArtifact"]] = relationship(
         back_populates="job", cascade="all, delete-orphan"
     )
