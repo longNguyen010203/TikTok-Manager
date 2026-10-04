@@ -661,3 +661,49 @@ Acceptance criteria:
 - Failure to apply network settings produces clear recoverable state.
 - Existing lifecycle, provisioning, screen, and deprovision flows remain unchanged.
 - Full backend tests, frontend lint, TypeScript, and production build pass.
+
+---
+
+## TIK-020
+Status: IN PROGRESS
+Owner: Codex + Antigravity
+Type: Backend / Worker / Device Automation
+
+Title:
+Add Device Automation Execution Layer
+
+Dependencies:
+- TIK-011
+- TIK-012
+- TIK-013
+- TIK-014
+- TIK-019
+
+Scope:
+- backend/
+- workers/
+- frontend/
+- docs/
+
+Phases:
+1. Device automation architecture
+2. Backend automation primitives
+3. Job execution integration
+4. Real Redroid execution validation
+5. Frontend job creation and monitoring
+6. Failure, retry, cancellation, and recovery
+7. Final verification
+
+Acceptance criteria:
+- Jobs can target an exact Runtime.
+- Worker can execute safe Android automation primitives through the Runtime ADB serial.
+- Runtime readiness is checked before execution.
+- Network readiness is respected when a job requires network access.
+- Jobs cannot accidentally control another Runtime.
+- Media/file transfer and screenshot primitives work on real Redroid.
+- Android package launch/stop/state operations work.
+- Job logs record structured execution steps.
+- Timeout, retry, cancellation, and failure states are handled safely.
+- Device lifecycle state is not corrupted by automation failures.
+- Existing provisioning, screen, networking, and lifecycle flows remain unaffected.
+- Backend tests, frontend build, and live disposable-device verification pass.
