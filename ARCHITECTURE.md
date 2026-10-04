@@ -68,12 +68,13 @@ Manager host lifecycle:
   TikTok Manager, or Redroid containers.
 - Backend startup only verifies that `binder_linux`, binderfs, and the Binder
   endpoints are ready. It never attempts privileged Binder repair.
-- `STOP_MANAGED_DEVICES_ON_SHUTDOWN` controls whether managed Redroid
-  containers are stopped when the API shuts down.
-- The default is `true`. Use this for the normal TikTok Manager runtime so
-  managed devices are stopped cleanly.
-- Set it to `false` during development with `uvicorn --reload`. Reload shutdown
-  still closes tracked scrcpy sessions but leaves Redroid containers running.
+- The durable application configuration controls whether managed Redroid
+  containers are stopped when the API shuts down. The installed local service
+  defaults to leaving them running so a backend restart does not interrupt
+  Android devices. `STOP_MANAGED_DEVICES_ON_SHUTDOWN` remains an explicit
+  development/diagnostic override.
+- Shutdown still closes tracked scrcpy sessions. It never stops the Docker
+  daemon.
 - Shutdown never deletes containers, persistent `/data`, Device records, or
   Runtime records.
 - Each managed Redroid lifecycle target uses one Device record with exactly one
@@ -86,7 +87,9 @@ Manager host lifecycle:
   `docs/REDROID_DEVICE_PROVISIONING.md`.
 
 Database:
-- PostgreSQL
+- SQLite at the canonical per-user operational path for the current local
+  application runtime
+- PostgreSQL remains the planned multi-host deployment database
 
 Queue/cache:
 - Redis

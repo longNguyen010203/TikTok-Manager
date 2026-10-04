@@ -38,8 +38,9 @@ Retries are idempotent. Previous bridge ports remain reserved through observed
 ownership state until cleanup succeeds.
 
 `GET /runtimes/{id}/network/status` returns safe Runtime, ADB, Android proxy,
-ADB reverse, bridge, and connectivity check summaries. Connectivity is
-`not_run` in Phase 3; no public-IP or geography check is performed.
+ADB reverse, bridge, and connectivity check summaries. Connectivity may remain
+`not_run` when no optional probe is configured; no public-IP or geography check
+is performed.
 
 Apply errors use `409` for stopped/locked/revision-conflict state, `422` for
 invalid desired input, `502` for ADB or bridge failures, and `503` for missing

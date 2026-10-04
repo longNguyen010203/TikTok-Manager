@@ -77,8 +77,8 @@ fingerprint before it reports or stops a bridge. A PID, port, or executable
 name alone is never accepted as ownership. Conflicting evidence returns
 `BRIDGE_OWNERSHIP_CONFLICT` and leaves the process untouched.
 
-Resolved credentials are written to a unique mode-0600 attempt file and imported with
-systemd `LoadCredential`. They do not appear in the worker argv, unit
+Resolved credentials are written to a unique mode-0600 attempt file and
+imported with systemd `LoadCredential`. They do not appear in the worker argv, unit
 description, manifest, or database, and the source attempt file is removed
 after systemd has loaded it. The worker replaces any client-supplied upstream
 proxy authorization header with the resolved credential.
@@ -90,6 +90,15 @@ which restores a missing bridge, exact ADB reverse, or Android proxy setting.
 Device start/restart similarly reapplies non-direct or unapplied desired state;
 network failure is persisted separately and cannot turn a lifecycle-ready
 Runtime into stopped/offline state.
+
+## Direct-mode WebView limitation
+
+Clearing direct mode removes the Android global proxy keys, exact ADB reverse
+rule, and proven-owned host bridge. An already-running Android WebView or
+browser process can nevertheless retain its prior proxy state temporarily.
+This is process-level Android caching, not incomplete backend cleanup. Restart
+the Android Runtime/device to recreate those processes; direct connectivity
+then returns normally.
 
 ## Trusted settings
 

@@ -34,6 +34,11 @@ installation identity, Redroid image/data/profile/ADB allocation, bridge port
 range and private runtime directories. Proxy credentials are encrypted in the
 database; their master key remains outside it.
 
+Back up `credentials.key` separately with access controls equivalent to the
+database backup. A database backup containing encrypted proxy credentials can
+only be decrypted with the matching installation key; losing the key makes
+those stored credentials unrecoverable.
+
 Repo-local SQLite files are development artifacts, and tests use temporary
 databases. The production user service rejects a repository-local SQLite
 database and fails clearly if the canonical database is missing or incompatible.

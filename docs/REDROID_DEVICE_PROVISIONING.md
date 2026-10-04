@@ -24,9 +24,12 @@ creating Docker or filesystem resources. Allocation is serialized briefly in
 the database and never derives a device number from Device/Runtime primary keys.
 Every device number remains reserved after failure or rollback.
 
-Required trusted configuration is supplied by the backend environment:
+Trusted provisioning configuration is stored in
+`~/.config/tiktok-manager/config.toml` and created by the one-time installer.
+Normal users do not export these values. The corresponding environment names
+remain available as explicit development/test overrides:
 
-- `TIKTOK_MANAGER_INSTALLATION_ID`: stable safe identifier; never generated at startup
+- `TIKTOK_MANAGER_INSTALLATION_ID`: stable safe installation identifier
 - `REDROID_PROVISIONING_IMAGE`: immutable `image@sha256:<64 hex>` reference
 - `REDROID_PROVISIONING_DATA_ROOT`: absolute non-root directory
 - `REDROID_PROVISIONING_BASE_ADB_PORT`: optional; defaults to `5554`
