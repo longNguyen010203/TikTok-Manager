@@ -80,7 +80,7 @@ export class FastApiRuntimeNetworkService implements IRuntimeNetworkService {
       message.includes("encrypted_password")
     ) {
       if (status === 502) {
-        message = "Proxy bridge or ADB host network operation failed";
+        message = "Proxy connection or device network operation failed";
       } else if (status === 503) {
         message = "Proxy credential service or decryption failed";
       } else {
