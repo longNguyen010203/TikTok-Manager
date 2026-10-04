@@ -5,7 +5,7 @@ import { RuntimeStatusBadge } from "./RuntimeStatusBadge";
 import { RuntimeLoadingState } from "./RuntimeLoadingState";
 import { RuntimeEmptyState } from "./RuntimeEmptyState";
 import { RuntimeErrorState } from "./RuntimeErrorState";
-import { Cpu, Calendar, Pencil, Trash2, Smartphone, AlertCircle, Layers, Globe } from "lucide-react";
+import { Cpu, Calendar, Pencil, Trash2, Smartphone, AlertCircle, Layers, Globe, Bot } from "lucide-react";
 
 interface RuntimeTableProps {
   runtimes: Runtime[];
@@ -19,6 +19,7 @@ interface RuntimeTableProps {
   onEditRuntime?: (runtime: Runtime) => void;
   onDeleteRuntime?: (runtime: Runtime) => void;
   onConfigureNetwork?: (runtime: Runtime) => void;
+  onRunAutomation?: (runtime: Runtime) => void;
 }
 
 export function RuntimeTable({
@@ -33,6 +34,7 @@ export function RuntimeTable({
   onEditRuntime,
   onDeleteRuntime,
   onConfigureNetwork,
+  onRunAutomation,
 }: RuntimeTableProps) {
   // Format ISO date string
   const formatDate = (isoString: string | null) => {
@@ -171,9 +173,21 @@ export function RuntimeTable({
                     </div>
                   </td>
 
-                  {/* Actions: Network, Edit, and Delete */}
+                  {/* Actions: Automation, Network, Edit, and Delete */}
                   <td className="py-4 px-6 text-right whitespace-nowrap">
                     <div className="flex items-center justify-end gap-1.5">
+                      {onRunAutomation && rt.runtime_type === "redroid" && (
+                        <button
+                          type="button"
+                          onClick={() => onRunAutomation(rt)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-purple-800 bg-purple-50 hover:bg-purple-100 border border-purple-200/80 rounded-lg transition-colors shadow-2xs"
+                          title={`Run automation on ${rt.name}`}
+                          aria-label={`Run automation on ${rt.name}`}
+                        >
+                          <Bot className="w-3.5 h-3.5 text-purple-600" />
+                          <span>Automation</span>
+                        </button>
+                      )}
                       {onConfigureNetwork && (
                         <button
                           type="button"

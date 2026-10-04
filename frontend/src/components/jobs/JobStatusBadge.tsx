@@ -22,6 +22,11 @@ const statusStyles: Record<
     className: "bg-cyan-50 text-cyan-700 border-cyan-200",
     icon: LoaderCircle,
   },
+  cancelling: {
+    label: "Cancelling",
+    className: "bg-purple-50 text-purple-700 border-purple-200",
+    icon: LoaderCircle,
+  },
   succeeded: {
     label: "Succeeded",
     className: "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -47,14 +52,13 @@ const statusStyles: Record<
 export function JobStatusBadge({ status }: { status: JobStatus }) {
   const style = statusStyles[status] ?? statusStyles.pending;
   const Icon = style.icon;
+  const isSpinning = status === "running" || status === "cancelling";
 
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${style.className}`}
     >
-      <Icon
-        className={`h-3 w-3 ${status === "running" ? "animate-spin" : ""}`}
-      />
+      <Icon className={`h-3 w-3 ${isSpinning ? "animate-spin" : ""}`} />
       {style.label}
     </span>
   );

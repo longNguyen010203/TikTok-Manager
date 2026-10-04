@@ -17,6 +17,7 @@ import { RuntimeCreateModal } from "@/components/runtimes/RuntimeCreateModal";
 import { RuntimeEditModal } from "@/components/runtimes/RuntimeEditModal";
 import { RuntimeDeleteDialog } from "@/components/runtimes/RuntimeDeleteDialog";
 import { RuntimeNetworkModal } from "@/components/runtimes/RuntimeNetworkModal";
+import { DeviceAutomationModal } from "@/components/devices/DeviceAutomationModal";
 import {
   Cpu,
   CheckCircle2,
@@ -45,6 +46,7 @@ export default function RuntimesPage() {
   const [editingRuntime, setEditingRuntime] = useState<Runtime | null>(null);
   const [deletingRuntime, setDeletingRuntime] = useState<Runtime | null>(null);
   const [networkModalRuntime, setNetworkModalRuntime] = useState<Runtime | null>(null);
+  const [automationModalRuntime, setAutomationModalRuntime] = useState<Runtime | null>(null);
 
   // Banner notifications
   const [bannerMessage, setBannerMessage] = useState<{
@@ -359,6 +361,7 @@ export default function RuntimesPage() {
           onEditRuntime={(rt) => setEditingRuntime(rt)}
           onDeleteRuntime={(rt) => setDeletingRuntime(rt)}
           onConfigureNetwork={(rt) => setNetworkModalRuntime(rt)}
+          onRunAutomation={(rt) => setAutomationModalRuntime(rt)}
         />
 
         {/* Pagination UI */}
@@ -409,6 +412,17 @@ export default function RuntimesPage() {
           isOpen={networkModalRuntime !== null}
           onClose={() => setNetworkModalRuntime(null)}
           onNetworkUpdated={() => handleRefresh()}
+        />
+      )}
+
+      {/* Device Automation Modal */}
+      {automationModalRuntime && (
+        <DeviceAutomationModal
+          key={`auto-modal-${automationModalRuntime.id}`}
+          runtime={automationModalRuntime}
+          device={devicesMap[automationModalRuntime.device_id] || null}
+          isOpen={automationModalRuntime !== null}
+          onClose={() => setAutomationModalRuntime(null)}
         />
       )}
     </div>

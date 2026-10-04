@@ -1,6 +1,6 @@
 import { Filter, Search, X } from "lucide-react";
 import { Account } from "@/types/account";
-import { JobStatus } from "@/types/job";
+import { JobStatus, AUTOMATION_ACTION_TYPES } from "@/types/job";
 import { Runtime } from "@/types/runtime";
 
 interface JobToolbarProps {
@@ -35,6 +35,10 @@ export function JobToolbar({
   onAccountChange,
   onRuntimeChange,
 }: JobToolbarProps) {
+  const isKnownAutomationAction = AUTOMATION_ACTION_TYPES.some(
+    (act) => act.type === jobType
+  );
+
   return (
     <div className="space-y-3 border-b border-slate-200/80 bg-white p-4 sm:p-5">
       <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
@@ -75,21 +79,37 @@ export function JobToolbar({
           <option value="all">All statuses</option>
           <option value="pending">Pending</option>
           <option value="running">Running</option>
+          <option value="cancelling">Cancelling</option>
           <option value="succeeded">Succeeded</option>
           <option value="failed">Failed</option>
           <option value="retrying">Retrying</option>
           <option value="cancelled">Cancelled</option>
         </select>
 
-        <input
-          type="text"
-          value={jobType}
-          onChange={(event) => onJobTypeChange(event.target.value)}
-          placeholder="Exact job type"
-          maxLength={100}
+        {/* Action / Job Type filter */}
+        <select
+          value={isKnownAutomationAction || jobType === "" ? jobType : "custom"}
+          onChange={(event) => {
+            const val = event.target.value;
+            if (val === "custom") {
+              onJobTypeChange("custom.");
+            } else {
+              onJobTypeChange(val);
+            }
+          }}
           className={`${inputClassName} px-3`}
-          aria-label="Filter by exact job type"
-        />
+          aria-label="Filter by action"
+        >
+          <option value="">All actions</option>
+          <optgroup label="Device Automation">
+            {AUTOMATION_ACTION_TYPES.map((act) => (
+              <option key={act.type} value={act.type}>
+                {act.label}
+              </option>
+            ))}
+          </optgroup>
+          <option value="custom">Custom type...</option>
+        </select>
 
         <select
           value={accountId}
@@ -119,8 +139,30 @@ export function JobToolbar({
           ))}
         </select>
       </div>
+
+      {/* If custom job type is being entered */}
+      {(!isKnownAutomationAction && jobType !== "") && (
+        <div className="flex items-center gap-2 pt-1 animate-in fade-in duration-150">
+          <span className="text-[11px] text-slate-500">Custom Type:</span>
+          <input
+            type="text"
+            value={jobType}
+            onChange={(e) => onJobTypeChange(e.target.value)}
+            placeholder="e.g. custom.action"
+            className={`${inputClassName} px-2.5 py-1 text-xs w-64`}
+          />
+          <button
+            type="button"
+            onClick={() => onJobTypeChange("")}
+            className="text-[11px] text-rose-600 hover:underline"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       <p className="text-[11px] text-slate-400">
-        Status, job type, account, and runtime filters query the backend. Search
+        Status, action, account, and runtime filters query the backend. Search
         refines the currently loaded page.
       </p>
     </div>

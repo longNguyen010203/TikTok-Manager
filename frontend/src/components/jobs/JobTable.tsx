@@ -7,7 +7,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { Account } from "@/types/account";
-import { Job } from "@/types/job";
+import { Job, getJobActionLabel } from "@/types/job";
 import { Runtime } from "@/types/runtime";
 import { JobEmptyState } from "./JobEmptyState";
 import { JobErrorState } from "./JobErrorState";
@@ -157,8 +157,13 @@ export function JobTable({
                   <Hash className="h-3 w-3" /> {job.id}
                 </div>
                 <h3 className="truncate font-semibold text-slate-900">
-                  {job.job_type}
+                  {getJobActionLabel(job.job_type)}
                 </h3>
+                {job.job_type.startsWith("device.") && (
+                  <p className="font-mono text-[10px] text-slate-400">
+                    {job.job_type}
+                  </p>
+                )}
               </div>
               <JobStatusBadge status={job.status} />
             </div>
@@ -211,7 +216,7 @@ export function JobTable({
           <thead>
             <tr className="border-b border-slate-200/80 bg-slate-50/70 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
               <th className="px-5 py-3" scope="col">ID</th>
-              <th className="px-5 py-3" scope="col">Job type</th>
+              <th className="px-5 py-3" scope="col">Action / Type</th>
               <th className="px-5 py-3" scope="col">Status</th>
               <th className="px-5 py-3" scope="col">Account</th>
               <th className="px-5 py-3" scope="col">Runtime</th>
@@ -228,9 +233,16 @@ export function JobTable({
                   #{job.id}
                 </td>
                 <td className="px-5 py-4">
-                  <p className="max-w-48 truncate font-semibold text-slate-900">
-                    {job.job_type}
-                  </p>
+                  <div className="min-w-0">
+                    <p className="max-w-48 truncate font-semibold text-slate-900">
+                      {getJobActionLabel(job.job_type)}
+                    </p>
+                    {job.job_type.startsWith("device.") && (
+                      <p className="font-mono text-[10px] text-slate-400 truncate">
+                        {job.job_type}
+                      </p>
+                    )}
+                  </div>
                 </td>
                 <td className="px-5 py-4"><JobStatusBadge status={job.status} /></td>
                 <td className="px-5 py-4">

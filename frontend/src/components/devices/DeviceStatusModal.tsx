@@ -26,6 +26,7 @@ import {
   Monitor,
   Trash2,
   Globe,
+  Bot,
 } from "lucide-react";
 import {
   Device,
@@ -44,6 +45,7 @@ import {
 import { DeviceStatusBadge } from "./DeviceStatusBadge";
 import { DeviceReadinessBadge } from "./DeviceReadinessBadge";
 import { RuntimeNetworkModal } from "@/components/runtimes/RuntimeNetworkModal";
+import { DeviceAutomationModal } from "./DeviceAutomationModal";
 
 interface DeviceStatusModalProps {
   device: Device | null;
@@ -103,6 +105,8 @@ export function DeviceStatusModal({
 
   // Per-Runtime network modal state
   const [isNetworkModalOpen, setIsNetworkModalOpen] = useState(false);
+  // Device automation modal state
+  const [isAutomationModalOpen, setIsAutomationModalOpen] = useState(false);
 
   const deviceId = device?.id;
 
@@ -610,6 +614,15 @@ export function DeviceStatusModal({
                   </div>
 
                   <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsAutomationModalOpen(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-purple-800 bg-purple-50 hover:bg-purple-100 active:bg-purple-200/80 border border-purple-200/70 rounded-lg transition-colors shadow-2xs w-fit"
+                      title="Run device automation tasks (screenshot, app controls, file transfers)"
+                    >
+                      <Bot className="w-3.5 h-3.5 text-purple-600" />
+                      <span>Device Automation</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => setIsNetworkModalOpen(true)}
@@ -1281,6 +1294,36 @@ export function DeviceStatusModal({
           device={device}
           isOpen={isNetworkModalOpen}
           onClose={() => setIsNetworkModalOpen(false)}
+        />
+      )}
+
+      {/* Device Automation Modal */}
+      {isAutomationModalOpen && (runtime || status) && (
+        <DeviceAutomationModal
+          key={`auto-modal-${runtime?.id || status?.runtime_id}`}
+          runtime={
+            runtime ||
+            (status
+              ? {
+                  id: status.runtime_id,
+                  device_id: device.id,
+                  name: status.docker_container_name,
+                  runtime_type: "redroid",
+                  status:
+                    status.container_status === "running"
+                      ? "running"
+                      : "stopped",
+                  docker_container_name: status.docker_container_name,
+                  adb_serial: status.adb_serial,
+                  created_at: "",
+                  updated_at: "",
+                  last_seen_at: null,
+                }
+              : null)
+          }
+          device={device}
+          isOpen={isAutomationModalOpen}
+          onClose={() => setIsAutomationModalOpen(false)}
         />
       )}
     </div>

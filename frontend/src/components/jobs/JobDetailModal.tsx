@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import {
   AlertCircle,
   AlertTriangle,
@@ -12,10 +12,24 @@ import {
   RotateCcw,
   UserRound,
   X,
+  Download,
+  CheckCircle2,
 } from "lucide-react";
 import { jobService } from "@/services/jobService";
 import { Account } from "@/types/account";
-import { ApiError, Job, JobLog, formatApiError } from "@/types/job";
+import {
+  ApiError,
+  Job,
+  JobLog,
+  formatApiError,
+  getJobActionLabel,
+  getJobLogEventLabel,
+  getAutomationErrorMessage,
+  ScreenshotResult,
+  PackageStateResult,
+  FileTransferResult,
+  MediaImportResult,
+} from "@/types/job";
 import { Runtime } from "@/types/runtime";
 import { JobStatusBadge } from "./JobStatusBadge";
 
@@ -35,6 +49,14 @@ function formatDate(value: string | null, emptyLabel = "Not set") {
     dateStyle: "medium",
     timeStyle: "long",
   }).format(date);
+}
+
+function formatBytes(bytes: number | null | undefined): string {
+  if (bytes === null || bytes === undefined || bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
 function formatJson(value: unknown) {
@@ -57,7 +79,13 @@ function sortLogsChronologically(left: JobLog, right: JobLog) {
   return left.id - right.id;
 }
 
-function DetailItem({ label, value }: { label: string; value: React.ReactNode }) {
+function DetailItem({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
       <dt className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
@@ -68,7 +96,13 @@ function DetailItem({ label, value }: { label: string; value: React.ReactNode })
   );
 }
 
-function JsonPanel({ label, value }: { label: string; value: unknown }) {
+function JsonPanel({
+  label,
+  value,
+}: {
+  label: string;
+  value: unknown;
+}) {
   const formatted = formatJson(value);
   return (
     <div className="min-w-0 rounded-xl border border-slate-200 bg-slate-950">
@@ -80,7 +114,9 @@ function JsonPanel({ label, value }: { label: string; value: unknown }) {
           {formatted}
         </pre>
       ) : (
-        <p className="p-3 text-xs italic text-slate-500">No {label.toLowerCase()} recorded.</p>
+        <p className="p-3 text-xs italic text-slate-500">
+          No {label.toLowerCase()} recorded.
+        </p>
       )}
     </div>
   );
@@ -154,64 +190,109 @@ export function JobDetailModal({
   const [retryRunning, setRetryRunning] = useState(false);
   const [cancelConfirming, setCancelConfirming] = useState(false);
   const [cancelRunning, setCancelRunning] = useState(false);
+  const [showRawResult, setShowRawResult] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<{
     type: "success" | "error";
     message: string;
   } | null>(null);
 
+  const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
+
+  // Initial load
   useEffect(() => {
-    let ignore = false;
+    let cancelled = false;
     jobService
       .getJob(jobId)
       .then((loadedJob) => {
-        if (ignore) return;
+        if (cancelled) return;
         setJob(loadedJob);
         setDetailError(null);
         setIsMissing(false);
       })
       .catch((error: unknown) => {
-        if (ignore) return;
-        setJob(null);
+        if (cancelled) return;
         setIsMissing(error instanceof ApiError && error.status === 404);
         setDetailError(formatApiError(error));
       })
       .finally(() => {
-        if (!ignore) setDetailLoading(false);
+        if (!cancelled) setDetailLoading(false);
       });
-    return () => {
-      ignore = true;
-    };
-  }, [jobId, detailRefresh]);
 
-  useEffect(() => {
-    let ignore = false;
     jobService
       .getJobLogs(jobId)
       .then((loadedLogs) => {
-        if (ignore) return;
+        if (cancelled) return;
         setLogs([...loadedLogs].sort(sortLogsChronologically));
         setLogsError(null);
       })
       .catch((error: unknown) => {
-        if (ignore) return;
-        setLogs([]);
+        if (cancelled) return;
         setLogsError(formatApiError(error));
       })
       .finally(() => {
-        if (!ignore) setLogsLoading(false);
+        if (!cancelled) setLogsLoading(false);
       });
-    return () => {
-      ignore = true;
-    };
-  }, [jobId, logsRefresh]);
 
+    return () => {
+      cancelled = true;
+    };
+  }, [jobId, detailRefresh, logsRefresh]);
+
+  // Auto-polling for active jobs
+  const jobStatus = job?.status;
+  useEffect(() => {
+    if (!jobStatus) return;
+    const activeStatuses = ["pending", "running", "retrying", "cancelling"];
+    if (!activeStatuses.includes(jobStatus)) {
+      stopPolling();
+      return;
+    }
+
+    stopPolling();
+    pollTimerRef.current = setInterval(() => {
+      jobService
+        .getJob(jobId)
+        .then((updatedJob) => {
+          setJob(updatedJob);
+          if (
+            updatedJob.status === "succeeded" ||
+            updatedJob.status === "failed" ||
+            updatedJob.status === "cancelled"
+          ) {
+            stopPolling();
+          }
+        })
+        .catch(() => {});
+
+      jobService
+        .getJobLogs(jobId)
+        .then((updatedLogs) => {
+          setLogs([...updatedLogs].sort(sortLogsChronologically));
+        })
+        .catch(() => {});
+    }, 2000);
+
+    return () => stopPolling();
+  }, [jobId, jobStatus, stopPolling]);
+
+  // Escape key handler
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        stopPolling();
+        onClose();
+      }
     };
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
-  }, [onClose]);
+  }, [onClose, stopPolling]);
 
   async function handleRetry() {
     let scheduledAt: string | undefined;
@@ -237,7 +318,9 @@ export function JobDetailModal({
       setRetryScheduledAt("");
       setActionFeedback({
         type: "success",
-        message: scheduledAt ? "Retry scheduled successfully." : "Job queued for retry.",
+        message: scheduledAt
+          ? "Retry scheduled successfully."
+          : "Job queued for retry.",
       });
       setDetailRefresh((value) => value + 1);
       setLogsLoading(true);
@@ -258,7 +341,13 @@ export function JobDetailModal({
       const cancelledJob = await jobService.cancelJob(jobId);
       setJob(cancelledJob);
       setCancelConfirming(false);
-      setActionFeedback({ type: "success", message: "Job cancelled successfully." });
+      setActionFeedback({
+        type: "success",
+        message:
+          cancelledJob.status === "cancelling"
+            ? "Cancellation requested."
+            : "Job cancelled successfully.",
+      });
       setDetailRefresh((value) => value + 1);
       setLogsLoading(true);
       setLogsRefresh((value) => value + 1);
@@ -278,11 +367,17 @@ export function JobDetailModal({
     job?.status === "running" ||
     job?.status === "retrying";
 
+  const isAutomationJob = job?.job_type.startsWith("device.");
+  const friendlyAction = job ? getJobActionLabel(job.job_type) : "Job details";
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-xs sm:p-6"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (event.target === event.currentTarget) {
+          stopPolling();
+          onClose();
+        }
       }}
     >
       <section
@@ -296,15 +391,26 @@ export function JobDetailModal({
             <p className="font-mono text-[11px] font-semibold uppercase tracking-wider text-rose-600">
               Job #{jobId}
             </p>
-            <h2 id="job-detail-title" className="truncate text-lg font-bold text-slate-900">
-              {job?.job_type || "Job details"}
+            <h2
+              id="job-detail-title"
+              className="truncate text-lg font-bold text-slate-900 flex items-center gap-2"
+            >
+              <span>{friendlyAction}</span>
+              {isAutomationJob && (
+                <span className="font-mono text-xs font-normal text-slate-400">
+                  ({job?.job_type})
+                </span>
+              )}
             </h2>
           </div>
           <div className="flex items-center gap-3">
             {job && <JobStatusBadge status={job.status} />}
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => {
+                stopPolling();
+                onClose();
+              }}
               className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
               aria-label="Close job details"
             >
@@ -319,12 +425,18 @@ export function JobDetailModal({
           ) : detailError ? (
             <div className="px-5 py-14 text-center sm:px-6">
               <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-rose-50 text-rose-600">
-                {isMissing ? <AlertCircle className="h-6 w-6" /> : <AlertTriangle className="h-6 w-6" />}
+                {isMissing ? (
+                  <AlertCircle className="h-6 w-6" />
+                ) : (
+                  <AlertTriangle className="h-6 w-6" />
+                )}
               </div>
               <h3 className="text-sm font-semibold text-slate-900">
                 {isMissing ? "Job no longer exists" : "Unable to load job details"}
               </h3>
-              <p className="mx-auto mt-1 max-w-md text-xs text-slate-500">{detailError}</p>
+              <p className="mx-auto mt-1 max-w-md text-xs text-slate-500">
+                {detailError}
+              </p>
               {!isMissing && (
                 <button
                   type="button"
@@ -353,13 +465,16 @@ export function JobDetailModal({
                 </div>
               ) : null}
 
-              {job.status === "failed" ? (
+              {/* Retry Card */}
+              {job.status === "failed" && job.attempt_count < job.max_attempts ? (
                 <section className="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-900">Retry job</h3>
+                      <h3 className="text-sm font-semibold text-slate-900">
+                        Retry job
+                      </h3>
                       <p className="mt-1 text-xs text-slate-500">
-                        Leave the date empty to make the job eligible immediately.
+                        {job.attempt_count} of {job.max_attempts} attempts used. Requeue immediately or schedule for later.
                       </p>
                     </div>
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -368,7 +483,9 @@ export function JobDetailModal({
                         <input
                           className="mt-2 min-h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal normal-case tracking-normal text-slate-800 outline-none transition focus:border-amber-400 sm:w-56"
                           disabled={retryRunning}
-                          onChange={(event) => setRetryScheduledAt(event.target.value)}
+                          onChange={(event) =>
+                            setRetryScheduledAt(event.target.value)
+                          }
                           type="datetime-local"
                           value={retryScheduledAt}
                         />
@@ -379,7 +496,11 @@ export function JobDetailModal({
                         onClick={() => void handleRetry()}
                         type="button"
                       >
-                        <RotateCcw className={`h-4 w-4 ${retryRunning ? "animate-spin" : ""}`} />
+                        <RotateCcw
+                          className={`h-4 w-4 ${
+                            retryRunning ? "animate-spin" : ""
+                          }`}
+                        />
                         {retryRunning ? "Retrying..." : "Retry"}
                       </button>
                     </div>
@@ -387,11 +508,16 @@ export function JobDetailModal({
                 </section>
               ) : null}
 
+              {/* Cancellation Card */}
               {canCancel ? (
                 <section className="rounded-xl border border-rose-200 bg-rose-50/60 p-4">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-900">Cancel job</h3>
+                      <h3 className="text-sm font-semibold text-slate-900">
+                        {job.status === "running"
+                          ? "Request Cancellation"
+                          : "Cancel job"}
+                      </h3>
                       <p className="mt-1 text-xs text-slate-500">
                         Stop this job from continuing through the queue.
                       </p>
@@ -419,7 +545,11 @@ export function JobDetailModal({
                             onClick={() => void handleCancel()}
                             type="button"
                           >
-                            <OctagonX className={`h-3.5 w-3.5 ${cancelRunning ? "animate-pulse" : ""}`} />
+                            <OctagonX
+                              className={`h-3.5 w-3.5 ${
+                                cancelRunning ? "animate-pulse" : ""
+                              }`}
+                            />
                             {cancelRunning ? "Cancelling..." : "Confirm cancel"}
                           </button>
                         </div>
@@ -433,27 +563,42 @@ export function JobDetailModal({
                         }}
                         type="button"
                       >
-                        <OctagonX className="h-4 w-4" /> Cancel
+                        <OctagonX className="h-4 w-4" />{" "}
+                        {job.status === "running"
+                          ? "Request Cancellation"
+                          : "Cancel"}
                       </button>
                     )}
                   </div>
                 </section>
               ) : null}
 
+              {/* Status & Timing Metrics */}
               <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                 <DetailItem label="ID" value={`#${job.id}`} />
-                <DetailItem label="Job type" value={job.job_type} />
-                <DetailItem label="Status" value={<JobStatusBadge status={job.status} />} />
-                <DetailItem label="Attempts" value={`${job.attempt_count} / ${job.max_attempts}`} />
+                <DetailItem label="Action" value={friendlyAction} />
+                <DetailItem
+                  label="Status"
+                  value={<JobStatusBadge status={job.status} />}
+                />
+                <DetailItem
+                  label="Attempts"
+                  value={`${job.attempt_count} / ${job.max_attempts}`}
+                />
                 <DetailItem
                   label="Account"
                   value={
                     job.account_id === null ? (
                       "No account target"
                     ) : account ? (
-                      <span className="inline-flex items-center gap-1.5"><UserRound className="h-3.5 w-3.5 text-slate-400" />{account.name} (@{account.username})</span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <UserRound className="h-3.5 w-3.5 text-slate-400" />
+                        {account.name} (@{account.username})
+                      </span>
                     ) : (
-                      <span className="text-amber-700">Missing account #{job.account_id}</span>
+                      <span className="text-amber-700">
+                        Missing account #{job.account_id}
+                      </span>
                     )
                   }
                 />
@@ -463,35 +608,235 @@ export function JobDetailModal({
                     job.runtime_id === null ? (
                       "No runtime target"
                     ) : runtime ? (
-                      <span className="inline-flex items-center gap-1.5"><Cpu className="h-3.5 w-3.5 text-cyan-600" />{runtime.name}</span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <Cpu className="h-3.5 w-3.5 text-cyan-600" />
+                        {runtime.name}
+                      </span>
                     ) : (
-                      <span className="text-amber-700">Missing runtime #{job.runtime_id}</span>
+                      <span className="text-amber-700">
+                        Missing runtime #{job.runtime_id}
+                      </span>
                     )
                   }
                 />
-                <DetailItem label="Scheduled" value={formatDate(job.scheduled_at, "Immediate")} />
+                <DetailItem
+                  label="Scheduled"
+                  value={formatDate(job.scheduled_at, "Immediate")}
+                />
                 <DetailItem label="Started" value={formatDate(job.started_at)} />
-                <DetailItem label="Completed" value={formatDate(job.completed_at)} />
+                <DetailItem
+                  label="Completed"
+                  value={formatDate(job.completed_at)}
+                />
                 <DetailItem label="Created" value={formatDate(job.created_at)} />
                 <DetailItem label="Updated" value={formatDate(job.updated_at)} />
                 <DetailItem
-                  label="Error message"
-                  value={job.error_message ? <span className="text-rose-700">{job.error_message}</span> : "No error"}
+                  label="Error / Diagnostics"
+                  value={
+                    job.error_message || job.error_code ? (
+                      <span className="text-rose-700 font-semibold">
+                        {getAutomationErrorMessage(
+                          job.error_code,
+                          job.error_message
+                        )}
+                      </span>
+                    ) : (
+                      "None"
+                    )
+                  }
                 />
               </dl>
 
-              <div className="grid gap-4 lg:grid-cols-2">
-                <JsonPanel label="Payload" value={job.payload} />
-                <JsonPanel label="Result" value={job.result} />
-              </div>
+              {/* Automation Result / Preview (when applicable) */}
+              {isAutomationJob && job.status === "succeeded" && Boolean(job.result) && (
+                <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/40 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-emerald-900 text-xs flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      <span>Automation Result</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowRawResult((v) => !v)}
+                      className="text-[11px] text-emerald-700 hover:underline"
+                    >
+                      {showRawResult ? "Hide raw result" : "View raw JSON"}
+                    </button>
+                  </div>
 
-              <section className="overflow-hidden rounded-xl border border-slate-200">
+                  {/* Screenshot Result */}
+                  {job.job_type === "device.screenshot" &&
+                    (() => {
+                      const res = job.result as ScreenshotResult;
+                      const downloadUrl = jobService.getArtifactDownloadUrl(
+                        job.id,
+                        res.artifact_id
+                      );
+                      return (
+                        <div className="space-y-3">
+                          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-[11px] text-slate-600">
+                            <div>
+                              <span>
+                                Dimensions:{" "}
+                                <strong>
+                                  {res.width} &times; {res.height} px
+                                </strong>
+                              </span>{" "}
+                              • Size:{" "}
+                              <strong>{formatBytes(res.size_bytes)}</strong>
+                            </div>
+                            <a
+                              href={downloadUrl}
+                              download={res.filename}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 font-semibold text-xs shadow-2xs transition-colors"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Download Screenshot</span>
+                            </a>
+                          </div>
+
+                          <div className="rounded-lg overflow-hidden border border-slate-200 bg-slate-900 flex justify-center p-2 max-h-80">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={downloadUrl}
+                              alt="Captured screenshot"
+                              className="max-h-72 object-contain rounded"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                  {/* Package State Result */}
+                  {(job.job_type === "device.package_state" ||
+                    job.job_type === "device.launch_app" ||
+                    job.job_type === "device.stop_app") &&
+                    (() => {
+                      const res = job.result as PackageStateResult;
+                      return (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
+                          <div className="p-2.5 rounded-lg bg-white border border-slate-200">
+                            <span className="text-slate-400 block text-[10px]">
+                              Package
+                            </span>
+                            <span className="font-semibold text-slate-800 break-all">
+                              {res.package_name}
+                            </span>
+                          </div>
+                          <div className="p-2.5 rounded-lg bg-white border border-slate-200">
+                            <span className="text-slate-400 block text-[10px]">
+                              Installed
+                            </span>
+                            <span
+                              className={`font-semibold ${
+                                res.installed
+                                  ? "text-emerald-700"
+                                  : "text-rose-700"
+                              }`}
+                            >
+                              {res.installed ? "Installed" : "Not Installed"}
+                            </span>
+                          </div>
+                          <div className="p-2.5 rounded-lg bg-white border border-slate-200">
+                            <span className="text-slate-400 block text-[10px]">
+                              State
+                            </span>
+                            <span
+                              className={`font-semibold ${
+                                res.running
+                                  ? "text-emerald-700"
+                                  : "text-slate-600"
+                              }`}
+                            >
+                              {res.running
+                                ? `Running (PID ${res.pid})`
+                                : "Stopped"}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                  {/* Pull / Push File Result */}
+                  {(job.job_type === "device.push_file" ||
+                    job.job_type === "device.pull_file") &&
+                    (() => {
+                      const res = job.result as FileTransferResult;
+                      const downloadUrl =
+                        job.job_type === "device.pull_file"
+                          ? jobService.getArtifactDownloadUrl(
+                              job.id,
+                              res.artifact_id
+                            )
+                          : null;
+
+                      return (
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-lg bg-white border border-slate-200 text-[11px]">
+                          <div className="space-y-1">
+                            <span className="font-bold text-slate-800 block text-xs">
+                              {res.filename} ({formatBytes(res.size_bytes)})
+                            </span>
+                            <p className="text-slate-500 font-mono text-[10px]">
+                              {res.remote_path || `Artifact #${res.artifact_id}`}
+                            </p>
+                          </div>
+                          {downloadUrl && (
+                            <a
+                              href={downloadUrl}
+                              download={res.filename}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-2xs transition-colors shrink-0"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Download File</span>
+                            </a>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                  {/* Import Media Result */}
+                  {job.job_type === "device.import_media" &&
+                    (() => {
+                      const res = job.result as MediaImportResult;
+                      return (
+                        <div className="p-3 rounded-lg bg-white border border-slate-200 text-[11px] space-y-1">
+                          <span className="font-bold text-slate-800 block text-xs">
+                            {res.filename} ({formatBytes(res.size_bytes)})
+                          </span>
+                          <p className="text-emerald-700 font-semibold">
+                            {res.media_imported
+                              ? "Registered in Android MediaStore Gallery"
+                              : "Transferred to device"}
+                          </p>
+                          {res.media_uri && (
+                            <p className="font-mono text-slate-500 text-[10px] break-all">
+                              {res.media_uri}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
+                </div>
+              )}
+
+              {/* Raw JSON Panels (collapsible for automation, default for generic jobs) */}
+              {(!isAutomationJob || showRawResult) && (
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <JsonPanel label="Payload" value={job.payload} />
+                  <JsonPanel label="Result" value={job.result} />
+                </div>
+              )}
+
+              {/* Structured Lifecycle Logs Timeline */}
+              <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
                 <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50/80 px-4 py-3">
                   <div>
                     <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                      <History className="h-4 w-4 text-slate-500" /> Lifecycle logs
+                      <History className="h-4 w-4 text-slate-500" /> Lifecycle logs &amp; timeline
                     </h3>
-                    <p className="mt-0.5 text-[11px] text-slate-500">Oldest event first</p>
+                    <p className="mt-0.5 text-[11px] text-slate-500">
+                      Ordered chronologically from job creation
+                    </p>
                   </div>
                   {!logsLoading && !logsError && (
                     <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
@@ -503,14 +848,21 @@ export function JobDetailModal({
                 {logsLoading ? (
                   <div className="animate-pulse space-y-3 p-4">
                     {Array.from({ length: 3 }).map((_, index) => (
-                      <div key={index} className="h-16 rounded-lg bg-slate-100" />
+                      <div
+                        key={index}
+                        className="h-16 rounded-lg bg-slate-100"
+                      />
                     ))}
                   </div>
                 ) : logsError ? (
                   <div className="p-6 text-center">
                     <AlertTriangle className="mx-auto mb-2 h-6 w-6 text-rose-500" />
-                    <p className="text-xs font-medium text-slate-800">Unable to load logs</p>
-                    <p className="mt-1 text-[11px] text-slate-500">{logsError}</p>
+                    <p className="text-xs font-medium text-slate-800">
+                      Unable to load logs
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      {logsError}
+                    </p>
                     <button
                       type="button"
                       onClick={() => {
@@ -525,33 +877,71 @@ export function JobDetailModal({
                 ) : logs.length === 0 ? (
                   <div className="p-8 text-center">
                     <History className="mx-auto mb-2 h-7 w-7 text-slate-300" />
-                    <p className="text-xs font-medium text-slate-700">No lifecycle logs yet</p>
-                    <p className="mt-1 text-[11px] text-slate-400">Events will appear after the job is claimed or transitioned.</p>
+                    <p className="text-xs font-medium text-slate-700">
+                      No lifecycle logs yet
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      Events will appear after the job is claimed or transitioned.
+                    </p>
                   </div>
                 ) : (
                   <ol className="divide-y divide-slate-100">
                     {logs.map((log) => {
                       const isError = log.level.toLowerCase() === "error";
+                      const isSuccess =
+                        log.event_type === "action_completed" ||
+                        log.event_type === "succeeded";
                       const metadata = formatJson(log.metadata);
+                      const eventLabel = getJobLogEventLabel(log.event_type);
+
                       return (
                         <li key={log.id} className="flex gap-3 p-4">
-                          <div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${isError ? "bg-rose-100 text-rose-600" : "bg-cyan-100 text-cyan-700"}`}>
-                            {isError ? <AlertCircle className="h-3.5 w-3.5" /> : <CircleDot className="h-3.5 w-3.5" />}
+                          <div
+                            className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+                              isError
+                                ? "bg-rose-100 text-rose-600"
+                                : isSuccess
+                                ? "bg-emerald-100 text-emerald-700"
+                                : "bg-purple-100 text-purple-700"
+                            }`}
+                          >
+                            {isError ? (
+                              <AlertCircle className="h-3.5 w-3.5" />
+                            ) : (
+                              <CircleDot className="h-3.5 w-3.5" />
+                            )}
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-col justify-between gap-1 sm:flex-row sm:items-center">
                               <div className="flex items-center gap-2">
-                                <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${isError ? "bg-rose-50 text-rose-700" : "bg-cyan-50 text-cyan-700"}`}>
-                                  {log.level}
+                                <span
+                                  className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                                    isError
+                                      ? "bg-rose-50 text-rose-700"
+                                      : isSuccess
+                                      ? "bg-emerald-50 text-emerald-700"
+                                      : "bg-purple-50 text-purple-700"
+                                  }`}
+                                >
+                                  {eventLabel}
                                 </span>
-                                <p className="text-xs font-semibold text-slate-900">{log.message}</p>
+                                <p className="text-xs font-semibold text-slate-900">
+                                  {log.message}
+                                </p>
                               </div>
                               <time className="flex items-center gap-1 whitespace-nowrap text-[10px] text-slate-400">
-                                <CalendarClock className="h-3 w-3" /> {formatDate(log.created_at)}
+                                <CalendarClock className="h-3 w-3" />{" "}
+                                {formatDate(log.created_at)}
                               </time>
                             </div>
                             {metadata && (
-                              <pre className={`mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg border p-2 text-[10px] leading-relaxed ${isError ? "border-rose-100 bg-rose-50/60 text-rose-800" : "border-slate-200 bg-slate-50 text-slate-600"}`}>
+                              <pre
+                                className={`mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg border p-2 text-[10px] leading-relaxed ${
+                                  isError
+                                    ? "border-rose-100 bg-rose-50/60 text-rose-800"
+                                    : "border-slate-200 bg-slate-50 text-slate-600"
+                                }`}
+                              >
                                 {metadata}
                               </pre>
                             )}

@@ -1,18 +1,24 @@
 import {
   ApiError,
+  ArtifactMetadata,
   Job,
+  JobCreateInput,
   JobLog,
   JobListParams,
   JobListResponse,
   ValidationErrorDetail,
+  getAutomationErrorMessage,
 } from "@/types/job";
 
 export interface IJobService {
   getJobs(params?: JobListParams): Promise<JobListResponse>;
   getJob(id: number): Promise<Job>;
   getJobLogs(id: number): Promise<JobLog[]>;
+  createJob(input: JobCreateInput): Promise<Job>;
   retryJob(id: number, scheduledAt?: string): Promise<Job>;
   cancelJob(id: number): Promise<Job>;
+  uploadArtifact(file: File): Promise<ArtifactMetadata>;
+  getArtifactDownloadUrl(jobId: number, artifactId: number): string;
   getBaseUrl(): string;
 }
 
@@ -32,7 +38,9 @@ export class FastApiJobService implements IJobService {
   }
 
   private async parseError(response: Response): Promise<ApiError> {
-    let detailData: { detail?: string | ValidationErrorDetail[] } | null = null;
+    let detailData: {
+      detail?: string | ValidationErrorDetail[] | Record<string, unknown>;
+    } | null = null;
     try {
       detailData = await response.json();
     } catch {
@@ -40,6 +48,9 @@ export class FastApiJobService implements IJobService {
     }
 
     const detail = detailData?.detail;
+    let message = "";
+    let code: string | undefined = undefined;
+
     if (response.status === 422 && Array.isArray(detail)) {
       const formatted = detail
         .map((item) => {
@@ -53,10 +64,45 @@ export class FastApiJobService implements IJobService {
       return new ApiError(422, formatted || "Validation failed", detail);
     }
 
-    const message =
-      (typeof detail === "string" && detail) ||
-      `Request failed with status ${response.status}: ${response.statusText}`;
-    return new ApiError(response.status, message, detail);
+    if (
+      typeof detail === "object" &&
+      detail !== null &&
+      !Array.isArray(detail)
+    ) {
+      const obj = detail as Record<string, unknown>;
+      if (typeof obj.code === "string") {
+        code = obj.code;
+      }
+      if (typeof obj.message === "string") {
+        message = obj.message;
+      }
+    } else if (typeof detail === "string" && detail) {
+      message = detail;
+    } else {
+      message = `Request failed with status ${response.status}: ${response.statusText}`;
+    }
+
+    // Sanitize raw execution traces, internal lock paths, tokens
+    if (
+      message.includes("Traceback") ||
+      message.includes("subprocess.CalledProcessError") ||
+      message.includes("RuntimeOperationLock") ||
+      message.includes("X-Job-Claim-Token") ||
+      message.includes("ClaimToken")
+    ) {
+      message = "Automation operation failed unexpectedly";
+    }
+
+    // Map error code to product-friendly message if known
+    if (code) {
+      message = getAutomationErrorMessage(code, message);
+    }
+
+    return new ApiError(
+      response.status,
+      message,
+      typeof detail === "string" ? detail : undefined
+    );
   }
 
   async getJobs(params?: JobListParams): Promise<JobListResponse> {
@@ -108,6 +154,27 @@ export class FastApiJobService implements IJobService {
     return (await response.json()) as JobLog[];
   }
 
+  async createJob(input: JobCreateInput): Promise<Job> {
+    const payload = {
+      job_type: input.job_type,
+      runtime_id: input.runtime_id ?? null,
+      account_id: input.account_id ?? null,
+      payload: input.payload ?? null,
+    };
+
+    const response = await fetch(`${this.baseUrl}/jobs`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) throw await this.parseError(response);
+    return (await response.json()) as Job;
+  }
+
   async retryJob(id: number, scheduledAt?: string): Promise<Job> {
     const response = await fetch(`${this.baseUrl}/jobs/${id}/retry`, {
       method: "POST",
@@ -130,6 +197,23 @@ export class FastApiJobService implements IJobService {
 
     if (!response.ok) throw await this.parseError(response);
     return (await response.json()) as Job;
+  }
+
+  async uploadArtifact(file: File): Promise<ArtifactMetadata> {
+    const formData = new FormData();
+    formData.append("file", file, file.name);
+
+    const response = await fetch(`${this.baseUrl}/artifacts`, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!response.ok) throw await this.parseError(response);
+    return (await response.json()) as ArtifactMetadata;
+  }
+
+  getArtifactDownloadUrl(jobId: number, artifactId: number): string {
+    return `${this.baseUrl}/jobs/${jobId}/artifacts/${artifactId}`;
   }
 }
 

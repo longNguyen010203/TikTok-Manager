@@ -18,7 +18,7 @@ import { accountService } from "@/services/accountService";
 import { jobService } from "@/services/jobService";
 import { runtimeService } from "@/services/runtimeService";
 import { Account, formatApiError } from "@/types/account";
-import { Job, JobStatus } from "@/types/job";
+import { Job, JobStatus, getJobActionLabel } from "@/types/job";
 import { Runtime } from "@/types/runtime";
 
 async function loadAllAccounts(): Promise<Account[]> {
@@ -167,6 +167,7 @@ export default function JobsPage() {
       return [
         job.id.toString(),
         job.job_type,
+        getJobActionLabel(job.job_type),
         job.status,
         account?.name,
         account?.username,
