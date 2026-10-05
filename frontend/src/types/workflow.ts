@@ -252,7 +252,7 @@ export const WORKFLOW_ERROR_MESSAGES: Record<string, string> = {
   WORKFLOW_RETRY_UNAVAILABLE: "This workflow cannot be retried in its current state.",
   WORKFLOW_RETRY_EXHAUSTED: "Maximum retry attempts reached for this workflow.",
   WORKFLOW_APPROVAL_NOT_WAITING: "This workflow step is not currently awaiting approval.",
-  WORKFLOW_IDEMPOTENCY_CONFLICT: "A workflow with this idempotency key already exists with different parameters.",
+  WORKFLOW_IDEMPOTENCY_CONFLICT: "A submission conflict occurred with this request key. A fresh creation key has been generated; please review your settings and try again.",
   INVALID_WORKFLOW_COMMAND: "This action is not permitted for the workflow's current state.",
   INVALID_WORKFLOW_TRANSITION: "Invalid workflow state transition.",
   INVALID_WORKFLOW_PARAMETERS: "Provided workflow parameters do not match template schema.",

@@ -67,7 +67,8 @@ class WorkflowService {
     return new ApiError(
       response.status,
       message,
-      code ? `code: ${code}` : undefined
+      code ? `code: ${code}` : undefined,
+      code
     );
   }
 

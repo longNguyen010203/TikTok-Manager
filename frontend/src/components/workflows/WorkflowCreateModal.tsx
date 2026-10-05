@@ -23,11 +23,47 @@ import {
 import { Runtime } from "@/types/runtime";
 import { Device } from "@/types/device";
 import { ContentAsset, ContentAssetDetail } from "@/types/content";
+import { ApiError } from "@/types/account";
 
 interface WorkflowCreateModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (workflow: Workflow) => void;
+}
+
+/**
+ * Generates a standard UUID idempotency key for workflow creation
+ */
+function generateFreshIdempotencyKey(): string {
+  return typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `wf-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+}
+
+/**
+ * Computes a normalized intent signature covering all material creation parameters.
+ * Used to detect when creation intent changes after an attempt, requiring a fresh idempotency key.
+ */
+function computeIntentSignature(
+  templateKey: string,
+  templateVersion: number,
+  runtimeId: number | null,
+  contentAssetId: number | null,
+  versionId: number | null,
+  parameters: Record<string, unknown>,
+  name: string,
+  description: string
+): string {
+  return JSON.stringify({
+    templateKey,
+    templateVersion,
+    runtimeId,
+    contentAssetId,
+    versionId,
+    parameters,
+    name: name.trim(),
+    description: description.trim(),
+  });
 }
 
 export function WorkflowCreateModal({
@@ -60,18 +96,28 @@ export function WorkflowCreateModal({
   const [importMedia, setImportMedia] = useState<boolean>(true);
   const [waitDurationSeconds, setWaitDurationSeconds] = useState<number>(10);
 
-  // Idempotency key per user creation attempt
+  // Idempotency key lifecycle refs
   const idempotencyKeyRef = useRef<string>("");
+  const lastSubmittedIntentRef = useRef<string | null>(null);
+
+  // Helper called when user materially modifies creation intent
+  const markIntentChanged = () => {
+    if (lastSubmittedIntentRef.current !== null) {
+      idempotencyKeyRef.current = generateFreshIdempotencyKey();
+      lastSubmittedIntentRef.current = null;
+    }
+  };
 
   useEffect(() => {
-    if (!isOpen) return;
-
-    if (!idempotencyKeyRef.current) {
-      idempotencyKeyRef.current =
-        typeof crypto !== "undefined" && crypto.randomUUID
-          ? crypto.randomUUID()
-          : `wf-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    if (!isOpen) {
+      idempotencyKeyRef.current = "";
+      lastSubmittedIntentRef.current = null;
+      return;
     }
+
+    // Requirement 1: Generate a fresh idempotency key when Create Workflow modal is opened/reset
+    idempotencyKeyRef.current = generateFreshIdempotencyKey();
+    lastSubmittedIntentRef.current = null;
 
     let ignore = false;
 
@@ -160,8 +206,21 @@ export function WorkflowCreateModal({
     ? devicesMap[selectedRuntime.device_id]
     : null;
 
+  const handleClose = () => {
+    idempotencyKeyRef.current = "";
+    lastSubmittedIntentRef.current = null;
+    setErrorMessage(null);
+    setWorkflowName("");
+    setWorkflowDescription("");
+    onClose();
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Requirement 2: Disable duplicate submit while request is in flight
+    if (isSubmitting) return;
+
     if (!selectedTemplateKey || !workflowName.trim()) {
       setErrorMessage("Please specify a workflow name and template.");
       return;
@@ -192,6 +251,34 @@ export function WorkflowCreateModal({
       parameters.wait_duration_seconds = waitDurationSeconds;
     }
 
+    // Requirement 4: Compute intent signature
+    const currentIntent = computeIntentSignature(
+      selectedTemplateKey,
+      currentTemplate?.version ?? 1,
+      selectedRuntimeId,
+      selectedContentAssetId,
+      selectedVersionId,
+      parameters,
+      workflowName,
+      workflowDescription
+    );
+
+    // If no key exists yet, or if intent materially changed since the last attempt:
+    // generate a fresh key before this submission.
+    // If intent is identical to previous attempt (e.g. unchanged retry after network error),
+    // keep the EXACT same key!
+    if (!idempotencyKeyRef.current) {
+      idempotencyKeyRef.current = generateFreshIdempotencyKey();
+    } else if (
+      lastSubmittedIntentRef.current !== null &&
+      lastSubmittedIntentRef.current !== currentIntent
+    ) {
+      idempotencyKeyRef.current = generateFreshIdempotencyKey();
+    }
+
+    // Record the intent associated with this key
+    lastSubmittedIntentRef.current = currentIntent;
+
     const payload: WorkflowCreateInput = {
       template_key: selectedTemplateKey,
       template_version: currentTemplate?.version ?? 1,
@@ -208,14 +295,45 @@ export function WorkflowCreateModal({
       setIsSubmitting(true);
       setErrorMessage(null);
       const res = await workflowService.createWorkflow(payload);
+
+      // Requirement 3: After successful workflow creation, close/reset modal, discard key
+      idempotencyKeyRef.current = "";
+      lastSubmittedIntentRef.current = null;
+      setErrorMessage(null);
+      setWorkflowName("");
+      setWorkflowDescription("");
       onSuccess(res.workflow);
       onClose();
     } catch (err: unknown) {
-      setErrorMessage(
-        err && typeof err === "object" && "message" in err
-          ? String((err as { message: unknown }).message)
-          : "Failed to create workflow. Please check your inputs."
-      );
+      // Requirement 5: If backend returns WORKFLOW_IDEMPOTENCY_CONFLICT
+      const isConflict =
+        (err instanceof ApiError &&
+          err.code === "WORKFLOW_IDEMPOTENCY_CONFLICT") ||
+        (err &&
+          typeof err === "object" &&
+          "code" in err &&
+          (err as { code: unknown }).code === "WORKFLOW_IDEMPOTENCY_CONFLICT") ||
+        (err &&
+          typeof err === "object" &&
+          "message" in err &&
+          String((err as { message: unknown }).message)
+            .toLowerCase()
+            .includes("idempotency"));
+
+      if (isConflict) {
+        // Refresh / generate a fresh creation key for the next explicit submit
+        idempotencyKeyRef.current = generateFreshIdempotencyKey();
+        lastSubmittedIntentRef.current = null;
+        setErrorMessage(
+          "A submission conflict occurred with this request key. A fresh creation key has been generated. Please review your settings and click Create Workflow again."
+        );
+      } else {
+        setErrorMessage(
+          err && typeof err === "object" && "message" in err
+            ? String((err as { message: unknown }).message)
+            : "Failed to create workflow. Please check your inputs."
+        );
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -254,7 +372,7 @@ export function WorkflowCreateModal({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -288,7 +406,12 @@ export function WorkflowCreateModal({
                     return (
                       <div
                         key={tpl.key}
-                        onClick={() => setSelectedTemplateKey(tpl.key)}
+                        onClick={() => {
+                          if (tpl.key !== selectedTemplateKey) {
+                            setSelectedTemplateKey(tpl.key);
+                            markIntentChanged();
+                          }
+                        }}
                         className={`cursor-pointer rounded-lg border p-3.5 transition-all text-left ${
                           isSelected
                             ? "border-rose-500 bg-rose-50/50 shadow-xs ring-1 ring-rose-300"
@@ -322,7 +445,10 @@ export function WorkflowCreateModal({
                     type="text"
                     required
                     value={workflowName}
-                    onChange={(e) => setWorkflowName(e.target.value)}
+                    onChange={(e) => {
+                      setWorkflowName(e.target.value);
+                      markIntentChanged();
+                    }}
                     placeholder="e.g. Autumn Promo Delivery & Review"
                     className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500"
                   />
@@ -334,7 +460,10 @@ export function WorkflowCreateModal({
                   <input
                     type="text"
                     value={workflowDescription}
-                    onChange={(e) => setWorkflowDescription(e.target.value)}
+                    onChange={(e) => {
+                      setWorkflowDescription(e.target.value);
+                      markIntentChanged();
+                    }}
                     placeholder="e.g. Automated push to Device 02"
                     className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500"
                   />
@@ -349,7 +478,10 @@ export function WorkflowCreateModal({
                 <div className="space-y-1">
                   <select
                     value={selectedRuntimeId ?? ""}
-                    onChange={(e) => setSelectedRuntimeId(Number(e.target.value))}
+                    onChange={(e) => {
+                      setSelectedRuntimeId(Number(e.target.value));
+                      markIntentChanged();
+                    }}
                     className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500"
                   >
                     {runtimes.map((rt) => {
@@ -408,7 +540,10 @@ export function WorkflowCreateModal({
                     </label>
                     <select
                       value={selectedContentAssetId ?? ""}
-                      onChange={(e) => setSelectedContentAssetId(Number(e.target.value))}
+                      onChange={(e) => {
+                        setSelectedContentAssetId(Number(e.target.value));
+                        markIntentChanged();
+                      }}
                       className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500"
                     >
                       {contentAssets.map((asset) => (
@@ -425,7 +560,10 @@ export function WorkflowCreateModal({
                     </label>
                     <select
                       value={selectedVersionId ?? ""}
-                      onChange={(e) => setSelectedVersionId(Number(e.target.value))}
+                      onChange={(e) => {
+                        setSelectedVersionId(Number(e.target.value));
+                        markIntentChanged();
+                      }}
                       disabled={isLoadingAssetDetail || !selectedAssetDetail}
                       className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500 disabled:bg-slate-100"
                     >
@@ -471,7 +609,10 @@ export function WorkflowCreateModal({
                     type="checkbox"
                     id="import_media"
                     checked={importMedia}
-                    onChange={(e) => setImportMedia(e.target.checked)}
+                    onChange={(e) => {
+                      setImportMedia(e.target.checked);
+                      markIntentChanged();
+                    }}
                     className="w-4 h-4 text-rose-600 border-slate-300 rounded focus:ring-rose-500"
                   />
                   <label
@@ -492,9 +633,10 @@ export function WorkflowCreateModal({
                       min={1}
                       max={86400}
                       value={waitDurationSeconds}
-                      onChange={(e) =>
-                        setWaitDurationSeconds(parseInt(e.target.value) || 0)
-                      }
+                      onChange={(e) => {
+                        setWaitDurationSeconds(parseInt(e.target.value) || 0);
+                        markIntentChanged();
+                      }}
                       className="w-40 text-xs px-3 py-1.5 bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-rose-500 font-mono"
                     />
                     <p className="text-[11px] text-slate-500 mt-1">
@@ -510,7 +652,7 @@ export function WorkflowCreateModal({
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               disabled={isSubmitting}
               className="px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
             >

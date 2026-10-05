@@ -101,6 +101,18 @@ function workflow(id: number, name: string, status: WorkflowStatus, steps: Fixtu
   };
 }
 
+interface RecordedWorkflowRequest {
+  url: string;
+  method: string;
+  body: Record<string, unknown>;
+  idempotency_key?: string;
+  fingerprint: string;
+}
+
+let submittedWorkflowRequests: RecordedWorkflowRequest[] = [];
+const idempotencyStore = new Map<string, { fingerprint: string; workflow: unknown }>();
+let postWorkflowHook: ((route: import("@playwright/test").Route, body: Record<string, unknown>) => Promise<boolean>) | null = null;
+
 async function installApi(page: Page) {
   const waitStep = step(103, 1, "workflow.wait", "waiting");
   waitStep.resume_at = new Date(Date.now() + 60_000).toISOString();
@@ -140,11 +152,68 @@ async function installApi(page: Page) {
     if (path === "/content/51") return json(asset);
     if (path === "/workflows" && request.method() === "GET") return json({ items: workflows, total: workflows.length, page: 1, page_size: 20 });
     if (path === "/workflows" && request.method() === "POST") {
-      const input = request.postDataJSON();
+      const input = request.postDataJSON() as Record<string, unknown>;
+      const key = (input?.idempotency_key as string) || undefined;
+      const fingerprint = JSON.stringify({
+        template_key: input.template_key,
+        template_version: input.template_version,
+        name: input.name,
+        description: input.description ?? null,
+        runtime_id: input.runtime_id,
+        content_asset_id: input.content_asset_id,
+        content_asset_version_id: input.content_asset_version_id,
+        account_id: input.account_id ?? null,
+        parameters: input.parameters ?? {},
+      });
+
+      submittedWorkflowRequests.push({
+        url: request.url(),
+        method: request.method(),
+        body: input,
+        idempotency_key: key,
+        fingerprint,
+      });
+
+      if (postWorkflowHook) {
+        const handled = await postWorkflowHook(route, input);
+        if (handled) return;
+      }
+
+      if (key && idempotencyStore.has(key)) {
+        const existing = idempotencyStore.get(key)!;
+        if (existing.fingerprint !== fingerprint) {
+          return json(
+            {
+              detail: {
+                code: "WORKFLOW_IDEMPOTENCY_CONFLICT",
+                message: "A workflow with this idempotency key already exists with different parameters.",
+              },
+            },
+            409
+          );
+        }
+        return json(existing.workflow, 200);
+      }
+
       const isWait = input.template_key === "content_delivery_wait_review";
-      const created = workflow(nextId++, input.name, "draft", isWait
-        ? [step(nextId * 10, 0, "content.deliver", "pending"), step(nextId * 10 + 1, 1, "workflow.wait", "pending"), step(nextId * 10 + 2, 2, "workflow.approval", "pending")]
-        : [step(nextId * 10, 0, "content.deliver", "pending"), step(nextId * 10 + 1, 1, "workflow.approval", "pending")]);
+      const created = workflow(
+        nextId++,
+        String(input.name),
+        "draft",
+        isWait
+          ? [
+              step(nextId * 10, 0, "content.deliver", "pending"),
+              step(nextId * 10 + 1, 1, "workflow.wait", "pending"),
+              step(nextId * 10 + 2, 2, "workflow.approval", "pending"),
+            ]
+          : [
+              step(nextId * 10, 0, "content.deliver", "pending"),
+              step(nextId * 10 + 1, 1, "workflow.approval", "pending"),
+            ]
+      );
+      if (key) {
+        idempotencyStore.set(key, { fingerprint, workflow: created });
+      }
       workflows.unshift(created);
       return json(created, 201);
     }
@@ -176,6 +245,9 @@ async function installApi(page: Page) {
 }
 
 test.beforeEach(async ({ page }) => {
+  submittedWorkflowRequests = [];
+  idempotencyStore.clear();
+  postWorkflowHook = null;
   await installApi(page);
   await page.goto("/workflows");
   await expect(page.getByRole("heading", { name: "Workflows", exact: true })).toBeVisible();
@@ -234,4 +306,175 @@ test("pause, resume, cancel, retry, and reject refresh backend truth", async ({ 
 
   await page.getByText("Screen conflict fixture").click();
   await expect(page.getByText("Close the screen viewer before running workflow", { exact: false })).toBeVisible();
+});
+
+test("double-click submission: submit button is disabled in flight and single workflow created", async ({ page }) => {
+  let releaseRequest: (() => void) | null = null;
+  postWorkflowHook = async () => {
+    await new Promise<void>((resolve) => {
+      releaseRequest = resolve;
+    });
+    return false;
+  };
+
+  await page.getByRole("button", { name: "Create Workflow" }).first().click();
+  await page.getByPlaceholder("e.g. Autumn Promo Delivery & Review").fill("Double-click Test");
+
+  const submitButton = page.getByRole("button", { name: "Create Workflow" }).last();
+  await submitButton.click();
+
+  // In-flight modal submit button transitions to "Creating Workflow..." and is disabled
+  const inFlightButton = page.getByRole("button", { name: "Creating Workflow..." });
+  await expect(inFlightButton).toBeVisible();
+  await expect(inFlightButton).toBeDisabled();
+
+  // Attempt duplicate click while in-flight
+  await inFlightButton.click({ force: true }).catch(() => {});
+
+  // Release pending request
+  if (releaseRequest) (releaseRequest as () => void)();
+
+  // Workflow successfully created and shown
+  await expect(page.getByRole("heading", { name: "Double-click Test" })).toBeVisible();
+
+  // Exactly one request was sent
+  expect(submittedWorkflowRequests.length).toBe(1);
+  expect(submittedWorkflowRequests[0].idempotency_key).toBeTruthy();
+});
+
+test("retry same request: network failure retry sends identical idempotency key", async ({ page }) => {
+  let attempts = 0;
+  postWorkflowHook = async (route) => {
+    attempts++;
+    if (attempts === 1) {
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "Simulated network glitch" }),
+      });
+      return true;
+    }
+    return false;
+  };
+
+  await page.getByRole("button", { name: "Create Workflow" }).first().click();
+  await page.getByPlaceholder("e.g. Autumn Promo Delivery & Review").fill("Retry Same Key Test");
+
+  // Attempt 1: fails with simulated network error
+  await page.getByRole("button", { name: "Create Workflow" }).last().click();
+  await expect(page.getByText("Simulated network glitch")).toBeVisible();
+
+  // Attempt 2: retry without changing any inputs
+  await page.getByRole("button", { name: "Create Workflow" }).last().click();
+  await expect(page.getByRole("heading", { name: "Retry Same Key Test" })).toBeVisible();
+
+  // Both attempts must use the exact same idempotency_key
+  expect(submittedWorkflowRequests.length).toBe(2);
+  const firstKey = submittedWorkflowRequests[0].idempotency_key;
+  const secondKey = submittedWorkflowRequests[1].idempotency_key;
+  expect(firstKey).toBeTruthy();
+  expect(secondKey).toBe(firstKey);
+});
+
+test("successful create then create another generates a fresh idempotency key", async ({ page }) => {
+  // First creation
+  await page.getByRole("button", { name: "Create Workflow" }).first().click();
+  await page.getByPlaceholder("e.g. Autumn Promo Delivery & Review").fill("First Workflow");
+  await page.getByRole("button", { name: "Create Workflow" }).last().click();
+  await expect(page.getByRole("heading", { name: "First Workflow" })).toBeVisible();
+  await page.getByTitle("Close").click();
+
+  // Second creation
+  await page.getByRole("button", { name: "Create Workflow" }).first().click();
+  await page.getByPlaceholder("e.g. Autumn Promo Delivery & Review").fill("Second Workflow");
+  await page.getByRole("button", { name: "Create Workflow" }).last().click();
+  await expect(page.getByRole("heading", { name: "Second Workflow" })).toBeVisible();
+
+  // Both creations must have fresh, distinct idempotency keys
+  expect(submittedWorkflowRequests.length).toBe(2);
+  const firstKey = submittedWorkflowRequests[0].idempotency_key;
+  const secondKey = submittedWorkflowRequests[1].idempotency_key;
+  expect(firstKey).toBeTruthy();
+  expect(secondKey).toBeTruthy();
+  expect(secondKey).not.toBe(firstKey);
+});
+
+test("modifying template or parameters generates a fresh key before next submit", async ({ page }) => {
+  let attempts = 0;
+  postWorkflowHook = async (route) => {
+    attempts++;
+    if (attempts === 1) {
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "Initial attempt failed" }),
+      });
+      return true;
+    }
+    return false;
+  };
+
+  await page.getByRole("button", { name: "Create Workflow" }).first().click();
+  await page.getByPlaceholder("e.g. Autumn Promo Delivery & Review").fill("Param Change Test");
+
+  // Attempt 1: submit default template
+  await page.getByRole("button", { name: "Create Workflow" }).last().click();
+  await expect(page.getByText("Initial attempt failed")).toBeVisible();
+
+  // Modify template to Content Delivery, Wait, and Review and adjust parameter
+  await page.getByRole("heading", { name: "Content Delivery, Wait, and Review" }).click();
+  await page.getByRole("spinbutton").fill("45");
+
+  // Attempt 2: submit with modified parameters
+  await page.getByRole("button", { name: "Create Workflow" }).last().click();
+  await expect(page.getByRole("heading", { name: "Param Change Test" })).toBeVisible();
+
+  // Distinct keys generated due to material parameter modification
+  expect(submittedWorkflowRequests.length).toBe(2);
+  const firstKey = submittedWorkflowRequests[0].idempotency_key;
+  const secondKey = submittedWorkflowRequests[1].idempotency_key;
+  expect(firstKey).toBeTruthy();
+  expect(secondKey).toBeTruthy();
+  expect(secondKey).not.toBe(firstKey);
+});
+
+test("handles WORKFLOW_IDEMPOTENCY_CONFLICT by regenerating key without auto-resubmit", async ({ page }) => {
+  let attempts = 0;
+  postWorkflowHook = async (route) => {
+    attempts++;
+    if (attempts === 1) {
+      await route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({
+          detail: {
+            code: "WORKFLOW_IDEMPOTENCY_CONFLICT",
+            message: "A workflow with this idempotency key already exists with different parameters.",
+          },
+        }),
+      });
+      return true;
+    }
+    return false;
+  };
+
+  await page.getByRole("button", { name: "Create Workflow" }).first().click();
+  await page.getByPlaceholder("e.g. Autumn Promo Delivery & Review").fill("Conflict Test");
+  await page.getByRole("button", { name: "Create Workflow" }).last().click();
+
+  // Operator-friendly message shown
+  await expect(
+    page.getByText("A submission conflict occurred with this request key. A fresh creation key has been generated.")
+  ).toBeVisible();
+
+  // Operator explicitly submits again
+  await page.getByRole("button", { name: "Create Workflow" }).last().click();
+  await expect(page.getByRole("heading", { name: "Conflict Test" })).toBeVisible();
+
+  expect(submittedWorkflowRequests.length).toBe(2);
+  const firstKey = submittedWorkflowRequests[0].idempotency_key;
+  const secondKey = submittedWorkflowRequests[1].idempotency_key;
+  expect(firstKey).toBeTruthy();
+  expect(secondKey).toBeTruthy();
+  expect(secondKey).not.toBe(firstKey);
 });

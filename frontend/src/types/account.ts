@@ -57,16 +57,19 @@ export interface ValidationErrorDetail {
 export class ApiError extends Error {
   status: number;
   details?: ValidationErrorDetail[] | string;
+  code?: string;
 
   constructor(
     status: number,
     message: string,
-    details?: ValidationErrorDetail[] | string
+    details?: ValidationErrorDetail[] | string,
+    code?: string
   ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.details = details;
+    this.code = code;
   }
 }
 
