@@ -102,6 +102,33 @@ def test_template_creation_pins_bindings_and_is_idempotent(workflow_api: TestCli
         assert len(list(session.scalars(select(WorkflowEvent)))) == 1
 
 
+def test_concurrent_idempotent_creation_returns_one_workflow(
+    workflow_api: TestClient,
+) -> None:
+    body = request_body(idempotency_key="concurrent-create-1")
+
+    def create() -> tuple[int, int]:
+        response = workflow_api.post("/workflows", json=body)
+        return response.status_code, response.json()["id"]
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        outcomes = list(pool.map(lambda _: create(), range(16)))
+
+    assert {status for status, _ in outcomes} <= {200, 201}
+    assert len({workflow_id for _, workflow_id in outcomes}) == 1
+    with workflow_api.app.state.workflow_sessions() as session:
+        workflow_id = outcomes[0][1]
+        assert session.query(Workflow).filter_by(
+            idempotency_key="concurrent-create-1"
+        ).count() == 1
+        assert session.query(WorkflowStep).filter_by(
+            workflow_id=workflow_id
+        ).count() == 2
+        assert session.query(WorkflowEvent).filter_by(
+            workflow_id=workflow_id, event_type="workflow_created"
+        ).count() == 1
+
+
 def test_creation_rejects_arbitrary_steps_jobs_parameters_and_binding_mismatch(workflow_api: TestClient) -> None:
     assert workflow_api.post("/workflows", json={**request_body(), "steps": []}).status_code == 422
     assert workflow_api.post("/workflows", json={**request_body(), "job_type": "device.tap"}).status_code == 422

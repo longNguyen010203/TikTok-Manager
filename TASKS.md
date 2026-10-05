@@ -754,7 +754,7 @@ Acceptance criteria:
 ---
 
 ## TIK-022
-Status: IN PROGRESS
+Status: DONE
 Owner: Codex + Antigravity
 Type: Backend / Worker / Workflow / Frontend
 

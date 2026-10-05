@@ -240,7 +240,6 @@ export const WORKFLOW_ERROR_MESSAGES: Record<string, string> = {
   RUNTIME_BUSY: "Target device is busy with another automation task.",
   RUNTIME_STOPPED: "Target runtime is currently stopped. Start the runtime before running workflow.",
   RUNTIME_SCREEN_ACTIVE: "A screen mirroring session is currently active on this device. Close the screen viewer before running workflow.",
-  RUNTIME_LOCKED: "Target runtime is locked by another automation job.",
   CONTENT_NOT_READY: "Selected content asset is not ready for delivery.",
   CONTENT_VERSION_NOT_READY: "Selected content version is not ready.",
   CONTENT_BLOB_MISSING: "Content media file is missing from storage.",

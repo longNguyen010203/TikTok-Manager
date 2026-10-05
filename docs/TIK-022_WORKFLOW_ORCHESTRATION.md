@@ -144,3 +144,22 @@ Managed provisioning allocates new Device and Runtime primary keys above both
 live rows and durable provisioning tombstones under the cross-process
 allocation transaction. This prevents SQLite primary-key reuse from making
 immutable Runtime snapshots historically ambiguous after deprovision.
+
+## Phase 6 production integration
+
+Production stress used two disposable managed Runtimes and multiple real
+workers. Large deliveries to different Runtimes overlapped, while a held lock
+on one Runtime produced retryable `RUNTIME_BUSY` on three Jobs; each retained
+one linked WorkflowStep/Delivery and succeeded through its existing Job retry
+policy after release. Concurrent same-key creation returned one Workflow to
+all callers, with a conflicting fingerprint returning 409. Approval,
+retry/pause/cancel, and due-wait races retained one authoritative transition
+and emitted no duplicate business events.
+
+Three waits with distinct persisted deadlines survived an orchestrator,
+backend, and worker restart sweep and advanced independently. A deterministic
+Playwright suite covers both templates, approval/rejection,
+pause/resume/cancel/retry, wait countdown, event and Job navigation, and
+friendly stopped-Runtime/screen-conflict errors without requiring Android.
+The operator procedures are in
+[`TIK-022_WORKFLOW_RUNBOOK.md`](TIK-022_WORKFLOW_RUNBOOK.md).

@@ -143,6 +143,10 @@ journalctl --user -u tiktok-manager-artifact-cleanup.service
 journalctl --user -u tiktok-manager-content-cleanup.service
 ```
 
+For workflow-specific diagnosis, safe retry/cancellation guidance,
+deprovision interaction, and backup rules, see
+[`TIK-022_WORKFLOW_RUNBOOK.md`](TIK-022_WORKFLOW_RUNBOOK.md).
+
 Artifact files are operational cache/output data rather than database backup
 contents. Back up the artifact directory separately if historical screenshots
 or pulled files must survive retention cleanup. Job and JobLog metadata is not

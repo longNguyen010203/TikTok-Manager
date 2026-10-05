@@ -139,7 +139,27 @@ class WorkflowService:
             content_asset_version_id=version.id,
         )
         session.add(workflow)
-        session.flush()
+        try:
+            # The idempotency-key uniqueness race is normally detected here,
+            # before commit. Recover the already-created Workflow instead of
+            # leaking an IntegrityError/500 to concurrent callers.
+            session.flush()
+        except IntegrityError as error:
+            session.rollback()
+            if idempotency_key is not None:
+                existing = session.scalar(
+                    select(Workflow).where(Workflow.idempotency_key == idempotency_key)
+                )
+                if existing is not None:
+                    if existing.request_fingerprint == fingerprint:
+                        return existing, False
+                    raise WorkflowError(
+                        "WORKFLOW_IDEMPOTENCY_CONFLICT",
+                        "Idempotency key was used for a different request",
+                    ) from error
+            raise WorkflowError(
+                "WORKFLOW_CREATION_CONFLICT", "Workflow could not be created"
+            ) from error
         previous: WorkflowStep | None = None
         for index, spec in enumerate(template.steps):
             if spec.step_type == "content.deliver":
