@@ -795,3 +795,49 @@ Acceptance criteria:
 - Existing device automation and content pipelines remain unaffected.
 - Frontend can create, monitor, pause/resume, cancel, and inspect workflows.
 - Backend, worker, frontend build, and live disposable-runtime verification pass.
+
+---
+
+## TIK-023
+Status: IN PROGRESS
+Owner: Codex + Antigravity
+Type: Backend / Provisioning / Publishing Foundation / Frontend
+
+Title:
+Add Publishing Foundation and Managed App Installation
+
+Dependencies:
+- TIK-018
+- TIK-020
+- TIK-021
+- TIK-022
+
+Scope:
+- backend/
+- workers/
+- frontend/
+- docs/
+
+Phases:
+1. Publishing and managed-app architecture
+2. Managed app package backend foundation
+3. Runtime app installation and provisioning integration
+4. Publishing workflow backend integration
+5. Publishing and app-management frontend
+6. Live device validation and production hardening
+7. Final verification
+
+Acceptance criteria:
+- Required Android apps can be managed as versioned packages.
+- APK files are stored and validated as managed content, never arbitrary host paths.
+- A newly provisioned Redroid Runtime can automatically install configured required apps.
+- App installation targets the exact Runtime only.
+- Installed package/version is verified after installation.
+- Provisioning reports app-install state separately from core Runtime readiness.
+- Failed app installation does not corrupt Runtime lifecycle state.
+- Publishing workflows can bind exact Account, Runtime, and ContentAssetVersion.
+- Publishing workflows verify required app availability before continuing.
+- Publishing foundation can deliver media and launch/verify the target app.
+- Manual approval is available before future publish actions.
+- Existing provisioning, networking, automation, content, and workflow behavior remains intact.
+- Backend, worker, frontend, and disposable-device validation pass.
