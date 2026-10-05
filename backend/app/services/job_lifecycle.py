@@ -184,7 +184,7 @@ def mark_job_failed(session: Session, job: Job, claim_token: str, attempt: int, 
     return job
 
 
-def cancel_job(session: Session, job: Job) -> Job:
+def cancel_job(session: Session, job: Job, *, commit: bool = True) -> Job:
     _require_status(job, JobStatus.CANCELLED, {JobStatus.PENDING, JobStatus.RUNNING, JobStatus.RETRYING, JobStatus.CANCELLING})
     if job.status in {JobStatus.RUNNING.value, JobStatus.CANCELLING.value}:
         job.status = JobStatus.CANCELLING.value
@@ -196,7 +196,10 @@ def cancel_job(session: Session, job: Job) -> Job:
         job.completed_at = utc_now()
         job.execution_stage = "cancelled"
         append_job_log(session, job, level="info", event_type="automation_cancelled", message="Job cancelled")
-    session.commit(); session.refresh(job)
+    if commit:
+        session.commit(); session.refresh(job)
+    else:
+        session.flush()
     return job
 
 
@@ -213,7 +216,9 @@ def acknowledge_job_cancellation(session: Session, job: Job, claim_token: str, a
     return job
 
 
-def retry_failed_job(session: Session, job: Job, scheduled_at: datetime | None = None) -> Job:
+def retry_failed_job(
+    session: Session, job: Job, scheduled_at: datetime | None = None, *, commit: bool = True
+) -> Job:
     _require_status(job, JobStatus.RETRYING, {JobStatus.FAILED})
     if job.attempt_count >= job.max_attempts:
         raise JobRetryLimitError(job.attempt_count, job.max_attempts)
@@ -229,7 +234,10 @@ def retry_failed_job(session: Session, job: Job, scheduled_at: datetime | None =
     job.execution_stage = "retry_scheduled"
     _clear_claim(job)
     append_job_log(session, job, level="info", event_type="retry_scheduled", message="Job retry scheduled", metadata={"attempt_count": job.attempt_count})
-    session.commit(); session.refresh(job)
+    if commit:
+        session.commit(); session.refresh(job)
+    else:
+        session.flush()
     return job
 
 

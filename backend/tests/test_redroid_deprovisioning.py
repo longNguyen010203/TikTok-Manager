@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.database import init_db
 from app.models import (
     Account, ContentAsset, ContentAssetVersion, ContentBlob, ContentDelivery,
-    Device, Job, RedroidProvisioning, Runtime,
+    Device, Job, RedroidProvisioning, Runtime, Workflow, WorkflowStep,
 )
 from app.services.redroid_provisioning import (
     DeprovisioningFailedError,
@@ -240,8 +240,35 @@ def test_deprovision_removes_owned_resources_and_preserves_data(
             remote_path="/sdcard/Download/TikTokManager/history-d1.png",
         )
         session.add(delivery)
+        workflow = Workflow(
+            name="Historical workflow",
+            template_key="content_delivery_review",
+            template_version=1,
+            status="pending",
+            parameters_json="{}",
+            request_fingerprint="c" * 64,
+            runtime_id=runtime_id,
+            runtime_id_snapshot=runtime_id,
+            content_asset_id=asset.id,
+            content_asset_version_id=version.id,
+        )
+        session.add(workflow)
+        session.flush()
+        workflow_step = WorkflowStep(
+            workflow_id=workflow.id,
+            step_index=0,
+            step_key="deliver_content",
+            step_type="content.deliver",
+            status="pending",
+            input_json="{}",
+            attempt=1,
+            max_attempts=1,
+        )
+        session.add(workflow_step)
         session.commit()
-        account_id, job_id, delivery_id = account.id, job.id, delivery.id
+        account_id, job_id, delivery_id, workflow_id = (
+            account.id, job.id, delivery.id, workflow.id,
+        )
 
     result = service.deprovision(attempt.id)
 
@@ -264,6 +291,9 @@ def test_deprovision_removes_owned_resources_and_preserves_data(
         historical_delivery = session.get(ContentDelivery, delivery_id)
         assert historical_delivery.runtime_id is None
         assert historical_delivery.runtime_id_snapshot == runtime_id
+        historical_workflow = session.get(Workflow, workflow_id)
+        assert historical_workflow.runtime_id is None
+        assert historical_workflow.runtime_id_snapshot == runtime_id
 
 
 def test_repeated_deprovision_is_idempotent(deprovision_context) -> None:

@@ -5,7 +5,7 @@ from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine, URL, make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -76,6 +76,25 @@ def _connect_args(database_url: str) -> dict[str, bool]:
 
 
 engine = create_engine(DATABASE_URL, connect_args=_connect_args(DATABASE_URL))
+
+
+def _enable_sqlite_foreign_keys(dbapi_connection: object, _connection_record: object) -> None:
+    """Enable SQLite FK actions for every application connection.
+
+    SQLite defaults foreign-key enforcement off per connection.  Relying on a
+    one-time startup PRAGMA leaves pooled and service-specific connections able
+    to create dangling references during deletes.
+    """
+    cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
+    try:
+        cursor.execute("PRAGMA foreign_keys=ON")
+    finally:
+        cursor.close()
+
+
+if DATABASE_URL.startswith("sqlite"):
+    event.listen(engine, "connect", _enable_sqlite_foreign_keys)
+
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 

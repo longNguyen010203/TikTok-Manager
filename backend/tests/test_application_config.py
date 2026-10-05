@@ -379,6 +379,9 @@ def test_worker_and_artifact_cleanup_service_assets_are_production_safe() -> Non
     content_timer = (
         root / "deploy/tiktok-manager-content-cleanup.timer"
     ).read_text(encoding="utf-8")
+    workflow = (
+        root / "deploy/tiktok-manager-workflow-orchestrator.service"
+    ).read_text(encoding="utf-8")
     installer = (root / "scripts/install-tiktok-manager.sh").read_text(
         encoding="utf-8"
     )
@@ -400,3 +403,9 @@ def test_worker_and_artifact_cleanup_service_assets_are_production_safe() -> Non
     assert "OnUnitActiveSec=@CONTENT_CLEANUP_INTERVAL@h" in content_timer
     assert "Persistent=true" in content_timer
     assert "enable --now tiktok-manager-content-cleanup.timer" in installer
+    assert "After=tiktok-manager-backend.service" in workflow
+    assert "@PROJECT_ROOT@/backend/.venv/bin/python -m app.workflow_orchestrator" in workflow
+    assert "Restart=on-failure" in workflow
+    assert "claim_token" not in workflow.lower()
+    assert "password" not in workflow.lower()
+    assert "enable --now tiktok-manager-workflow-orchestrator.service" in installer

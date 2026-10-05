@@ -15,6 +15,7 @@ database_path="${data_dir}/tiktok_manager.db"
 unit_dir="${XDG_CONFIG_HOME:-${HOME}/.config}/systemd/user"
 backend_unit_path="${unit_dir}/tiktok-manager-backend.service"
 worker_unit_path="${unit_dir}/tiktok-manager-worker.service"
+workflow_unit_path="${unit_dir}/tiktok-manager-workflow-orchestrator.service"
 cleanup_service_path="${unit_dir}/tiktok-manager-artifact-cleanup.service"
 cleanup_timer_path="${unit_dir}/tiktok-manager-artifact-cleanup.timer"
 content_cleanup_service_path="${unit_dir}/tiktok-manager-content-cleanup.service"
@@ -87,6 +88,8 @@ sed "s|@PROJECT_ROOT@|${escaped_root}|g" \
 sed "s|@PROJECT_ROOT@|${escaped_root}|g" \
   "${project_root}/deploy/tiktok-manager-worker.service" > "${worker_unit_path}"
 sed "s|@PROJECT_ROOT@|${escaped_root}|g" \
+  "${project_root}/deploy/tiktok-manager-workflow-orchestrator.service" > "${workflow_unit_path}"
+sed "s|@PROJECT_ROOT@|${escaped_root}|g" \
   "${project_root}/deploy/tiktok-manager-artifact-cleanup.service" \
   > "${cleanup_service_path}"
 cleanup_interval="$(
@@ -108,16 +111,18 @@ content_cleanup_interval="$(
 sed "s|@CONTENT_CLEANUP_INTERVAL@|${content_cleanup_interval}|g" \
   "${project_root}/deploy/tiktok-manager-content-cleanup.timer" \
   > "${content_cleanup_timer_path}"
-chmod 600 "${backend_unit_path}" "${worker_unit_path}" \
+chmod 600 "${backend_unit_path}" "${worker_unit_path}" "${workflow_unit_path}" \
   "${cleanup_service_path}" "${cleanup_timer_path}" \
   "${content_cleanup_service_path}" "${content_cleanup_timer_path}"
 
 systemctl --user daemon-reload
 systemctl --user enable --now tiktok-manager-backend.service
 systemctl --user enable --now tiktok-manager-worker.service
+systemctl --user enable --now tiktok-manager-workflow-orchestrator.service
 systemctl --user enable --now tiktok-manager-artifact-cleanup.timer
 systemctl --user enable --now tiktok-manager-content-cleanup.timer
 systemctl --user --no-pager status tiktok-manager-backend.service
 systemctl --user --no-pager status tiktok-manager-worker.service
+systemctl --user --no-pager status tiktok-manager-workflow-orchestrator.service
 systemctl --user --no-pager status tiktok-manager-artifact-cleanup.timer
 systemctl --user --no-pager status tiktok-manager-content-cleanup.timer

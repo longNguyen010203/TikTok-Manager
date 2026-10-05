@@ -12,7 +12,13 @@ from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import init_db
-from app.models import Device, Runtime, RuntimeNetworkConfig, RuntimeNetworkState
+from app.models import (
+    Device,
+    RedroidProvisioning,
+    Runtime,
+    RuntimeNetworkConfig,
+    RuntimeNetworkState,
+)
 from app.services.redroid_provisioning import (
     ProvisioningFailedError,
     ProvisioningIdempotencyConflict,
@@ -185,6 +191,36 @@ def test_success_commits_device_runtime_together_after_inspection(factory, setti
         assert network.desired_revision == 1
         assert state is not None and state.status == "disabled"
         assert state.applied_revision == 1
+
+
+def test_managed_ids_are_not_reused_after_historical_deprovision(factory, settings) -> None:
+    with factory() as session:
+        session.add(
+            RedroidProvisioning(
+                id="00000000-0000-0000-0000-000000000001",
+                idempotency_key="historical",
+                request_fingerprint="a" * 64,
+                ownership_token="00000000-0000-0000-0000-000000000002",
+                installation_id=settings.installation_id,
+                state="deprovisioned",
+                device_number=99,
+                container_name="redroid-device-99",
+                adb_host_port=5653,
+                adb_serial="localhost:5653",
+                data_path=str(settings.data_root / "device-99-data"),
+                network_name="redroid-device-99-net",
+                image_reference=settings.image_reference,
+                historical_device_id=40,
+                historical_runtime_id=60,
+            )
+        )
+        session.commit()
+
+    service = RedroidProvisioningService(factory, FakeAdapter(), settings)
+    completed = service.provision("after-history", request(settings))
+
+    assert completed.device_id == 41
+    assert completed.runtime_id == 61
 
 
 @pytest.mark.parametrize(

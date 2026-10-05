@@ -366,6 +366,36 @@ retain their bytes.
 
 ## Relationships
 
+## Workflow orchestration
+
+Migration `20261005_0018` adds `workflows`, `workflow_steps`,
+`workflow_step_job_runs`, and `workflow_events`. A Workflow pins its template
+version, explicit Runtime snapshot, and exact ready content version. Its
+parameters are the validated server-template parameters, not an executable Job
+payload. Nullable live foreign keys preserve snapshots/history when applicable.
+
+WorkflowStep rows are immutable template materialization ordered by a unique
+`(workflow_id, step_index)` and `step_key`. V1 is sequential: each row may point
+to its immediately preceding dependency. At most one step can reference a Job,
+and `workflow_step_job_runs` provides a unique durable mapping between one
+logical step attempt and one Job. Job worker retries remain on that Job;
+WorkflowStep attempts are a separate operator-level concept.
+
+WorkflowEvent is append-only bounded business history. It stores safe IDs,
+statuses, and error codes only—never Job payloads, claim tokens, commands,
+filesystem paths, credentials, or subprocess output.
+
+Migration `20261005_0019` expands that bounded event vocabulary with
+`waiting`. A wait step uses the existing durable `resume_at` and
+`waiting_reason` columns; no timer table or in-memory timer state is added. The
+deadline is written once when the step enters waiting and is not recalculated
+during recovery.
+
+Application SQLite connections enable `PRAGMA foreign_keys=ON` whenever a
+connection is opened. Managed Runtime deprovision also clears nullable live
+Workflow and ContentDelivery Runtime pointers in its authoritative database
+transaction, while immutable Runtime snapshots preserve historical identity.
+
 - One Device has zero or more Runtime records. Deleting a Device cascades to its
   Runtime records.
 - One Runtime belongs to exactly one Device.

@@ -46,6 +46,7 @@ class ContentDeliveryService:
         import_media: bool,
         allow_repeat: bool,
         idempotency_key: str | None,
+        commit: bool = True,
     ) -> tuple[ContentDelivery, bool]:
         asset = session.scalar(
             select(ContentAsset)
@@ -146,6 +147,8 @@ class ContentDeliveryService:
                 "runtime_id": runtime.id,
             },
         ))
+        if not commit:
+            return delivery, True
         try:
             session.commit()
         except IntegrityError as error:

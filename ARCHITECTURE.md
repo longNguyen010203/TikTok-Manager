@@ -119,6 +119,28 @@ Manager host lifecycle:
 - Daily content maintenance reclaims only stale generated staging and
   grace-aged proven-unreferenced blobs. Content has no age expiry; ready and
   historically referenced bytes are not quota-evicted.
+- Workflow orchestration is a durable control plane above Jobs, never a second
+  execution queue. Server-owned versioned templates materialize immutable,
+  sequential WorkflowStep rows; the orchestrator observes linked Job outcomes
+  and advances one step at a time under a per-Workflow cross-process lock.
+  Runtime and ready ContentAssetVersion bindings are pinned when a Workflow is
+  created, and no recovery path silently retargets either binding.
+- The workflow orchestrator is an independent user service. It creates Jobs
+  only through typed service adapters, never claims Jobs, runs ADB, or accepts
+  caller-defined steps/payloads. Durable approval and pause/cancel boundaries
+  survive backend, worker, and orchestrator restarts.
+- Sequential reconciliation reloads each candidate under its exact Workflow
+  lock, treats the linked Job row as execution truth, and commits at most one
+  newly eligible step. Durable `workflow.wait` steps persist one UTC deadline
+  and are revisited by bounded polling without a timer thread or Job. Pause
+  never interrupts an active Job; cancellation waits for terminal truth and
+  never advances a successor.
+- Orchestrator infrastructure failures use bounded exponential backoff, and
+  reconciliation transactions remain short: no SQLite write lock spans Job
+  execution or external Android work. Application SQLite connections enforce
+  foreign keys on connect. Managed provisioning assigns Device/Runtime IDs
+  above live and historical provisioning IDs so immutable Runtime snapshots
+  are never retargeted by SQLite primary-key reuse.
 - General transcoding and application UI automation remain later operations.
 - Device Jobs use a typed registry and a lease-protected backend execution
   boundary. Workers receive complete execution context but never execute ADB;

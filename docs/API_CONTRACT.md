@@ -999,6 +999,43 @@ Error cases:
 - `404 Not Found` with `{"detail": "Provisioning attempt not found"}` when the
   ID is unknown.
 
+## Workflow orchestration
+
+V1 accepts only server-owned, versioned templates. Clients cannot provide a
+step list, Job type/payload, ADB serial, command, host path, or Android path.
+The initial template is `content_delivery_review:v1`; it pins the explicit
+Runtime and exact ready ContentAssetVersion at creation, creates a typed
+`content.deliver` Job, and then waits durably for operator approval.
+`content_delivery_wait_review:v1` inserts a bounded `workflow.wait` between
+delivery and approval. `wait_duration_seconds` is 1–86,400 seconds; the server
+persists one UTC `resume_at`, creates no wait Job, and advances only when that
+stored deadline is due.
+
+- `GET /workflow-templates` lists safe template metadata and parameter schema.
+- `POST /workflows` creates a draft from `template_key`, optional version,
+  name/description, explicit `runtime_id`, `content_asset_id`, optional exact
+  version/account, validated parameters, and optional idempotency key.
+- `GET /workflows` lists newest first with status, template, Runtime, account,
+  content-asset, and pagination filters.
+- `GET /workflows/{id}` returns bindings and ordered step state.
+- `POST /workflows/{id}/start|pause|resume|cancel|retry` performs a validated
+  durable state transition. Pause is boundary-only and never suspends a Job.
+- `POST /workflows/{id}/steps/{step_id}/approve|reject` records a bounded actor
+  and optional comment for the exact current approval step.
+- `GET /workflows/{id}/events` returns chronological bounded safe history.
+
+Delivery step results are bounded projections: delivery and Job IDs, pinned
+Runtime/version IDs, delivery status, remote filename, MediaStore URI, and
+digest when available. They exclude Job payloads, host/storage paths, storage
+keys, claim tokens, ADB commands, and raw logs. Events are ordered by
+`created_at`, then ID.
+
+An identical idempotency key and request fingerprint returns the existing
+Workflow; the same key with different input returns `409`. `WORKFLOW_BUSY`
+means another process owns that Workflow's transition lock. Approval rejection
+uses `WORKFLOW_APPROVAL_REJECTED`. Responses and events omit internal Job
+payloads, claim ownership, paths, commands, and subprocess output.
+
 ## Deprovision a managed Redroid device
 
 - Method: `POST`
@@ -1037,6 +1074,9 @@ network, and removes the active Device/Runtime records. Historical Jobs and
 JobLogs remain, with the Runtime foreign key cleared. The provisioning record
 remains as a tombstone with historical Device/Runtime IDs; ContentDelivery
 clears its nullable Runtime pointer while preserving `runtime_id_snapshot`.
+Workflow history follows the same rule. A pending Workflow pinned to the
+removed Runtime fails durably with `WORKFLOW_RUNTIME_UNAVAILABLE` and is never
+retargeted.
 The allocated
 device number is permanently reserved.
 

@@ -13,10 +13,10 @@ from typing import Iterator, Protocol
 
 import fcntl
 
-from sqlalchemy import select, text, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models import ContentDelivery, Device, RedroidProvisioning, Runtime
+from app.models import ContentDelivery, Device, RedroidProvisioning, Runtime, Workflow
 from app.services.runtime_automation_cleanup import RuntimeAutomationBusyError
 from app.services.redroid_provisioning_adapter import (
     OccupiedResources,
@@ -542,6 +542,11 @@ class RedroidProvisioningService:
                 .where(ContentDelivery.runtime_id == runtime.id)
                 .values(runtime_id=None)
             )
+            session.execute(
+                update(Workflow)
+                .where(Workflow.runtime_id == runtime.id)
+                .values(runtime_id=None)
+            )
             session.delete(device)
             session.commit()
             session.refresh(attempt)
@@ -576,16 +581,46 @@ class RedroidProvisioningService:
 
     def _complete(self, attempt_id: str, request: ProvisioningRequest) -> RedroidProvisioning:
         with self.session_factory() as session:
+            # SQLite may reuse an INTEGER PRIMARY KEY after a managed Runtime is
+            # deleted. Workflow and delivery history intentionally retain
+            # numeric Runtime snapshots, so allocate above both live rows and
+            # durable provisioning tombstones while holding the same
+            # cross-process allocation transaction used for reservations.
+            self.allocation_lock.acquire(session)
             attempt = self._require_attempt(session, attempt_id)
             if attempt.state == "completed":
+                session.commit()
                 return attempt
             if attempt.state != "inspected" or attempt.device_number is None:
                 raise ProvisioningError("Provisioning must be inspected before DB completion")
+            max_device_id = max(
+                session.scalar(select(func.max(Device.id))) or 0,
+                session.scalar(
+                    select(func.max(RedroidProvisioning.historical_device_id))
+                )
+                or 0,
+            )
+            max_runtime_id = max(
+                session.scalar(select(func.max(Runtime.id))) or 0,
+                session.scalar(
+                    select(func.max(RedroidProvisioning.historical_runtime_id))
+                )
+                or 0,
+            )
             suffix = f"{attempt.device_number:02d}"
-            device = Device(name=request.name, device_type="emulator", platform="android", os_version="12", status="offline", notes=request.notes)
+            device = Device(
+                id=max_device_id + 1,
+                name=request.name,
+                device_type="emulator",
+                platform="android",
+                os_version="12",
+                status="offline",
+                notes=request.notes,
+            )
             session.add(device)
             session.flush()
             runtime = Runtime(
+                id=max_runtime_id + 1,
                 device_id=device.id,
                 name=f"redroid-runtime-{suffix}",
                 runtime_type="redroid",

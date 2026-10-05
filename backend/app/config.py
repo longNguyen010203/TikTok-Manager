@@ -77,6 +77,9 @@ class ApplicationConfig:
     content_max_image_pixels: int
     content_max_image_frames: int
     content_inspection_lock_directory: Path
+    workflow_lock_directory: Path
+    workflow_poll_interval_seconds: float
+    workflow_reconcile_batch_size: int
     stop_managed_devices_on_shutdown: bool
 
     def __post_init__(self) -> None:
@@ -115,6 +118,8 @@ class ApplicationConfig:
             or self.content_max_image_frames <= 0
         ):
             raise ApplicationConfigurationError("Content inspection limits must be positive")
+        if self.workflow_poll_interval_seconds <= 0 or self.workflow_reconcile_batch_size <= 0:
+            raise ApplicationConfigurationError("Workflow orchestration settings must be positive")
 
 
 def default_application_config(path: Path | None = None) -> ApplicationConfig:
@@ -156,6 +161,9 @@ def default_application_config(path: Path | None = None) -> ApplicationConfig:
         content_max_image_pixels=100_000_000,
         content_max_image_frames=500,
         content_inspection_lock_directory=Path("/tmp/tiktok-manager-content-locks"),
+        workflow_lock_directory=Path("/tmp/tiktok-manager-workflow-locks"),
+        workflow_poll_interval_seconds=2.0,
+        workflow_reconcile_batch_size=100,
         stop_managed_devices_on_shutdown=False,
     )
 
@@ -197,6 +205,7 @@ def load_application_config(
         network = data["network"]
         automation = data.get("automation", {})
         content = data.get("content", {})
+        workflow = data.get("workflow", {})
         runtime = data.get("runtime", {})
         security = data.get("security", {})
         result = ApplicationConfig(
@@ -280,6 +289,11 @@ def load_application_config(
                     )
                 )
             ).expanduser(),
+            workflow_lock_directory=Path(
+                str(workflow.get("lock_directory", "/tmp/tiktok-manager-workflow-locks"))
+            ).expanduser(),
+            workflow_poll_interval_seconds=float(workflow.get("poll_interval_seconds", 2.0)),
+            workflow_reconcile_batch_size=int(workflow.get("reconcile_batch_size", 100)),
             stop_managed_devices_on_shutdown=bool(
                 runtime.get("stop_managed_devices_on_shutdown", False)
             ),
@@ -439,6 +453,15 @@ def _with_environment_overrides(config: ApplicationConfig) -> ApplicationConfig:
                     str(config.content_inspection_lock_directory),
                 )
             ),
+            workflow_lock_directory=Path(
+                os.getenv("TIKTOK_MANAGER_WORKFLOW_LOCK_DIRECTORY", str(config.workflow_lock_directory))
+            ),
+            workflow_poll_interval_seconds=float(
+                os.getenv("TIKTOK_MANAGER_WORKFLOW_POLL_INTERVAL_SECONDS", str(config.workflow_poll_interval_seconds))
+            ),
+            workflow_reconcile_batch_size=int(
+                os.getenv("TIKTOK_MANAGER_WORKFLOW_RECONCILE_BATCH_SIZE", str(config.workflow_reconcile_batch_size))
+            ),
             stop_managed_devices_on_shutdown=_environment_bool(
                 "STOP_MANAGED_DEVICES_ON_SHUTDOWN",
                 config.stop_managed_devices_on_shutdown,
@@ -505,6 +528,7 @@ def _upgrade_automation_defaults(
         ),
     }
     content = parsed.get("content", {})
+    workflow = parsed.get("workflow", {})
     content_desired = {
         "root": _quote(defaults.content_root),
         "max_upload_bytes": str(defaults.content_max_upload_bytes),
@@ -525,12 +549,21 @@ def _upgrade_automation_defaults(
     missing_content = [
         (key, value) for key, value in content_desired.items() if key not in content
     ]
-    if not missing and not missing_content:
+    workflow_desired = {
+        "lock_directory": _quote(defaults.workflow_lock_directory),
+        "poll_interval_seconds": str(defaults.workflow_poll_interval_seconds),
+        "reconcile_batch_size": str(defaults.workflow_reconcile_batch_size),
+    }
+    missing_workflow = [
+        (key, value) for key, value in workflow_desired.items() if key not in workflow
+    ]
+    if not missing and not missing_content and not missing_workflow:
         return
 
     lines = text.splitlines()
     _insert_missing_section(lines, "automation", missing)
     _insert_missing_section(lines, "content", missing_content)
+    _insert_missing_section(lines, "workflow", missing_workflow)
 
     payload = ("\n".join(lines).rstrip() + "\n").encode("utf-8")
     temporary = f".{config_path.name}.update-{uuid.uuid4().hex}"
@@ -644,6 +677,11 @@ def _serialize(config: ApplicationConfig) -> str:
             f"max_image_frames = {config.content_max_image_frames}",
             "inspection_lock_directory = "
             f"{_quote(config.content_inspection_lock_directory)}",
+            "",
+            "[workflow]",
+            f"lock_directory = {_quote(config.workflow_lock_directory)}",
+            f"poll_interval_seconds = {config.workflow_poll_interval_seconds}",
+            f"reconcile_batch_size = {config.workflow_reconcile_batch_size}",
             "",
             "[runtime]",
             "stop_managed_devices_on_shutdown = "

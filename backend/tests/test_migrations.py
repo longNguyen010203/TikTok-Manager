@@ -15,7 +15,7 @@ PRE_JOB_LOG_REVISION = "20260918_0003"
 PRE_REDROID_CONFIG_REVISION = "20260918_0004"
 PRE_UNIQUE_CONFIG_REVISION = "20261001_0005"
 PRE_PROVISIONING_REVISION = "20261001_0006"
-LATEST_REVISION = "20261005_0017"
+LATEST_REVISION = "20261005_0019"
 
 
 def test_upgrade_head_creates_accounts_table(
@@ -46,6 +46,10 @@ def test_upgrade_head_creates_accounts_table(
             "content_variants",
             "content_deliveries",
             "content_events",
+            "workflows",
+            "workflow_steps",
+            "workflow_step_job_runs",
+            "workflow_events",
         }.issubset(
             inspector.get_table_names()
         )

@@ -1,0 +1,18 @@
+[Unit]
+Description=TikTok Manager workflow orchestrator
+Wants=tiktok-manager-backend.service
+After=tiktok-manager-backend.service
+
+[Service]
+Type=simple
+WorkingDirectory=@PROJECT_ROOT@/backend
+ExecStart=@PROJECT_ROOT@/backend/.venv/bin/python -m app.workflow_orchestrator
+Environment=TIKTOK_MANAGER_RUNTIME_MODE=production
+Environment=PYTHONDONTWRITEBYTECODE=1
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

@@ -22,6 +22,7 @@ from app.models.runtime_network import (
     RuntimeNetworkCredential,
     RuntimeNetworkState,
 )
+from app.models.workflow import Workflow, WorkflowEvent, WorkflowStep, WorkflowStepJobRun
 
 __all__ = [
     "Account",
@@ -43,4 +44,8 @@ __all__ = [
     "RuntimeNetworkConfigRevision",
     "RuntimeNetworkCredential",
     "RuntimeNetworkState",
+    "Workflow",
+    "WorkflowEvent",
+    "WorkflowStep",
+    "WorkflowStepJobRun",
 ]

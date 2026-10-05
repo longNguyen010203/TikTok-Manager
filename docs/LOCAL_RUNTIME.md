@@ -52,6 +52,11 @@ Missing keys are added with defaults without replacing operator values. Content
 storage is independent from automation artifact storage and retention: ready
 content is never evicted automatically to satisfy quota.
 
+The optional `[workflow]` section contains the private per-Workflow lock
+directory, bounded orchestrator polling interval, and reconciliation batch
+size. Existing installations receive defaults without replacing operator
+values. It contains no credentials, claim tokens, or executable definitions.
+
 Content delivery reads verified ContentBlobs directly and does not duplicate
 them into JobArtifact storage. It uses the existing worker service and shared
 Runtime operation lock and requires no additional host daemon or path setting.
@@ -97,6 +102,26 @@ It never stores claim tokens in its unit or environment. Worker restart does
 not adopt process-local state: abandoned claims are fenced and recovered by
 the backend lease reaper.
 
+The workflow unit is `tiktok-manager-workflow-orchestrator.service`. It starts
+after and wants the backend, uses the same project virtual environment and
+canonical configuration/database, and restarts on failure. It only reconciles
+durable Workflow/Step state and materializes typed Jobs; the worker remains the
+only Job claimant/executor. There is no dependency between worker and
+orchestrator, so the units have no ordering cycle.
+
+Polling defaults to two seconds. Failed top-level passes use bounded
+exponential backoff capped at 30 seconds; a successful pass resets the delay.
+SIGTERM sets a graceful stop boundary. Wait deadlines, linked Jobs, approval,
+pause, and cancellation state are durable across service restarts.
+
+Every SQLite connection created by the application installs
+`PRAGMA foreign_keys=ON`, including backend and standalone orchestrator
+processes. Workflow reconciliation commits only short database transitions;
+it never holds a SQLite write transaction while a Job, Android operation, or
+other external process is running. Managed provisioning also allocates Device
+and Runtime IDs above durable historical provisioning IDs so a deleted
+Runtime's snapshot identity is not reused.
+
 Artifact retention is run by
 `tiktok-manager-artifact-cleanup.timer` approximately every six hours. The
 timer is persistent across user-manager downtime and the cleanup command uses
@@ -109,9 +134,11 @@ Useful additional diagnostics:
 
 ```bash
 systemctl --user status tiktok-manager-worker.service
+systemctl --user status tiktok-manager-workflow-orchestrator.service
 systemctl --user status tiktok-manager-artifact-cleanup.timer
 systemctl --user status tiktok-manager-content-cleanup.timer
 journalctl --user -u tiktok-manager-worker.service
+journalctl --user -u tiktok-manager-workflow-orchestrator.service
 journalctl --user -u tiktok-manager-artifact-cleanup.service
 journalctl --user -u tiktok-manager-content-cleanup.service
 ```
