@@ -30,5 +30,6 @@ def create_default_registry() -> HandlerRegistry:
     ):
         registry.register(job_type, execute_backend_job)
     registry.register("content.inspect", execute_backend_job)
+    registry.register("content.thumbnail", execute_backend_job)
     registry.register("content.deliver", execute_backend_job)
     return registry

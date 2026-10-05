@@ -19,6 +19,7 @@ from app.services.content_operation_lock import (
     ContentVersionOperationGuard,
 )
 from app.services.content_storage import ContentStorageError, ContentStorageService
+from app.services.content_jobs import enqueue_content_thumbnail
 from app.services.media_probe import FfprobeInspector, MediaProbeError, ProbedMedia
 
 
@@ -97,6 +98,13 @@ class ContentInspectionService:
                         ) from error
                     self._cancel()
                     self._mark_ready(version, inspected)
+                    try:
+                        enqueue_content_thumbnail(self.session, version)
+                        self.session.commit()
+                    except Exception:
+                        # A thumbnail is optional. Preserve the authoritative ready
+                        # transition; claim-time reconciliation will schedule it.
+                        self.session.rollback()
                     return self.result(version)
                 except ContentProcessingError as error:
                     if (

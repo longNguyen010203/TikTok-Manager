@@ -67,8 +67,12 @@ class ApplicationConfig:
     content_max_upload_bytes: int
     content_max_total_bytes: int
     content_ffprobe_path: Path
+    content_ffmpeg_path: Path
     content_ffprobe_timeout_seconds: int
     content_ffprobe_max_output_bytes: int
+    content_thumbnail_timeout_seconds: int
+    content_cleanup_interval_hours: int
+    content_orphan_grace_hours: int
     content_max_image_dimension: int
     content_max_image_pixels: int
     content_max_image_frames: int
@@ -103,6 +107,9 @@ class ApplicationConfig:
         if (
             self.content_ffprobe_timeout_seconds <= 0
             or self.content_ffprobe_max_output_bytes <= 0
+            or self.content_thumbnail_timeout_seconds <= 0
+            or self.content_cleanup_interval_hours <= 0
+            or self.content_orphan_grace_hours <= 0
             or self.content_max_image_dimension <= 0
             or self.content_max_image_pixels <= 0
             or self.content_max_image_frames <= 0
@@ -139,8 +146,12 @@ def default_application_config(path: Path | None = None) -> ApplicationConfig:
         content_max_upload_bytes=500 * 1024 * 1024,
         content_max_total_bytes=20 * 1024 * 1024 * 1024,
         content_ffprobe_path=Path("/usr/bin/ffprobe"),
+        content_ffmpeg_path=Path("/usr/bin/ffmpeg"),
         content_ffprobe_timeout_seconds=30,
         content_ffprobe_max_output_bytes=1024 * 1024,
+        content_thumbnail_timeout_seconds=30,
+        content_cleanup_interval_hours=24,
+        content_orphan_grace_hours=168,
         content_max_image_dimension=32768,
         content_max_image_pixels=100_000_000,
         content_max_image_frames=500,
@@ -236,11 +247,23 @@ def load_application_config(
             content_ffprobe_path=Path(
                 str(content.get("ffprobe_path", "/usr/bin/ffprobe"))
             ).expanduser(),
+            content_ffmpeg_path=Path(
+                str(content.get("ffmpeg_path", "/usr/bin/ffmpeg"))
+            ).expanduser(),
             content_ffprobe_timeout_seconds=int(
                 content.get("ffprobe_timeout_seconds", 30)
             ),
             content_ffprobe_max_output_bytes=int(
                 content.get("ffprobe_max_output_bytes", 1024 * 1024)
+            ),
+            content_thumbnail_timeout_seconds=int(
+                content.get("thumbnail_timeout_seconds", 30)
+            ),
+            content_cleanup_interval_hours=int(
+                content.get("cleanup_interval_hours", 24)
+            ),
+            content_orphan_grace_hours=int(
+                content.get("orphan_grace_hours", 168)
             ),
             content_max_image_dimension=int(
                 content.get("max_image_dimension", 32768)
@@ -359,6 +382,9 @@ def _with_environment_overrides(config: ApplicationConfig) -> ApplicationConfig:
             content_ffprobe_path=Path(
                 os.getenv("TIKTOK_MANAGER_FFPROBE_PATH", str(config.content_ffprobe_path))
             ),
+            content_ffmpeg_path=Path(
+                os.getenv("TIKTOK_MANAGER_FFMPEG_PATH", str(config.content_ffmpeg_path))
+            ),
             content_ffprobe_timeout_seconds=int(
                 os.getenv(
                     "TIKTOK_MANAGER_FFPROBE_TIMEOUT_SECONDS",
@@ -369,6 +395,24 @@ def _with_environment_overrides(config: ApplicationConfig) -> ApplicationConfig:
                 os.getenv(
                     "TIKTOK_MANAGER_FFPROBE_MAX_OUTPUT_BYTES",
                     str(config.content_ffprobe_max_output_bytes),
+                )
+            ),
+            content_thumbnail_timeout_seconds=int(
+                os.getenv(
+                    "TIKTOK_MANAGER_CONTENT_THUMBNAIL_TIMEOUT_SECONDS",
+                    str(config.content_thumbnail_timeout_seconds),
+                )
+            ),
+            content_cleanup_interval_hours=int(
+                os.getenv(
+                    "TIKTOK_MANAGER_CONTENT_CLEANUP_INTERVAL_HOURS",
+                    str(config.content_cleanup_interval_hours),
+                )
+            ),
+            content_orphan_grace_hours=int(
+                os.getenv(
+                    "TIKTOK_MANAGER_CONTENT_ORPHAN_GRACE_HOURS",
+                    str(config.content_orphan_grace_hours),
                 )
             ),
             content_max_image_dimension=int(
@@ -466,8 +510,12 @@ def _upgrade_automation_defaults(
         "max_upload_bytes": str(defaults.content_max_upload_bytes),
         "max_total_bytes": str(defaults.content_max_total_bytes),
         "ffprobe_path": _quote(defaults.content_ffprobe_path),
+        "ffmpeg_path": _quote(defaults.content_ffmpeg_path),
         "ffprobe_timeout_seconds": str(defaults.content_ffprobe_timeout_seconds),
         "ffprobe_max_output_bytes": str(defaults.content_ffprobe_max_output_bytes),
+        "thumbnail_timeout_seconds": str(defaults.content_thumbnail_timeout_seconds),
+        "cleanup_interval_hours": str(defaults.content_cleanup_interval_hours),
+        "orphan_grace_hours": str(defaults.content_orphan_grace_hours),
         "max_image_dimension": str(defaults.content_max_image_dimension),
         "max_image_pixels": str(defaults.content_max_image_pixels),
         "max_image_frames": str(defaults.content_max_image_frames),
@@ -585,8 +633,12 @@ def _serialize(config: ApplicationConfig) -> str:
             f"max_upload_bytes = {config.content_max_upload_bytes}",
             f"max_total_bytes = {config.content_max_total_bytes}",
             f"ffprobe_path = {_quote(config.content_ffprobe_path)}",
+            f"ffmpeg_path = {_quote(config.content_ffmpeg_path)}",
             f"ffprobe_timeout_seconds = {config.content_ffprobe_timeout_seconds}",
             f"ffprobe_max_output_bytes = {config.content_ffprobe_max_output_bytes}",
+            f"thumbnail_timeout_seconds = {config.content_thumbnail_timeout_seconds}",
+            f"cleanup_interval_hours = {config.content_cleanup_interval_hours}",
+            f"orphan_grace_hours = {config.content_orphan_grace_hours}",
             f"max_image_dimension = {config.content_max_image_dimension}",
             f"max_image_pixels = {config.content_max_image_pixels}",
             f"max_image_frames = {config.content_max_image_frames}",

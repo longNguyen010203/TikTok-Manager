@@ -333,14 +333,16 @@ errors. `(content_asset_id, version_number)` is unique. Migration
 current internal Job and expands the event constraint for processing history.
 Admission creates a version as `processing`; successful authoritative
 inspection changes it to `ready` and atomically selects an appropriate current
-version. Deterministic invalid media becomes `invalid`. `content_variants` reserves the
-same blob-backed model for thumbnails or prepared derivatives but Phase 2 does
-not generate them.
+version. Deterministic invalid media becomes `invalid`. `content_variants`
+stores generated derivatives. Revision `20261005_0017` adds the version's
+nullable unique `thumbnail_job_id` and thumbnail events. The initial thumbnail
+variant pins its source version, profile fingerprint, deduplicated ContentBlob,
+processing state, safe metadata, and safe error.
 
 `content_asset_tags` stores normalized lowercase tags with a composite unique
 key. `content_events` is append-only business history for uploaded, queued,
 processing-started, ready, invalid, metadata-updated, archived, restored,
-deleted, and version-added events.
+deleted, version-added, thumbnail-queued/ready/failed, and delivery events.
 `content_deliveries` pins an immutable ready version and Runtime snapshot to an
 internal delivery Job. Revision `20261004_0016` adds MediaStore intent,
 started/completed timestamps, scoped nullable idempotency, required safe remote
@@ -357,7 +359,10 @@ the storage boundary. The default quota is 500 MiB per upload and 20 GiB of
 unique active/orphaned physical blob bytes. Ready content is not automatically
 evicted. Reconciliation deletes only proven-owned abandoned generated staging
 files, marks proven missing DB blobs, marks unreferenced rows orphaned, and
-reports uncertain filesystem entries without deleting them.
+reports uncertain filesystem entries without deleting them. Daily cleanup
+physically removes only proven-unreferenced orphan blobs after a grace period.
+Soft-deleted, archived, current, and historical versions remain references and
+retain their bytes.
 
 ## Relationships
 

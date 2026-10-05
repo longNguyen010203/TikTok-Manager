@@ -29,10 +29,13 @@ from app.services.content_inspection import ContentProcessingError
 from app.services.content_delivery import ContentDeliveryError, ContentDeliveryService
 from app.services.content_delivery_job_execution import ContentDeliveryJobExecutionService
 from app.services.content_job_execution import ContentJobExecutionService
+from app.services.content_thumbnail import ContentThumbnailError
+from app.services.content_thumbnail_job_execution import ContentThumbnailJobExecutionService
 from app.services.content_jobs import (
     ContentJobValidationError,
     is_content_job_type,
     reconcile_content_inspections,
+    reconcile_content_thumbnails,
 )
 from app.services.content_operation_lock import ContentVersionOperationGuard
 from app.services.device_job_execution import DeviceJobExecutionService
@@ -182,6 +185,9 @@ def claim_job(session: DatabaseSession, payload: JobClaimRequest | None = None) 
     reconcile_content_inspections(
         session, ContentVersionOperationGuard(config.content_inspection_lock_directory)
     )
+    reconcile_content_thumbnails(
+        session, ContentVersionOperationGuard(config.content_inspection_lock_directory)
+    )
     claimed = claim_next_job(session, claimed_by=(payload or JobClaimRequest()).claimed_by)
     if claimed is None:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -295,6 +301,10 @@ def execute_job(job_id: JobId, session: DatabaseSession, claim_token: ClaimToken
         if is_content_job_type(job.job_type):
             if job.job_type == "content.inspect":
                 result = ContentJobExecutionService(session).execute(job, claim_token, attempt)
+            elif job.job_type == "content.thumbnail":
+                result = ContentThumbnailJobExecutionService(session).execute(
+                    job, claim_token, attempt
+                )
             else:
                 result = ContentDeliveryJobExecutionService(
                     session, screen_manager=screen_process_manager
@@ -319,6 +329,14 @@ def execute_job(job_id: JobId, session: DatabaseSession, claim_token: ClaimToken
                 "message": error.safe_message,
                 "retryable": error.retryable,
             },
+        ) from error
+    except ContentThumbnailError as error:
+        code = 409 if error.code in {
+            "CONTENT_THUMBNAIL_BUSY", "CONTENT_PROCESSING_CANCELLED"
+        } else (503 if error.retryable else 422)
+        raise HTTPException(
+            status_code=code,
+            detail={"code": error.code, "message": error.safe_message, "retryable": error.retryable},
         ) from error
     except ContentDeliveryError as error:
         code = 409 if error.code in {

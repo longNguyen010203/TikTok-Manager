@@ -52,6 +52,7 @@ class ContentAssetRead(BaseModel):
     status: ContentAssetStatus
     tags: list[str]
     current_version: ContentVersionRead | None
+    thumbnail_available: bool = False
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None

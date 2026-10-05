@@ -93,3 +93,18 @@ def test_content_deliver_is_registered_with_exact_runtime_target() -> None:
         "runtime_id": 8,
         "status": "succeeded",
     }
+
+
+def test_content_thumbnail_is_registered_without_runtime_target() -> None:
+    class Client:
+        def execute_job(self, job_id, claim_token, attempt):
+            return {"content_variant_id": 13, "status": "ready"}
+
+    execution = JobExecutionContext(
+        6, "content.thumbnail", None, None,
+        {"content_asset_id": 9, "content_asset_version_id": 11, "content_variant_id": 13},
+        1, "t" * 32, datetime.now(timezone.utc), Client(), Event(),
+    )
+    assert create_default_registry().dispatch(execution) == {
+        "content_variant_id": 13, "status": "ready"
+    }

@@ -10,7 +10,10 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.models import ContentAsset, ContentAssetTag, ContentAssetVersion, ContentDelivery
+from app.models import (
+    ContentAsset, ContentAssetTag, ContentAssetVersion, ContentDelivery, ContentVariant,
+)
+from app.services.content_jobs import THUMBNAIL_PROFILE_FINGERPRINT
 from app.schemas.content import (
     ContentAssetDetail,
     ContentAssetList,
@@ -85,6 +88,14 @@ def _asset_read(asset: ContentAsset, *, detail: bool = False):
         status=asset.status,
         tags=sorted(tag.tag for tag in asset.tags),
         current_version=_version_read(current) if current is not None else None,
+        thumbnail_available=bool(
+            current is not None and any(
+                variant.variant_kind == "thumbnail"
+                and variant.profile_fingerprint == THUMBNAIL_PROFILE_FINGERPRINT
+                and variant.status == "ready" and variant.blob_id is not None
+                for variant in current.variants
+            )
+        ),
         created_at=asset.created_at,
         updated_at=asset.updated_at,
         archived_at=asset.archived_at,
@@ -211,6 +222,7 @@ def list_content(
             statement.options(
                 selectinload(ContentAsset.tags),
                 selectinload(ContentAsset.versions).selectinload(ContentAssetVersion.blob),
+                selectinload(ContentAsset.versions).selectinload(ContentAssetVersion.variants),
                 selectinload(ContentAsset.deliveries),
             )
             .order_by(ContentAsset.created_at.desc(), ContentAsset.id.desc())
@@ -408,4 +420,47 @@ def download_content(content_id: ContentId, session: DatabaseSession) -> FileRes
         media_type=version.detected_mime_type,
         filename=version.original_filename,
         headers={"X-Content-Type-Options": "nosniff"},
+    )
+
+
+@router.get("/{content_id}/thumbnail")
+def download_content_thumbnail(
+    content_id: ContentId, session: DatabaseSession
+) -> FileResponse:
+    try:
+        asset = _service().get(session, content_id)
+        if asset.status == "deleted":
+            raise HTTPException(
+                status_code=410,
+                detail={"code": "CONTENT_DELETED", "message": "Content was deleted"},
+            )
+        version = next(
+            (item for item in asset.versions if item.id == asset.current_version_id), None
+        )
+        variant = next(
+            (
+                item for item in (version.variants if version is not None else [])
+                if item.variant_kind == "thumbnail"
+                and item.profile_fingerprint == THUMBNAIL_PROFILE_FINGERPRINT
+                and item.status == "ready" and item.blob is not None
+            ),
+            None,
+        )
+        if variant is None:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "CONTENT_THUMBNAIL_UNAVAILABLE",
+                    "message": "Content thumbnail is unavailable",
+                },
+            )
+        path = _service().storage.path_for(variant.blob)
+    except (ContentStorageError, ContentAssetError) as error:
+        _raise_content_error(error)
+    return FileResponse(
+        path,
+        media_type="image/jpeg",
+        filename=f"content-{content_id}-thumbnail.jpg",
+        content_disposition_type="inline",
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=300"},
     )

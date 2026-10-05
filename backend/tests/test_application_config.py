@@ -347,6 +347,10 @@ def test_user_service_uses_native_user_manager_and_contains_no_secrets() -> None
     assert "credentials.key" not in service
     assert "WorkingDirectory=@PROJECT_ROOT@/backend" in service
     assert "@PROJECT_ROOT@/backend/.venv/bin/python" in service
+    # A unit wanted by default.target must not also order itself after that
+    # target. The inverse ordering creates a cycle once the worker orders
+    # itself after the backend.
+    assert "After=default.target" not in service
 
     installer = (
         Path(__file__).parents[2] / "scripts/install-tiktok-manager.sh"
@@ -355,6 +359,7 @@ def test_user_service_uses_native_user_manager_and_contains_no_secrets() -> None
     assert "app.bootstrap --ensure-key" in installer
     assert "systemctl --user enable --now" in installer
     assert "Configured ffprobe is missing or unsafe" in installer
+    assert "Configured ffmpeg is missing or unsafe" in installer
 
 
 def test_worker_and_artifact_cleanup_service_assets_are_production_safe() -> None:
@@ -367,6 +372,12 @@ def test_worker_and_artifact_cleanup_service_assets_are_production_safe() -> Non
     ).read_text(encoding="utf-8")
     timer = (
         root / "deploy/tiktok-manager-artifact-cleanup.timer"
+    ).read_text(encoding="utf-8")
+    content_cleanup = (
+        root / "deploy/tiktok-manager-content-cleanup.service"
+    ).read_text(encoding="utf-8")
+    content_timer = (
+        root / "deploy/tiktok-manager-content-cleanup.timer"
     ).read_text(encoding="utf-8")
     installer = (root / "scripts/install-tiktok-manager.sh").read_text(
         encoding="utf-8"
@@ -385,3 +396,7 @@ def test_worker_and_artifact_cleanup_service_assets_are_production_safe() -> Non
     assert "Persistent=true" in timer
     assert "enable --now tiktok-manager-worker.service" in installer
     assert "enable --now tiktok-manager-artifact-cleanup.timer" in installer
+    assert "python -m app.content_cleanup" in content_cleanup
+    assert "OnUnitActiveSec=@CONTENT_CLEANUP_INTERVAL@h" in content_timer
+    assert "Persistent=true" in content_timer
+    assert "enable --now tiktok-manager-content-cleanup.timer" in installer

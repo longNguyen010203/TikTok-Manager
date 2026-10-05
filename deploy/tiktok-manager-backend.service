@@ -1,6 +1,5 @@
 [Unit]
 Description=TikTok Manager local backend
-After=default.target
 
 [Service]
 Type=simple

@@ -61,6 +61,15 @@ class ContentReconciliationResult:
     uncertain_files: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class ContentCleanupResult:
+    removed_staging_files: int
+    deleted_orphan_blobs: int
+    bytes_reclaimed: int
+    missing_blobs: int
+    uncertain_files: tuple[str, ...]
+
+
 class ContentStorageService:
     """Manage only generated files below one private content root."""
 
@@ -319,62 +328,117 @@ class ContentStorageService:
     ) -> ContentReconciliationResult:
         """Repair proven metadata state and report, but never delete, uncertain blobs."""
         current = now or datetime.now(timezone.utc)
+        with self.maintenance_lock():
+            return self._reconcile_locked(session, current=current, staging_age=staging_age)
+
+    def _reconcile_locked(
+        self, session: Session, *, current: datetime, staging_age: timedelta
+    ) -> ContentReconciliationResult:
         removed = missing = orphaned = 0
         uncertain: list[str] = []
-        with self.maintenance_lock():
-            for entry in self.staging.iterdir():
-                try:
-                    info = entry.lstat()
-                except FileNotFoundError:
-                    continue
-                age = current.timestamp() - info.st_mtime
-                if (
-                    _STAGING_KEY.fullmatch(entry.name)
-                    and stat.S_ISREG(info.st_mode)
-                    and not stat.S_ISLNK(info.st_mode)
-                    and info.st_uid == os.getuid()
-                    and stat.S_IMODE(info.st_mode) & 0o077 == 0
-                    and age >= staging_age.total_seconds()
-                ):
-                    entry.unlink()
-                    removed += 1
-                else:
-                    uncertain.append(f"staging:{entry.name}")
+        for entry in self.staging.iterdir():
+            try:
+                info = entry.lstat()
+            except FileNotFoundError:
+                continue
+            age = current.timestamp() - info.st_mtime
+            if (
+                _STAGING_KEY.fullmatch(entry.name)
+                and stat.S_ISREG(info.st_mode)
+                and not stat.S_ISLNK(info.st_mode)
+                and info.st_uid == os.getuid()
+                and stat.S_IMODE(info.st_mode) & 0o077 == 0
+                and age >= staging_age.total_seconds()
+            ):
+                entry.unlink()
+                removed += 1
+            else:
+                uncertain.append(f"staging:{entry.name}")
 
-            rows = list(session.scalars(select(ContentBlob)))
-            known = {row.storage_key for row in rows}
-            referenced = set(
-                session.scalars(select(ContentAssetVersion.blob_id)).all()
-            ) | set(
+        rows = list(session.scalars(select(ContentBlob)))
+        known = {row.storage_key for row in rows}
+        referenced = set(session.scalars(select(ContentAssetVersion.blob_id)).all()) | {
+            value for value in session.scalars(select(ContentVariant.blob_id)).all()
+            if value is not None
+        }
+        for blob in rows:
+            path = self.blobs / blob.storage_key
+            try:
+                info = path.lstat()
+            except FileNotFoundError:
+                if blob.status in {"active", "orphaned"}:
+                    blob.status = "missing"
+                    blob.verified_at = current
+                    missing += 1
+                continue
+            if (
+                stat.S_ISLNK(info.st_mode)
+                or not stat.S_ISREG(info.st_mode)
+                or info.st_uid != os.getuid()
+                or stat.S_IMODE(info.st_mode) & 0o077
+                or info.st_size != blob.size_bytes
+            ):
+                uncertain.append(f"blob:{blob.storage_key}")
+            elif blob.status == "active" and blob.id not in referenced:
+                blob.status = "orphaned"
+                blob.verified_at = current
+                orphaned += 1
+        for entry in self.blobs.iterdir():
+            if entry.name not in known:
+                uncertain.append(f"blob:{entry.name}")
+        session.commit()
+        return ContentReconciliationResult(removed, missing, orphaned, tuple(sorted(uncertain)))
+
+    def cleanup(
+        self,
+        session: Session,
+        *,
+        now: datetime | None = None,
+        staging_age: timedelta = timedelta(hours=24),
+        orphan_grace: timedelta = timedelta(days=7),
+        wait: bool = False,
+    ) -> ContentCleanupResult:
+        """Reclaim only proven-unreferenced generated blobs after a grace period.
+
+        Ready, archived, deleted, historical-version, variant, processing, and
+        delivery references all protect their blob through the FK/reference set.
+        Unknown files are reported and never removed.
+        """
+        current = now or datetime.now(timezone.utc)
+        deleted = released = 0
+        cutoff = current - orphan_grace
+        with self.maintenance_lock(wait=wait):
+            reconciliation = self._reconcile_locked(
+                session, current=current, staging_age=staging_age
+            )
+            referenced = set(session.scalars(select(ContentAssetVersion.blob_id)).all()) | {
                 value for value in session.scalars(select(ContentVariant.blob_id)).all()
                 if value is not None
-            )
-            for blob in rows:
-                path = self.blobs / blob.storage_key
-                try:
-                    info = path.lstat()
-                except FileNotFoundError:
-                    if blob.status in {"active", "orphaned"}:
-                        blob.status = "missing"
-                        blob.verified_at = current
-                        missing += 1
+            }
+            candidates = list(session.scalars(select(ContentBlob).where(
+                ContentBlob.status == "orphaned",
+                ContentBlob.verified_at.is_not(None),
+                ContentBlob.verified_at <= cutoff,
+            )).all())
+            for blob in candidates:
+                if blob.id in referenced:
                     continue
-                if (
-                    stat.S_ISLNK(info.st_mode)
-                    or not stat.S_ISREG(info.st_mode)
-                    or info.st_uid != os.getuid()
-                    or stat.S_IMODE(info.st_mode) & 0o077
-                    or info.st_size != blob.size_bytes
-                ):
-                    uncertain.append(f"blob:{blob.storage_key}")
-                elif blob.status == "active" and blob.id not in referenced:
-                    blob.status = "orphaned"
-                    orphaned += 1
-            for entry in self.blobs.iterdir():
-                if entry.name not in known:
-                    uncertain.append(f"blob:{entry.name}")
+                try:
+                    self.remove_installed(blob.storage_key)
+                except ContentStorageError:
+                    continue
+                blob.status = "deleted"
+                blob.verified_at = current
+                deleted += 1
+                released += blob.size_bytes
             session.commit()
-        return ContentReconciliationResult(removed, missing, orphaned, tuple(sorted(uncertain)))
+        return ContentCleanupResult(
+            removed_staging_files=reconciliation.removed_staging_files,
+            deleted_orphan_blobs=deleted,
+            bytes_reclaimed=released,
+            missing_blobs=reconciliation.missing_blobs,
+            uncertain_files=reconciliation.uncertain_files,
+        )
 
     def prepare(self) -> None:
         self._reject_symlink_components(self.root)

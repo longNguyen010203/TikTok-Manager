@@ -148,6 +148,7 @@ export const AUTOMATION_ACTION_TYPES = [
 
 const GENERIC_JOB_ACTION_LABELS: Record<string, string> = {
   "content.inspect": "Inspect Content",
+  "content.thumbnail": "Generate Thumbnail",
   "content.deliver": "Deliver Content",
 };
 

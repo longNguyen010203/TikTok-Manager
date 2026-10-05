@@ -644,6 +644,10 @@ endpoint accepts a host path or storage key, and responses expose neither.
   streams it with a sanitized filename, known MIME, and `nosniff`. Processing or
   invalid assets without a ready current version return `409` with
   `CONTENT_NOT_READY`. Deleted content returns `410`.
+- `GET /content/{id}/thumbnail` returns the current ready version's bounded
+  JPEG thumbnail with `nosniff`. Missing, processing, or failed thumbnails
+  return `404 CONTENT_THUMBNAIL_UNAVAILABLE`; storage keys and paths are never
+  exposed.
 - `POST /content/{id}/deliver` accepts an exact `runtime_id`, optional ready
   `version_id`, optional display filename, `import_media`, `allow_repeat`, and
   optional `idempotency_key`. It returns the durable Delivery and internal Job
@@ -663,6 +667,12 @@ container, rates, channel/audio state, rotation/orientation, frame count, and
 animation state where applicable. They never contain paths, commands, raw
 ffprobe JSON/stderr, or uploaded bytes.
 
+`content.thumbnail` is server-created only and has no Runtime target. It pins
+an exact ready visual version and generated variant ID, and reuses claims,
+leases, retries, cancellation, and stale-worker fencing. Thumbnail failure does
+not change source readiness. It is not accepted by public `POST /jobs` or shown
+in the Device Automation selector.
+
 `content.deliver` is also server-created only, but requires one exact Runtime.
 Its payload contains only `content_delivery_id`; the pinned version, verified
 blob, generated destination, and database-owned ADB serial are resolved again
@@ -673,9 +683,9 @@ Runtime operation lock and never changes lifecycle truth.
 
 Initial signatures are PNG, JPEG, WebP, MP4, MOV, WebM, MP3, M4A/AAC, WAV, and
 Ogg audio. Empty, oversized, executable, archive, unsupported, obvious malformed,
-and inconsistent MIME/extension uploads are rejected. Full media decoding,
-Thumbnail variants, transcoding, promotion, and application-specific posting
-remain outside this phase.
+and inconsistent MIME/extension uploads are rejected. Full media decoding is
+authoritative before readiness. General transcoding, promotion, and
+application-specific posting remain outside this phase.
 
 ## Device object
 

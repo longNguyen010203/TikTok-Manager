@@ -108,13 +108,18 @@ Manager host lifecycle:
 - Failed replacement inspection leaves the previous ready current version in
   service. Processing recovery can recreate a missing or retryably failed
   inspection Job from the durable version pointer.
+- Ready visual versions reconcile to an internal `content.thumbnail` Job.
+  Pillow or constrained trusted ffmpeg creates one bounded card profile as a
+  deduplicated ContentBlob. Variant failure does not invalidate the source.
 - Content delivery pins one ready immutable version and exact Runtime before
   creating an internal `content.deliver` Job. The backend verifies the private
   ContentBlob and passes a typed managed-file source to AndroidAutomationService;
   workers receive IDs only. Delivery shares the Runtime operation lock and can
   write only below `/sdcard/Download/TikTokManager/`.
-- Transcoding, thumbnails, variants, and application UI automation remain
-  separate later operations.
+- Daily content maintenance reclaims only stale generated staging and
+  grace-aged proven-unreferenced blobs. Content has no age expiry; ready and
+  historically referenced bytes are not quota-evicted.
+- General transcoding and application UI automation remain later operations.
 - Device Jobs use a typed registry and a lease-protected backend execution
   boundary. Workers receive complete execution context but never execute ADB;
   every heartbeat and terminal mutation is fenced by a hashed claim token and

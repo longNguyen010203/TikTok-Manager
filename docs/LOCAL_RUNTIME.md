@@ -46,7 +46,8 @@ artifact-related environment exports.
 
 The optional `[content]` section contains the non-secret reusable content root,
 500 MiB single-upload limit, 20 GiB unique-blob quota, image decode limits,
-inspection lock directory, and absolute ffprobe path/time/output bounds.
+inspection lock directory, absolute ffprobe path/time/output bounds, absolute
+ffmpeg path, thumbnail timeout, daily cleanup interval, and orphan grace.
 Missing keys are added with defaults without replacing operator values. Content
 storage is independent from automation artifact storage and retention: ready
 content is never evicted automatically to satisfy quota.
@@ -60,7 +61,8 @@ The installer checks that the configured path is absolute, regular,
 non-symlinked, and executable; it does not silently install OS packages. Images
 can be decoded with Pillow, but video/audio inspection reports the retryable
 `CONTENT_FFPROBE_UNAVAILABLE` error when the configured executable is missing or
-unsafe.
+unsafe. The installer separately validates `/usr/bin/ffmpeg`; it is used only
+for bounded local video-frame thumbnail generation.
 
 Back up `credentials.key` separately with access controls equivalent to the
 database backup. A database backup containing encrypted proxy credentials can
@@ -99,14 +101,19 @@ Artifact retention is run by
 `tiktok-manager-artifact-cleanup.timer` approximately every six hours. The
 timer is persistent across user-manager downtime and the cleanup command uses
 a nonblocking cross-process lock, so overlapping cleanup cannot occur.
+Reusable-content cleanup runs independently through
+`tiktok-manager-content-cleanup.timer` approximately every 24 hours and never
+age-expires or quota-evicts ready content.
 
 Useful additional diagnostics:
 
 ```bash
 systemctl --user status tiktok-manager-worker.service
 systemctl --user status tiktok-manager-artifact-cleanup.timer
+systemctl --user status tiktok-manager-content-cleanup.timer
 journalctl --user -u tiktok-manager-worker.service
 journalctl --user -u tiktok-manager-artifact-cleanup.service
+journalctl --user -u tiktok-manager-content-cleanup.service
 ```
 
 Artifact files are operational cache/output data rather than database backup

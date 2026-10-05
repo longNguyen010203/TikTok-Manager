@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodic TikTok Manager reusable content cleanup
+
+[Timer]
+OnBootSec=20min
+OnUnitActiveSec=@CONTENT_CLEANUP_INTERVAL@h
+Persistent=true
+RandomizedDelaySec=10min
+Unit=tiktok-manager-content-cleanup.service
+
+[Install]
+WantedBy=timers.target

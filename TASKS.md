@@ -711,7 +711,7 @@ Acceptance criteria:
 ---
 
 ## TIK-021
-Status: IN PROGRESS
+Status: DONE
 Owner: Codex + Antigravity
 Type: Backend / Content Pipeline / Frontend
 

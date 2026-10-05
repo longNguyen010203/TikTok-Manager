@@ -16,6 +16,7 @@ from app.models import (
     ContentAssetVersion,
     ContentDelivery,
     ContentEvent,
+    ContentVariant,
 )
 from app.models.timestamps import utc_now
 from app.services.content_storage import ContentStorageError, ContentStorageService
@@ -218,6 +219,9 @@ class ContentAssetService:
             .options(
                 selectinload(ContentAsset.tags),
                 selectinload(ContentAsset.versions).selectinload(ContentAssetVersion.blob),
+                selectinload(ContentAsset.versions)
+                .selectinload(ContentAssetVersion.variants)
+                .selectinload(ContentVariant.blob),
             )
         )
         if asset is None:

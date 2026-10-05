@@ -66,6 +66,7 @@ export interface ContentAsset {
   status: ContentAssetStatus;
   tags: string[];
   current_version?: ContentVersion | null;
+  thumbnail_available: boolean;
   created_at: string;
   updated_at: string;
   archived_at?: string | null;
@@ -164,7 +165,7 @@ export const CONTENT_ERROR_MESSAGES: Record<string, string> = {
   CONTENT_BLOB_MISSING:
     "Content media file is missing from backend storage.",
   CONTENT_BLOB_INVALID:
-    "Media file failed inspection or is not a supported media format.",
+    "Stored media failed its integrity check.",
   CONTENT_STORAGE_FULL:
     "Storage limit reached. Please archive or remove older content.",
   CONTENT_DELIVERY_DUPLICATE:
@@ -180,6 +181,19 @@ export const CONTENT_ERROR_MESSAGES: Record<string, string> = {
     "Device runtime is stopped. Start the device before delivering content.",
   RUNTIME_SCREEN_ACTIVE:
     "Close the active device screen before delivering content.",
+  CONTENT_IMAGE_INVALID: "The image is corrupt or cannot be decoded.",
+  CONTENT_IMAGE_TOO_LARGE: "The image dimensions or frame count exceed safe limits.",
+  CONTENT_MEDIA_CORRUPT: "The media is corrupt or incomplete.",
+  CONTENT_MEDIA_UNSUPPORTED: "The media codec or container is unsupported.",
+  CONTENT_METADATA_INVALID: "The media metadata is invalid or outside safe limits.",
+  CONTENT_FFPROBE_UNAVAILABLE: "Media inspection is temporarily unavailable.",
+  CONTENT_FFPROBE_TIMEOUT: "Media inspection timed out.",
+  CONTENT_PROCESSING_FAILED: "Media processing failed temporarily.",
+  CONTENT_VERSION_NOT_FOUND: "The requested content version was not found.",
+  CONTENT_THUMBNAIL_UNAVAILABLE: "A thumbnail is not available for this content.",
+  CONTENT_FFMPEG_UNAVAILABLE: "Video thumbnail generation is temporarily unavailable.",
+  CONTENT_FFMPEG_TIMEOUT: "Video thumbnail generation timed out.",
+  CONTENT_THUMBNAIL_FAILED: "Thumbnail generation failed.",
 };
 
 export function getContentErrorMessage(

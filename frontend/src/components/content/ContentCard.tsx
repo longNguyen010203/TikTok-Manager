@@ -56,10 +56,10 @@ export function ContentCard({
   onSelect,
   onDeliver,
 }: ContentCardProps) {
-  const [imageError, setImageError] = useState(false);
+  const [failedThumbnail, setFailedThumbnail] = useState<string | null>(null);
   const version = asset.current_version;
   const isReady = asset.status === "ready" && version?.processing_status === "ready";
-  const downloadUrl = contentService.getDownloadUrl(asset.id);
+  const thumbnailUrl = contentService.getThumbnailUrl(asset.id);
 
   return (
     <div
@@ -68,12 +68,13 @@ export function ContentCard({
     >
       {/* Media Preview Box */}
       <div className="relative aspect-video w-full bg-slate-900 flex items-center justify-center overflow-hidden">
-        {asset.asset_type === "image" && isReady && !imageError ? (
+        {(asset.asset_type === "image" || asset.asset_type === "video") &&
+        isReady && asset.thumbnail_available && failedThumbnail !== thumbnailUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={downloadUrl}
+            src={thumbnailUrl}
             alt={asset.display_name}
-            onError={() => setImageError(true)}
+            onError={() => setFailedThumbnail(thumbnailUrl)}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
             loading="lazy"
           />

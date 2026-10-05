@@ -117,6 +117,30 @@ def test_upload_schedules_runtime_free_internal_inspection_and_executes(
     downloaded = content_job_api.get(f"/content/{asset['id']}/download")
     assert downloaded.status_code == 200 and downloaded.content == content
 
+    with content_job_api.app.state.content_sessions() as session:
+        version = session.get(ContentAssetVersion, asset["versions"][0]["id"])
+        thumbnail_job = session.get(Job, version.thumbnail_job_id)
+        assert thumbnail_job.job_type == "content.thumbnail"
+        assert thumbnail_job.runtime_id is None
+        thumbnail_job.scheduled_at = None
+        session.commit()
+    thumbnail_claim = content_job_api.post("/jobs/claim").json()
+    assert thumbnail_claim["job_type"] == "content.thumbnail"
+    thumbnail_result = content_job_api.post(
+        f"/jobs/{thumbnail_claim['id']}/execute",
+        headers=claim_headers(thumbnail_claim), json={},
+    ).json()["result"]
+    content_job_api.post(
+        f"/jobs/{thumbnail_claim['id']}/succeed",
+        headers=claim_headers(thumbnail_claim), json={"result": thumbnail_result},
+    )
+    thumbnail = content_job_api.get(f"/content/{asset['id']}/thumbnail")
+    assert thumbnail.status_code == 200
+    assert thumbnail.headers["content-type"] == "image/jpeg"
+    assert thumbnail.headers["x-content-type-options"] == "nosniff"
+    assert thumbnail.headers["content-disposition"].startswith("inline;")
+    assert thumbnail.content.startswith(b"\xff\xd8\xff")
+
 
 def test_replacement_switches_only_after_success_and_failed_one_preserves_download(
     content_job_api: TestClient,

@@ -9,7 +9,6 @@ import {
   Plus,
   Search,
 } from "lucide-react";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { ContentCard } from "@/components/content/ContentCard";
 import { ContentToolbar } from "@/components/content/ContentToolbar";
 import { ContentPagination } from "@/components/content/ContentPagination";
@@ -193,8 +192,7 @@ export default function ContentPage() {
   const archivedCount = assets.filter((a) => a.status === "archived").length;
 
   return (
-    <DashboardLayout>
-      <div className="space-y-6">
+    <div className="space-y-6">
         {/* Page Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -439,7 +437,6 @@ export default function ContentPage() {
             onQueueRefresh={() => {}}
           />
         )}
-      </div>
-    </DashboardLayout>
+    </div>
   );
 }

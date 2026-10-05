@@ -17,6 +17,8 @@ backend_unit_path="${unit_dir}/tiktok-manager-backend.service"
 worker_unit_path="${unit_dir}/tiktok-manager-worker.service"
 cleanup_service_path="${unit_dir}/tiktok-manager-artifact-cleanup.service"
 cleanup_timer_path="${unit_dir}/tiktok-manager-artifact-cleanup.timer"
+content_cleanup_service_path="${unit_dir}/tiktok-manager-content-cleanup.service"
+content_cleanup_timer_path="${unit_dir}/tiktok-manager-content-cleanup.timer"
 user_runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 
 if [[ ! -S "${user_runtime_dir}/bus" ]]; then
@@ -48,6 +50,16 @@ if [[ "${configured_ffprobe}" != /* || ! -f "${configured_ffprobe}" || \
       -L "${configured_ffprobe}" || ! -x "${configured_ffprobe}" ]]; then
   echo "Configured ffprobe is missing or unsafe: ${configured_ffprobe}" >&2
   echo "Install ffmpeg/ffprobe and configure an absolute trusted executable path." >&2
+  exit 1
+fi
+configured_ffmpeg="$(
+  cd "${backend_dir}"
+  "${venv_dir}/bin/python" -c \
+    'from app.config import load_application_config; print(load_application_config().content_ffmpeg_path)'
+)"
+if [[ "${configured_ffmpeg}" != /* || ! -f "${configured_ffmpeg}" || \
+      -L "${configured_ffmpeg}" || ! -x "${configured_ffmpeg}" ]]; then
+  echo "Configured ffmpeg is missing or unsafe: ${configured_ffmpeg}" >&2
   exit 1
 fi
 
@@ -85,13 +97,27 @@ cleanup_interval="$(
 sed "s|@CLEANUP_INTERVAL@|${cleanup_interval}|g" \
   "${project_root}/deploy/tiktok-manager-artifact-cleanup.timer" \
   > "${cleanup_timer_path}"
+sed "s|@PROJECT_ROOT@|${escaped_root}|g" \
+  "${project_root}/deploy/tiktok-manager-content-cleanup.service" \
+  > "${content_cleanup_service_path}"
+content_cleanup_interval="$(
+  cd "${backend_dir}"
+  "${venv_dir}/bin/python" -c \
+    'from app.config import load_application_config; print(load_application_config().content_cleanup_interval_hours)'
+)"
+sed "s|@CONTENT_CLEANUP_INTERVAL@|${content_cleanup_interval}|g" \
+  "${project_root}/deploy/tiktok-manager-content-cleanup.timer" \
+  > "${content_cleanup_timer_path}"
 chmod 600 "${backend_unit_path}" "${worker_unit_path}" \
-  "${cleanup_service_path}" "${cleanup_timer_path}"
+  "${cleanup_service_path}" "${cleanup_timer_path}" \
+  "${content_cleanup_service_path}" "${content_cleanup_timer_path}"
 
 systemctl --user daemon-reload
 systemctl --user enable --now tiktok-manager-backend.service
 systemctl --user enable --now tiktok-manager-worker.service
 systemctl --user enable --now tiktok-manager-artifact-cleanup.timer
+systemctl --user enable --now tiktok-manager-content-cleanup.timer
 systemctl --user --no-pager status tiktok-manager-backend.service
 systemctl --user --no-pager status tiktok-manager-worker.service
 systemctl --user --no-pager status tiktok-manager-artifact-cleanup.timer
+systemctl --user --no-pager status tiktok-manager-content-cleanup.timer

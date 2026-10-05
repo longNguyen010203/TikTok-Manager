@@ -467,7 +467,7 @@ export function ContentDeliverModal({
                   <div className="animate-pulse h-10 rounded-lg bg-slate-100" />
                 ) : runtimes.length === 0 ? (
                   <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-                    No active Redroid runtimes found. Please create or start a device first.
+                    No managed Redroid runtimes found. Please create a device first.
                   </div>
                 ) : (
                   <select

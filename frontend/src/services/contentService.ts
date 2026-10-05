@@ -88,6 +88,10 @@ class ContentService {
     return `${this.baseUrl}/content/${contentId}/download`;
   }
 
+  getThumbnailUrl(contentId: number): string {
+    return `${this.baseUrl}/content/${contentId}/thumbnail`;
+  }
+
   async listContent(
     params?: ContentAssetListParams
   ): Promise<ContentAssetList> {

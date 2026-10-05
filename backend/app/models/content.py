@@ -51,6 +51,9 @@ CONTENT_EVENT_TYPES = (
     "delivery_failed",
     "delivery_cancelled",
     "delivery_repeated",
+    "thumbnail_queued",
+    "thumbnail_ready",
+    "thumbnail_failed",
 )
 
 
@@ -208,6 +211,9 @@ class ContentAssetVersion(Base):
         ForeignKey("job_artifacts.id", ondelete="SET NULL"), index=True
     )
     inspection_job_id: Mapped[int | None] = mapped_column(
+        ForeignKey("jobs.id", ondelete="SET NULL"), unique=True, index=True
+    )
+    thumbnail_job_id: Mapped[int | None] = mapped_column(
         ForeignKey("jobs.id", ondelete="SET NULL"), unique=True, index=True
     )
     width: Mapped[int | None] = mapped_column(Integer)
@@ -372,7 +378,8 @@ class ContentEvent(Base):
             "'ready', 'invalid', 'metadata_updated', 'archived', "
             "'restored', 'deleted', 'version_added', 'delivery_requested', "
             "'delivery_started', 'delivered', 'delivery_failed', "
-            "'delivery_cancelled', 'delivery_repeated')",
+            "'delivery_cancelled', 'delivery_repeated', 'thumbnail_queued', "
+            "'thumbnail_ready', 'thumbnail_failed')",
             name="ck_content_events_type",
         ),
         CheckConstraint(
