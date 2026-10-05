@@ -750,3 +750,48 @@ Acceptance criteria:
 - Artifact and content retention responsibilities are clearly separated.
 - Existing Jobs, device automation, networking, provisioning, and lifecycle remain unaffected.
 - Backend tests, frontend build, and live disposable-device verification pass.
+
+---
+
+## TIK-022
+Status: IN PROGRESS
+Owner: Codex + Antigravity
+Type: Backend / Worker / Workflow / Frontend
+
+Title:
+Add Workflow Execution Orchestration
+
+Dependencies:
+- TIK-020
+- TIK-021
+
+Scope:
+- backend/
+- workers/
+- frontend/
+- docs/
+
+Phases:
+1. Workflow architecture
+2. Workflow backend foundation
+3. Workflow execution engine
+4. Runtime/content integration
+5. Workflow frontend
+6. Recovery, cancellation, and production validation
+7. Final verification
+
+Acceptance criteria:
+- Multi-step workflows can be defined and executed.
+- Workflow steps execute in deterministic dependency order.
+- Existing Jobs remain the unit of execution.
+- Workflow execution does not bypass Job claim/lease/retry/cancellation rules.
+- Steps can target exact Runtime, Account, and ContentAsset/version where required.
+- Failed steps do not silently advance the workflow.
+- Retry can occur at step level without replaying completed steps.
+- Workflow state survives backend and worker restarts.
+- Workflows can pause for manual approval and resume safely.
+- Cancellation propagates safely to active/pending workflow steps.
+- Workflow history and step-level audit trail are durable.
+- Existing device automation and content pipelines remain unaffected.
+- Frontend can create, monitor, pause/resume, cancel, and inspect workflows.
+- Backend, worker, frontend build, and live disposable-runtime verification pass.
