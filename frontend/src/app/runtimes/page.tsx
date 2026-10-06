@@ -18,6 +18,7 @@ import { RuntimeEditModal } from "@/components/runtimes/RuntimeEditModal";
 import { RuntimeDeleteDialog } from "@/components/runtimes/RuntimeDeleteDialog";
 import { RuntimeNetworkModal } from "@/components/runtimes/RuntimeNetworkModal";
 import { DeviceAutomationModal } from "@/components/devices/DeviceAutomationModal";
+import { RuntimeAppsModal } from "@/components/runtimes/RuntimeAppsModal";
 import {
   Cpu,
   CheckCircle2,
@@ -47,6 +48,7 @@ export default function RuntimesPage() {
   const [deletingRuntime, setDeletingRuntime] = useState<Runtime | null>(null);
   const [networkModalRuntime, setNetworkModalRuntime] = useState<Runtime | null>(null);
   const [automationModalRuntime, setAutomationModalRuntime] = useState<Runtime | null>(null);
+  const [appsModalRuntime, setAppsModalRuntime] = useState<Runtime | null>(null);
 
   // Banner notifications
   const [bannerMessage, setBannerMessage] = useState<{
@@ -362,6 +364,7 @@ export default function RuntimesPage() {
           onDeleteRuntime={(rt) => setDeletingRuntime(rt)}
           onConfigureNetwork={(rt) => setNetworkModalRuntime(rt)}
           onRunAutomation={(rt) => setAutomationModalRuntime(rt)}
+          onViewApps={(rt) => setAppsModalRuntime(rt)}
         />
 
         {/* Pagination UI */}
@@ -423,6 +426,20 @@ export default function RuntimesPage() {
           device={devicesMap[automationModalRuntime.device_id] || null}
           isOpen={automationModalRuntime !== null}
           onClose={() => setAutomationModalRuntime(null)}
+        />
+      )}
+
+      {/* Runtime Apps & Publishing Readiness Modal */}
+      {appsModalRuntime && (
+        <RuntimeAppsModal
+          key={`apps-modal-${appsModalRuntime.id}`}
+          runtime={appsModalRuntime}
+          device={devicesMap[appsModalRuntime.device_id] || null}
+          isOpen={appsModalRuntime !== null}
+          onClose={() => {
+            setAppsModalRuntime(null);
+            handleRefresh();
+          }}
         />
       )}
     </div>

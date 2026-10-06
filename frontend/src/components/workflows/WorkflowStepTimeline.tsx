@@ -307,11 +307,18 @@ export function WorkflowStepTimeline({
                       <UserCheck className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                       <div>
                         <h5 className="font-semibold text-xs text-amber-900">
-                          Operator Approval Required
+                          {workflow.template_key === "publishing_prepare_review"
+                            ? "Publishing Preparation Review"
+                            : "Operator Approval Required"}
                         </h5>
-                        <p className="text-xs text-amber-700 mt-0.5">
-                          Content was delivered to the device. Inspect the preview
-                          and approve or reject the workflow to proceed.
+                        <p className="text-xs text-amber-700 mt-0.5 font-medium leading-relaxed">
+                          {workflow.template_key === "publishing_prepare_review" ? (
+                            <>
+                              &ldquo;Environment is prepared for publishing. Approval confirms preparation only. No content has been published.&rdquo;
+                            </>
+                          ) : (
+                            "Content was delivered to the device. Inspect the preview and approve or reject the workflow to proceed."
+                          )}
                         </p>
                       </div>
                     </div>
@@ -353,7 +360,11 @@ export function WorkflowStepTimeline({
                         ) : (
                           <ThumbsUp className="w-3.5 h-3.5" />
                         )}
-                        <span>Approve Step</span>
+                        <span>
+                          {workflow.template_key === "publishing_prepare_review"
+                            ? "Approve Preparation"
+                            : "Approve Step"}
+                        </span>
                       </button>
 
                       <button
@@ -369,7 +380,11 @@ export function WorkflowStepTimeline({
                         ) : (
                           <ThumbsDown className="w-3.5 h-3.5" />
                         )}
-                        <span>Reject Step</span>
+                        <span>
+                          {workflow.template_key === "publishing_prepare_review"
+                            ? "Reject"
+                            : "Reject Step"}
+                        </span>
                       </button>
                     </div>
                   </div>

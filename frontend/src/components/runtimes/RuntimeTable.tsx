@@ -5,7 +5,7 @@ import { RuntimeStatusBadge } from "./RuntimeStatusBadge";
 import { RuntimeLoadingState } from "./RuntimeLoadingState";
 import { RuntimeEmptyState } from "./RuntimeEmptyState";
 import { RuntimeErrorState } from "./RuntimeErrorState";
-import { Cpu, Calendar, Pencil, Trash2, Smartphone, AlertCircle, Layers, Globe, Bot } from "lucide-react";
+import { Cpu, Calendar, Pencil, Trash2, Smartphone, AlertCircle, Layers, Globe, Bot, Package } from "lucide-react";
 
 interface RuntimeTableProps {
   runtimes: Runtime[];
@@ -20,6 +20,7 @@ interface RuntimeTableProps {
   onDeleteRuntime?: (runtime: Runtime) => void;
   onConfigureNetwork?: (runtime: Runtime) => void;
   onRunAutomation?: (runtime: Runtime) => void;
+  onViewApps?: (runtime: Runtime) => void;
 }
 
 export function RuntimeTable({
@@ -35,6 +36,7 @@ export function RuntimeTable({
   onDeleteRuntime,
   onConfigureNetwork,
   onRunAutomation,
+  onViewApps,
 }: RuntimeTableProps) {
   // Format ISO date string
   const formatDate = (isoString: string | null) => {
@@ -176,6 +178,18 @@ export function RuntimeTable({
                   {/* Actions: Automation, Network, Edit, and Delete */}
                   <td className="py-4 px-6 text-right whitespace-nowrap">
                     <div className="flex items-center justify-end gap-1.5">
+                      {onViewApps && (
+                        <button
+                          type="button"
+                          onClick={() => onViewApps(rt)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 rounded-lg transition-colors shadow-2xs"
+                          title={`View apps and publishing readiness for ${rt.name}`}
+                          aria-label={`View apps for ${rt.name}`}
+                        >
+                          <Package className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>Apps</span>
+                        </button>
+                      )}
                       {onRunAutomation && rt.runtime_type === "redroid" && (
                         <button
                           type="button"

@@ -17,6 +17,8 @@ import {
   Smartphone,
   Cpu,
   Workflow as WorkflowIcon,
+  Package,
+  Rocket,
 } from "lucide-react";
 
 interface NavItem {
@@ -31,8 +33,10 @@ const navItems: NavItem[] = [
   { label: "Accounts", href: "/accounts", icon: Users, badge: "3" },
   { label: "Devices", href: "/devices", icon: Smartphone },
   { label: "Runtimes", href: "/runtimes", icon: Cpu },
+  { label: "Managed Apps", href: "/managed-apps", icon: Package },
   { label: "Content", href: "/content", icon: Video },
   { label: "Workflows", href: "/workflows", icon: WorkflowIcon },
+  { label: "Publishing", href: "/publishing", icon: Rocket },
   { label: "Analytics", href: "/analytics", icon: BarChart3 },
   { label: "Job Queue", href: "/jobs", icon: CheckSquare, badge: "Active" },
   { label: "Settings", href: "/settings", icon: Settings },

@@ -7,7 +7,9 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "test:e2e:workflows": "playwright test e2e/workflows.spec.ts"
+    "test:e2e": "playwright test",
+    "test:e2e:workflows": "playwright test e2e/workflows.spec.ts",
+    "test:e2e:publishing": "playwright test e2e/publishing.spec.ts"
   },
   "dependencies": {
     "lucide-react": "^1.47.0",

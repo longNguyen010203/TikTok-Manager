@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import {
   AlertCircle,
+  AppWindow,
   Clock,
   Cpu,
   FileBox,
@@ -11,6 +12,7 @@ import {
   PlayCircle,
   RefreshCw,
   RotateCcw,
+  User,
   X,
 } from "lucide-react";
 import { workflowService } from "@/services/workflowService";
@@ -454,7 +456,7 @@ export function WorkflowDetailModal({
               )}
 
               {/* Bound Metadata Summary Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                 {/* Target Runtime */}
                 <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1">
                   <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block">
@@ -471,6 +473,38 @@ export function WorkflowDetailModal({
                     {targetRuntime?.status ? `(${targetRuntime.status})` : ""}
                   </div>
                 </div>
+
+                {/* Target Account (if bound) */}
+                {workflow.account_id && (
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block">
+                      Target Account
+                    </span>
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800">
+                      <User className="w-4 h-4 text-sky-500" />
+                      <span>Account #{workflow.account_id}</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 font-mono">
+                      Bound Account
+                    </div>
+                  </div>
+                )}
+
+                {/* Managed App (if bound) */}
+                {workflow.managed_app_id && (
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block">
+                      Managed App
+                    </span>
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800">
+                      <AppWindow className="w-4 h-4 text-emerald-500" />
+                      <span>App #{workflow.managed_app_id}</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 font-mono">
+                      Version #{workflow.managed_app_version_id ?? "Default"}
+                    </div>
+                  </div>
+                )}
 
                 {/* Pinned Content Asset */}
                 <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1">

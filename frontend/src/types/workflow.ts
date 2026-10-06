@@ -88,6 +88,8 @@ export interface Workflow {
   runtime_id_snapshot: number;
   content_asset_id: number;
   content_asset_version_id: number;
+  managed_app_id?: number | null;
+  managed_app_version_id?: number | null;
   current_step_id: number | null;
   pause_requested_at: string | null;
   cancel_requested_at: string | null;
@@ -120,6 +122,8 @@ export interface WorkflowCreateInput {
   content_asset_id: number;
   content_asset_version_id?: number | null;
   account_id?: number | null;
+  managed_app_id?: number | null;
+  managed_app_version_id?: number | null;
   parameters?: Record<string, unknown>;
   idempotency_key?: string | null;
 }
@@ -163,7 +167,15 @@ export function getWorkflowStepLabel(stepType: string, stepKey?: string): string
     case "workflow.wait":
       return "Wait";
     case "workflow.approval":
-      return "Approval";
+      return "Review & Approval";
+    case "publishing.verify_runtime":
+      return "Verify Runtime";
+    case "publishing.verify_app":
+      return "Verify App";
+    case "device.launch_app":
+      return "Launch App";
+    case "publishing.verify_app_state":
+      return "Verify App State";
     default:
       if (stepKey) {
         return stepKey
@@ -256,6 +268,17 @@ export const WORKFLOW_ERROR_MESSAGES: Record<string, string> = {
   INVALID_WORKFLOW_COMMAND: "This action is not permitted for the workflow's current state.",
   INVALID_WORKFLOW_TRANSITION: "Invalid workflow state transition.",
   INVALID_WORKFLOW_PARAMETERS: "Provided workflow parameters do not match template schema.",
+  APP_NOT_INSTALLED: "The required application is not installed on this Runtime.",
+  APP_VERSION_MISMATCH: "Installed application version does not match the desired version.",
+  APP_PACKAGE_DISABLED: "Application package is disabled on the device.",
+  APP_RUNTIME_UNAVAILABLE: "Target Runtime is offline or unavailable for application management.",
+  APP_BASIC_UPDATE_REQUIRES_VERIFIED: "Updating an existing application with a basic-inspected APK requires verified assurance.",
+  APP_NOT_FOUND: "Managed application not found or inactive.",
+  APP_VERSION_NOT_READY: "Managed application version is not install-eligible.",
+  ACCOUNT_REQUIRED: "Publishing preparation requires an Account.",
+  CONTENT_VERSION_REQUIRED: "Publishing preparation requires an exact content version.",
+  MANAGED_APP_REQUIRED: "Publishing preparation requires an exact managed app version.",
+  PUBLISHING_SESSION_NOT_FOUND: "Publishing session was not found.",
 };
 
 export function getWorkflowErrorMessage(
