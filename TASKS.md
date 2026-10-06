@@ -841,3 +841,54 @@ Acceptance criteria:
 - Manual approval is available before future publish actions.
 - Existing provisioning, networking, automation, content, and workflow behavior remains intact.
 - Backend, worker, frontend, and disposable-device validation pass.
+
+---
+
+## TIK-024
+Status: IN PROGRESS
+Owner: Codex + Antigravity
+Type: Android Automation / TikTok Integration
+
+Title:
+TikTok UI Action Layer v1
+
+Dependencies:
+- TIK-020
+- TIK-021
+- TIK-022
+- TIK-023
+
+Goal:
+Add typed, state-aware TikTok UI actions for preparing a video post on an exact Runtime.
+
+Actions:
+- tiktok.detect_screen
+- tiktok.open_home
+- tiktok.open_create
+- tiktok.select_media
+- tiktok.set_caption
+- tiktok.set_post_options
+- tiktok.prepare_publish
+- tiktok.verify_publish_screen
+- tiktok.abort_flow
+
+Architecture:
+TikTok Action
+→ Screen Resolver
+→ UIAutomator
+→ screenshot/state fallback
+→ internal Android input primitives
+→ exact Redroid Runtime
+
+Acceptance criteria:
+- No public raw tap/swipe/input_text/ADB API.
+- Every action has explicit precondition and postcondition verification.
+- Exact Runtime targeting only.
+- UI actions are serialized with RuntimeOperationGuard.
+- TikTok package comes from ManagedApp, never arbitrary client input.
+- Element resolution prefers semantic UI attributes over coordinates.
+- Coordinate actions are fallback-only and configuration/version scoped.
+- Action execution is bounded, cancellable, and restart-safe where possible.
+- App/UI changes fail safely with typed errors instead of tapping blindly.
+- Existing Runtime, Content, Workflow, ManagedApp, and Publishing behavior remains intact.
+- Live disposable Redroid validation passes.
