@@ -799,7 +799,7 @@ Acceptance criteria:
 ---
 
 ## TIK-023
-Status: IN PROGRESS
+Status: DONE
 Owner: Codex + Antigravity
 Type: Backend / Provisioning / Publishing Foundation / Frontend
 
