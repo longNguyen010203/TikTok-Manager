@@ -17,6 +17,7 @@ from app.services.device_jobs import get_device_job_definition
 from app.services.content_jobs import get_content_job_definition, is_content_job_type
 from app.services.managed_app_jobs import get_managed_app_job_definition, is_managed_app_job_type
 from app.services.publishing_jobs import get_publishing_job_definition, is_publishing_job_type
+from app.services.tiktok_jobs import get_tiktok_job_definition, is_tiktok_job_type
 from app.services.job_logs import append_job_log
 
 DEFAULT_LEASE_DURATION = timedelta(seconds=60)
@@ -24,6 +25,8 @@ DEFAULT_RETRY_DELAY = timedelta(seconds=5)
 
 
 def _job_definition(job_type: str):
+    if is_tiktok_job_type(job_type):
+        return get_tiktok_job_definition(job_type)
     if is_publishing_job_type(job_type):
         return get_publishing_job_definition(job_type)
     if is_managed_app_job_type(job_type):

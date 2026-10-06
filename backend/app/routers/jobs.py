@@ -44,6 +44,9 @@ from app.services.runtime_app_job_execution import RuntimeAppJobExecutionService
 from app.services.publishing_job_execution import PublishingJobExecutionService, PublishingPreparationError
 from app.services.publishing_jobs import PublishingJobValidationError, is_publishing_job_type
 from app.services.android_app_management import AppManagementError
+from app.services.tiktok_errors import TikTokActionError
+from app.services.tiktok_jobs import TikTokJobValidationError, is_tiktok_job_type
+from app.services.tiktok_job_execution import TikTokJobExecutionService
 from app.services.runtime_apps import RuntimeAppService
 from app.services.managed_app_jobs import (
     ManagedAppJobValidationError,
@@ -215,7 +218,7 @@ def claim_job(session: DatabaseSession, payload: JobClaimRequest | None = None) 
 def create_job(payload: JobCreate, session: DatabaseSession) -> Job:
     """Create a job with optional Account and Runtime targets."""
     if (is_content_job_type(payload.job_type) or is_managed_app_job_type(payload.job_type)
-            or payload.job_type.startswith("publishing.")):
+            or payload.job_type.startswith("publishing.") or payload.job_type.startswith("tiktok.")):
         raise HTTPException(status_code=422, detail="Internal Jobs are server-created only")
     _validate_account_id(payload.account_id, session)
     _validate_runtime_id(payload.runtime_id, session)
@@ -248,6 +251,8 @@ def update_job(job_id: JobId, payload: JobUpdate, session: DatabaseSession) -> J
         or is_managed_app_job_type(job.job_type) or is_managed_app_job_type(update_data.get("job_type"))
         or job.job_type.startswith("publishing.")
         or (isinstance(update_data.get("job_type"), str) and update_data["job_type"].startswith("publishing."))
+        or job.job_type.startswith("tiktok.")
+        or (isinstance(update_data.get("job_type"), str) and update_data["job_type"].startswith("tiktok."))
     ):
         raise HTTPException(status_code=409, detail="Internal Jobs are immutable")
     if is_device_job_type(job.job_type) and job.attempt_count > 0 and any(field in update_data for field in {"job_type", "runtime_id", "account_id", "payload"}):
@@ -321,7 +326,11 @@ def heartbeat(job_id: JobId, session: DatabaseSession, claim_token: ClaimToken, 
 def execute_job(job_id: JobId, session: DatabaseSession, claim_token: ClaimToken, attempt: ClaimAttempt) -> JobExecuteRead:
     job = _get_job_for_update_or_404(job_id, session)
     try:
-        if is_publishing_job_type(job.job_type):
+        if is_tiktok_job_type(job.job_type):
+            result = TikTokJobExecutionService(
+                session, screen_manager=screen_process_manager
+            ).execute(job, claim_token, attempt)
+        elif is_publishing_job_type(job.job_type):
             result = PublishingJobExecutionService(
                 session, screen_manager=screen_process_manager
             ).execute(job, claim_token, attempt)
@@ -356,6 +365,17 @@ def execute_job(job_id: JobId, session: DatabaseSession, claim_token: ClaimToken
         raise HTTPException(status_code=422, detail=str(error)) from error
     except PublishingJobValidationError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    except TikTokJobValidationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except TikTokActionError as error:
+        code = 409 if error.code in {
+            "TIKTOK_APP_NOT_FOREGROUND", "TIKTOK_UI_PROFILE_MISMATCH",
+            "TIKTOK_UI_PROFILE_NOT_FOUND", "TIKTOK_ACTION_CANCELLED",
+        } else (503 if error.retryable else 422)
+        raise HTTPException(status_code=code, detail={
+            "code": error.code, "message": error.safe_message,
+            "retryable": error.retryable,
+        }) from error
     except PublishingPreparationError as error:
         code = 409 if error.code in {
             "RUNTIME_BUSY", "RUNTIME_STOPPED", "RUNTIME_SCREEN_ACTIVE",

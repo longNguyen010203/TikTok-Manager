@@ -169,7 +169,15 @@ Manager host lifecycle:
   foreign keys on connect. Managed provisioning assigns Device/Runtime IDs
   above live and historical provisioning IDs so immutable Runtime snapshots
   are never retargeted by SQLite primary-key reuse.
-- General transcoding and application UI automation remain later operations.
+- General transcoding and mutating application UI automation remain later operations.
+- TikTok UI observation is layered above generic Android UI primitives:
+  `TikTokScreenResolver -> AndroidUiAutomationService -> AdbExecutor`. An
+  AndroidUiSession resolves the exact Runtime/ADB serial and holds the shared
+  RuntimeOperationGuard for its entire lifetime. Repository-owned immutable UI
+  profiles pin package/version selectors and conservative multi-signal screen
+  definitions. The initial Trill 44.4.3 profile is deliberately `testing` and
+  uncalibrated rather than containing guessed selectors. Internal
+  `tiktok.detect_screen` observes only and never launches or mutates the app.
 - Device Jobs use a typed registry and a lease-protected backend execution
   boundary. Workers receive complete execution context but never execute ADB;
   every heartbeat and terminal mutation is fenced by a hashed claim token and

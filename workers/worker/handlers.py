@@ -38,4 +38,5 @@ def create_default_registry() -> HandlerRegistry:
     registry.register("publishing.verify_runtime", execute_backend_job)
     registry.register("publishing.verify_app", execute_backend_job)
     registry.register("publishing.verify_app_state", execute_backend_job)
+    registry.register("tiktok.detect_screen", execute_backend_job)
     return registry

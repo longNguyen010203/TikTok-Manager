@@ -144,6 +144,13 @@ other external process is running. Managed provisioning also allocates Device
 and Runtime IDs above durable historical provisioning IDs so a deleted
 Runtime's snapshot identity is not reused.
 
+Android UI parsing limits are durable non-secret `[android_ui]` configuration:
+`max_xml_bytes`, `max_nodes`, `max_depth`, `max_text_length`, and
+`max_attribute_length`. Bootstrap adds safe defaults without overwriting
+operator settings. UIAutomator data is processed in memory and is not
+persisted. Phase 3 calibration uses a disposable Runtime and the testing
+44.4.3 profile; no additional daemon is required.
+
 Artifact retention is run by
 `tiktok-manager-artifact-cleanup.timer` approximately every six hours. The
 timer is persistent across user-manager downtime and the cleanup command uses

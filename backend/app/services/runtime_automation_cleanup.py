@@ -29,6 +29,7 @@ class RuntimeAutomationCleanupCoordinator:
                             Job.job_type == "content.deliver",
                             Job.job_type.in_(["app.install", "app.verify"]),
                             Job.job_type.like("publishing.%"),
+                            Job.job_type.like("tiktok.%"),
                         ),
                         Job.status.in_([JobStatus.PENDING.value, JobStatus.RETRYING.value, JobStatus.RUNNING.value, JobStatus.CANCELLING.value]),
                     )).all())

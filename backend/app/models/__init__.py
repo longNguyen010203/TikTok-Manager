@@ -31,6 +31,7 @@ from app.models.runtime_network import (
     RuntimeNetworkState,
 )
 from app.models.workflow import Workflow, WorkflowEvent, WorkflowStep, WorkflowStepJobRun
+from app.models.tiktok_ui import TikTokUiProfile
 
 __all__ = [
     "Account",
@@ -62,4 +63,5 @@ __all__ = [
     "WorkflowEvent",
     "WorkflowStep",
     "WorkflowStepJobRun",
+    "TikTokUiProfile",
 ]

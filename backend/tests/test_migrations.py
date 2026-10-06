@@ -15,7 +15,7 @@ PRE_JOB_LOG_REVISION = "20260918_0003"
 PRE_REDROID_CONFIG_REVISION = "20260918_0004"
 PRE_UNIQUE_CONFIG_REVISION = "20261001_0005"
 PRE_PROVISIONING_REVISION = "20261001_0006"
-LATEST_REVISION = "20261006_0023"
+LATEST_REVISION = "20261006_0024"
 
 
 def test_upgrade_head_creates_accounts_table(
@@ -56,6 +56,7 @@ def test_upgrade_head_creates_accounts_table(
             "runtime_app_installations",
             "runtime_app_installation_runs",
             "publishing_sessions",
+            "tiktok_ui_profiles",
         }.issubset(
             inspector.get_table_names()
         )
@@ -106,6 +107,9 @@ def test_upgrade_head_creates_accounts_table(
             for constraint in inspector.get_unique_constraints("publishing_sessions")
         }
         assert ("workflow_id",) in publishing_uniques
+        with test_engine.connect() as connection:
+            profile = connection.execute(text("SELECT package_name, min_version_code, max_version_code, status FROM tiktok_ui_profiles")).one()
+            assert profile == ("com.ss.android.ugc.trill", 440403, 440403, "testing")
         assert "alembic_version" in inspector.get_table_names()
         assert {
             "runtime_network_configs",

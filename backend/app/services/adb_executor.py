@@ -56,6 +56,12 @@ class AdbInstalledPackage:
     signer_fingerprint: str | None
 
 
+@dataclass(frozen=True)
+class AdbForegroundApp:
+    package_name: str
+    activity_name: str | None
+
+
 CommandRunner = Callable[..., subprocess.CompletedProcess[bytes]]
 CancellationHook = Callable[[], bool]
 
@@ -303,6 +309,44 @@ class AdbExecutor:
         width, height = matches[-1]
         return int(width), int(height)
 
+    def dump_ui_hierarchy(self, serial: str, *, timeout: float = 15.0) -> str:
+        """Return UIAutomator XML using only backend-owned fixed commands/paths."""
+        direct = self._text(
+            serial, ["exec-out", "uiautomator", "dump", "/dev/tty"],
+            timeout=timeout, raise_on_nonzero=False,
+        )
+        marker = direct.stdout.find("<?xml")
+        if direct.returncode == 0 and marker >= 0:
+            return direct.stdout[marker:]
+        fixed_path = "/sdcard/window_dump_tiktok_manager.xml"
+        self._text(serial, ["shell", "uiautomator", "dump", fixed_path], timeout=timeout)
+        try:
+            result = self._text(serial, ["exec-out", "cat", fixed_path], timeout=timeout)
+            marker = result.stdout.find("<?xml")
+            if marker < 0:
+                raise AdbExecutorError("failed", "Android UI hierarchy was unavailable")
+            return result.stdout[marker:]
+        finally:
+            self._text(
+                serial, ["shell", "rm", "-f", fixed_path],
+                timeout=timeout, raise_on_nonzero=False,
+            )
+
+    def foreground_window(self, serial: str) -> AdbForegroundApp:
+        result = self._text(serial, ["shell", "dumpsys", "window", "windows"])
+        return self._parse_foreground(result.stdout)
+
+    def foreground_activity(self, serial: str) -> AdbForegroundApp:
+        result = self._text(serial, ["shell", "dumpsys", "activity", "activities"])
+        return self._parse_foreground(result.stdout)
+
+    def display_rotation(self, serial: str) -> int:
+        result = self._text(serial, ["shell", "settings", "get", "system", "user_rotation"])
+        value = result.stdout.strip()
+        if value not in {"0", "1", "2", "3"}:
+            raise AdbExecutorError("failed", "ADB display-rotation query failed")
+        return int(value)
+
     def tap(self, serial: str, x: int, y: int) -> None:
         self._validate_coordinate(x)
         self._validate_coordinate(y)
@@ -499,3 +543,15 @@ class AdbExecutor:
     def _validate_coordinate(value: int) -> None:
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             raise ValueError("Android input coordinate is invalid")
+
+    @staticmethod
+    def _parse_foreground(output: str) -> AdbForegroundApp:
+        patterns = (
+            r"(?:mCurrentFocus|mFocusedApp|topResumedActivity|mResumedActivity)[^\n]*?\s([A-Za-z][A-Za-z0-9_.]*)/([A-Za-z0-9_.$]+)",
+            r"\b([A-Za-z][A-Za-z0-9_.]*)/([A-Za-z0-9_.$]+)\b",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, output)
+            if match and _PACKAGE_NAME.fullmatch(match.group(1)):
+                return AdbForegroundApp(match.group(1), match.group(2))
+        raise AdbExecutorError("failed", "ADB foreground-app query failed")

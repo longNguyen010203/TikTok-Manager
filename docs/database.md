@@ -441,6 +441,15 @@ connection is opened. Managed Runtime deprovision also clears nullable live
 Workflow and ContentDelivery Runtime pointers in its authoritative database
 transaction, while immutable Runtime snapshots preserve historical identity.
 
+Migration `20261006_0024` adds `tiktok_ui_profiles`. Rows contain immutable,
+normalized profile identity, exact Android package/version compatibility,
+repository resource key, fingerprint, locale assumption, and
+testing/active/retired status. Selector and screen definitions remain
+versioned repository resources; no client CRUD or executable definitions are
+stored in SQLite. The seeded `com.ss.android.ugc.trill` 44.4.3 profile is in
+testing state and intentionally has no fabricated selectors pending live
+calibration.
+
 - One Device has zero or more Runtime records. Deleting a Device cascades to its
   Runtime records.
 - One Runtime belongs to exactly one Device.

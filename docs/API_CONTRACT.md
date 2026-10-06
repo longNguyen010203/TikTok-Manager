@@ -1108,6 +1108,24 @@ Stable failures include `APP_NOT_INSTALLED`, `APP_VERSION_MISMATCH`,
 - `GET /publishing-sessions` and `GET /publishing-sessions/{id}` expose safe
   preparation history. Approval does not represent a publish action.
 
+## TikTok UI detection foundation
+
+`tiktok.detect_screen` is a server-created internal Job and is rejected by
+generic `POST /jobs`. Its payload contains only exact `runtime_id`,
+`managed_app_id`, and server-pinned `ui_profile_id`. Execution revalidates the
+installed managed app/profile, acquires the exact Runtime lock, enforces the
+screen conflict policy, and observes a bounded UIAutomator hierarchy. It never
+launches the application.
+
+`POST /runtimes/{runtime_id}/tiktok/detect-screen` accepts only
+`{"managed_app_id": N}` and returns `202` with the server-created Job. It does
+not accept a profile, package, selector, coordinate, command, or ADB serial.
+
+The safe result contains only screen, foreground package, profile identity and
+fingerprint, node count, display category, and `changed=false`. Raw XML, node
+text, screenshots, ADB output, selectors, and paths are never returned. There
+is no public endpoint for raw UI primitives or caller-defined selectors.
+
 ## Deprovision a managed Redroid device
 
 - Method: `POST`

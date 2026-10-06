@@ -21,6 +21,7 @@ from app.routers.runtimes import router as runtimes_router
 from app.routers.runtime_apps import router as runtime_apps_router
 from app.routers.publishing import router as publishing_router
 from app.routers.workflows import router as workflows_router, template_router as workflow_templates_router
+from app.routers.tiktok_actions import router as tiktok_actions_router
 from app.services.host_lifecycle import (
     ApplicationLifecycle,
     HostLifecycleManager,
@@ -122,6 +123,7 @@ def create_app(
     application.include_router(redroid_provisionings_router)
     application.include_router(workflow_templates_router)
     application.include_router(workflows_router)
+    application.include_router(tiktok_actions_router)
     return application
 
 

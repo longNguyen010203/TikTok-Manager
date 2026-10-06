@@ -154,6 +154,9 @@ def test_config_bootstrap_is_private_persistent_and_loadable(
     assert second.content_max_image_dimension == 32768
     assert second.content_max_image_pixels == 100_000_000
     assert second.content_max_image_frames == 500
+    assert second.android_ui_max_xml_bytes == 2 * 1024 * 1024
+    assert second.android_ui_max_nodes == 10_000
+    assert second.android_ui_max_depth == 64
     assert stat.S_IMODE(first.config_path.stat().st_mode) == 0o600
     assert stat.S_IMODE(first.config_path.parent.stat().st_mode) == 0o700
     assert first.config_path.read_bytes() == original

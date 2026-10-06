@@ -89,6 +89,11 @@ class ApplicationConfig:
     workflow_lock_directory: Path
     workflow_poll_interval_seconds: float
     workflow_reconcile_batch_size: int
+    android_ui_max_xml_bytes: int
+    android_ui_max_nodes: int
+    android_ui_max_depth: int
+    android_ui_max_text_length: int
+    android_ui_max_attribute_length: int
     stop_managed_devices_on_shutdown: bool
 
     def __post_init__(self) -> None:
@@ -129,6 +134,12 @@ class ApplicationConfig:
             raise ApplicationConfigurationError("Content inspection limits must be positive")
         if self.workflow_poll_interval_seconds <= 0 or self.workflow_reconcile_batch_size <= 0:
             raise ApplicationConfigurationError("Workflow orchestration settings must be positive")
+        if min(
+            self.android_ui_max_xml_bytes, self.android_ui_max_nodes,
+            self.android_ui_max_depth, self.android_ui_max_text_length,
+            self.android_ui_max_attribute_length,
+        ) <= 0:
+            raise ApplicationConfigurationError("Android UI parsing limits must be positive")
         if (
             self.managed_app_max_apk_bytes <= 0
             or self.managed_app_max_apk_bytes > self.content_max_total_bytes
@@ -193,6 +204,11 @@ def default_application_config(path: Path | None = None) -> ApplicationConfig:
         workflow_lock_directory=Path("/tmp/tiktok-manager-workflow-locks"),
         workflow_poll_interval_seconds=2.0,
         workflow_reconcile_batch_size=100,
+        android_ui_max_xml_bytes=2 * 1024 * 1024,
+        android_ui_max_nodes=10_000,
+        android_ui_max_depth=64,
+        android_ui_max_text_length=2_048,
+        android_ui_max_attribute_length=4_096,
         stop_managed_devices_on_shutdown=False,
     )
 
@@ -236,6 +252,7 @@ def load_application_config(
         content = data.get("content", {})
         managed_apps = data.get("managed_apps", {})
         workflow = data.get("workflow", {})
+        android_ui = data.get("android_ui", {})
         runtime = data.get("runtime", {})
         security = data.get("security", {})
         result = ApplicationConfig(
@@ -349,6 +366,11 @@ def load_application_config(
             ).expanduser(),
             workflow_poll_interval_seconds=float(workflow.get("poll_interval_seconds", 2.0)),
             workflow_reconcile_batch_size=int(workflow.get("reconcile_batch_size", 100)),
+            android_ui_max_xml_bytes=int(android_ui.get("max_xml_bytes", 2 * 1024 * 1024)),
+            android_ui_max_nodes=int(android_ui.get("max_nodes", 10_000)),
+            android_ui_max_depth=int(android_ui.get("max_depth", 64)),
+            android_ui_max_text_length=int(android_ui.get("max_text_length", 2_048)),
+            android_ui_max_attribute_length=int(android_ui.get("max_attribute_length", 4_096)),
             stop_managed_devices_on_shutdown=bool(
                 runtime.get("stop_managed_devices_on_shutdown", False)
             ),
@@ -544,6 +566,11 @@ def _with_environment_overrides(config: ApplicationConfig) -> ApplicationConfig:
             workflow_reconcile_batch_size=int(
                 os.getenv("TIKTOK_MANAGER_WORKFLOW_RECONCILE_BATCH_SIZE", str(config.workflow_reconcile_batch_size))
             ),
+            android_ui_max_xml_bytes=config.android_ui_max_xml_bytes,
+            android_ui_max_nodes=config.android_ui_max_nodes,
+            android_ui_max_depth=config.android_ui_max_depth,
+            android_ui_max_text_length=config.android_ui_max_text_length,
+            android_ui_max_attribute_length=config.android_ui_max_attribute_length,
             stop_managed_devices_on_shutdown=_environment_bool(
                 "STOP_MANAGED_DEVICES_ON_SHUTDOWN",
                 config.stop_managed_devices_on_shutdown,
@@ -612,6 +639,7 @@ def _upgrade_automation_defaults(
     content = parsed.get("content", {})
     workflow = parsed.get("workflow", {})
     managed_apps = parsed.get("managed_apps", {})
+    android_ui = parsed.get("android_ui", {})
     content_desired = {
         "root": _quote(defaults.content_root),
         "max_upload_bytes": str(defaults.content_max_upload_bytes),
@@ -655,7 +683,15 @@ def _upgrade_automation_defaults(
         (key, value) for key, value in managed_apps_desired.items()
         if key not in managed_apps
     ]
-    if not missing and not missing_content and not missing_workflow and not missing_managed_apps:
+    android_ui_desired = {
+        "max_xml_bytes": str(defaults.android_ui_max_xml_bytes),
+        "max_nodes": str(defaults.android_ui_max_nodes),
+        "max_depth": str(defaults.android_ui_max_depth),
+        "max_text_length": str(defaults.android_ui_max_text_length),
+        "max_attribute_length": str(defaults.android_ui_max_attribute_length),
+    }
+    missing_android_ui = [(key, value) for key, value in android_ui_desired.items() if key not in android_ui]
+    if not missing and not missing_content and not missing_workflow and not missing_managed_apps and not missing_android_ui:
         return
 
     lines = text.splitlines()
@@ -663,6 +699,7 @@ def _upgrade_automation_defaults(
     _insert_missing_section(lines, "content", missing_content)
     _insert_missing_section(lines, "workflow", missing_workflow)
     _insert_missing_section(lines, "managed_apps", missing_managed_apps)
+    _insert_missing_section(lines, "android_ui", missing_android_ui)
 
     payload = ("\n".join(lines).rstrip() + "\n").encode("utf-8")
     temporary = f".{config_path.name}.update-{uuid.uuid4().hex}"
@@ -792,6 +829,13 @@ def _serialize(config: ApplicationConfig) -> str:
             f"lock_directory = {_quote(config.workflow_lock_directory)}",
             f"poll_interval_seconds = {config.workflow_poll_interval_seconds}",
             f"reconcile_batch_size = {config.workflow_reconcile_batch_size}",
+            "",
+            "[android_ui]",
+            f"max_xml_bytes = {config.android_ui_max_xml_bytes}",
+            f"max_nodes = {config.android_ui_max_nodes}",
+            f"max_depth = {config.android_ui_max_depth}",
+            f"max_text_length = {config.android_ui_max_text_length}",
+            f"max_attribute_length = {config.android_ui_max_attribute_length}",
             "",
             "[runtime]",
             "stop_managed_devices_on_shutdown = "

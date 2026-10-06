@@ -153,3 +153,16 @@ def test_publishing_jobs_are_registered_with_exact_runtime(job_type: str) -> Non
         "t" * 32, datetime.now(timezone.utc), Client(), Event(),
     )
     assert create_default_registry().dispatch(execution) == {"publishing_ready": True}
+
+
+def test_tiktok_detect_screen_is_registered_with_exact_runtime() -> None:
+    class Client:
+        def execute_job(self, job_id, claim_token, attempt):
+            return {"screen": "HOME", "changed": False}
+
+    execution = JobExecutionContext(
+        10, "tiktok.detect_screen", 19, None,
+        {"runtime_id": 19, "managed_app_id": 1, "ui_profile_id": 1}, 1,
+        "t" * 32, datetime.now(timezone.utc), Client(), Event(),
+    )
+    assert create_default_registry().dispatch(execution) == {"screen": "HOME", "changed": False}
