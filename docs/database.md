@@ -391,6 +391,51 @@ Migration `20261005_0019` expands that bounded event vocabulary with
 deadline is written once when the step enters waiting and is not recalculated
 during recovery.
 
+## Managed Android packages
+
+Migration `20261005_0020` adds a `purpose` discriminator to ContentAsset.
+Existing rows are `library`; internal APK assets are
+`managed_app_package`. Package assets reuse the same immutable ContentBlob and
+ContentAssetVersion storage but are excluded from the ordinary content list,
+workflow content binding, and `content.deliver`.
+
+`managed_apps` stores the unique operator-owned app key, immutable expected
+Android package, display name, active/disabled/archived status, required/
+optional/disabled installation policy, and nullable explicitly activated
+version pointer. The current-version foreign key protects history; application
+validation additionally requires that it belong to the same app and be ready.
+
+`managed_app_versions` pins one package-purpose ContentAssetVersion and digest.
+Its lifecycle is `uploaded`, `inspecting`, `ready`, `invalid`, or `retired`.
+Only normalized version/package/SDK/signer metadata and safe errors are stored.
+`(managed_app_id, sha256)` and the content-version and inspection-Job pointers
+are unique. `managed_app_events` is bounded append-only history; it contains
+safe IDs, state, and error codes rather than tool output or host paths.
+
+Migration `20261006_0022` adds explicit `inspection_level` and
+`basic_approved_at`. Existing successfully inspected ready/retired versions are
+backfilled as `verified`; new uploads remain `basic` until tool verification or
+explicit operator basic approval. Approval records an append-only event and
+never fabricates discovered package, version, or signer fields.
+
+Migration `20261005_0021` adds `runtime_app_installations` and
+`runtime_app_installation_runs`. One nullable-live `(runtime_id,
+managed_app_id)` row stores an exact desired version and normalized observed
+package/version/signer state. Its immutable `runtime_id_snapshot` survives
+deprovisioning; the live Runtime FK becomes null and status becomes `removed`.
+Status is independent from Runtime lifecycle: `pending`, `installing`,
+`installed`, `failed`, `outdated`, or `removed`.
+
+Each server-created `app.install` or `app.verify` Job has one immutable run row
+pinning the desired version used by that attempt. The nullable latest-Job
+pointer supports convergence and crash recovery while run history is retained.
+
+Migration `20261006_0023` adds nullable pinned ManagedApp and
+ManagedAppVersion foreign keys to Workflow and creates `publishing_sessions`.
+One PublishingSession belongs to exactly one Workflow and preserves immutable
+Account/Runtime snapshots plus exact content/app version bindings. Its status
+is a domain projection; Workflow and linked Jobs remain execution truth.
+
 Application SQLite connections enable `PRAGMA foreign_keys=ON` whenever a
 connection is opened. Managed Runtime deprovision also clears nullable live
 Workflow and ContentDelivery Runtime pointers in its authoritative database
@@ -421,3 +466,9 @@ transaction, while immutable Runtime snapshots preserve historical identity.
   or more normalized tags, events, variants, and delivery records. Multiple
   asset versions or assets may reference one deduplicated ContentBlob. Blob
   deletion is restricted while referenced; asset deletion is soft in Phase 2.
+- One ManagedApp owns zero or more immutable ManagedAppVersion rows and one
+  optional active ready-version pointer. Each ManagedAppVersion references one
+  package-purpose ContentAssetVersion, so that reference protects its blob from
+  orphan cleanup.
+- One live Runtime has at most one RuntimeAppInstallation per ManagedApp. One
+  installation has zero or more immutable RuntimeAppInstallationRun rows.

@@ -14,7 +14,15 @@ from app.models.device import Device
 from app.models.job import Job, JobStatus
 from app.models.job_artifact import JobArtifact
 from app.models.job_log import JobLog
+from app.models.managed_app import (
+    ManagedApp,
+    ManagedAppEvent,
+    ManagedAppVersion,
+    RuntimeAppInstallation,
+    RuntimeAppInstallationRun,
+)
 from app.models.redroid_provisioning import RedroidProvisioning
+from app.models.publishing import PublishingSession
 from app.models.runtime import Runtime
 from app.models.runtime_network import (
     RuntimeNetworkConfig,
@@ -38,7 +46,13 @@ __all__ = [
     "JobArtifact",
     "JobLog",
     "JobStatus",
+    "ManagedApp",
+    "ManagedAppEvent",
+    "ManagedAppVersion",
+    "RuntimeAppInstallation",
+    "RuntimeAppInstallationRun",
     "RedroidProvisioning",
+    "PublishingSession",
     "Runtime",
     "RuntimeNetworkConfig",
     "RuntimeNetworkConfigRevision",

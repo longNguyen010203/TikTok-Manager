@@ -190,7 +190,7 @@ def list_content(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> ContentAssetList:
-    filters = []
+    filters = [ContentAsset.purpose == "library"]
     if asset_status is None:
         filters.append(ContentAsset.status.notin_(["archived", "deleted"]))
     else:
@@ -290,8 +290,10 @@ def list_content_deliveries(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> ContentDeliveryList:
-    if session.get(ContentAsset, content_id) is None:
-        raise HTTPException(status_code=404, detail="Content not found")
+    try:
+        _service().get(session, content_id)
+    except ContentAssetError as error:
+        _raise_content_error(error)
     filters = [ContentDelivery.content_asset_id == content_id]
     if delivery_status is not None:
         filters.append(ContentDelivery.status == delivery_status)

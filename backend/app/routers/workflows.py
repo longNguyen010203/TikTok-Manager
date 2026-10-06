@@ -46,6 +46,8 @@ def _read(session: Session, workflow: Workflow) -> WorkflowRead:
         runtime_id_snapshot=workflow.runtime_id_snapshot,
         content_asset_id=workflow.content_asset_id,
         content_asset_version_id=workflow.content_asset_version_id,
+        managed_app_id=workflow.managed_app_id,
+        managed_app_version_id=workflow.managed_app_version_id,
         current_step_id=workflow.current_step_id,
         transition_version=workflow.transition_version,
         pause_requested_at=workflow.pause_requested_at,
@@ -63,7 +65,7 @@ def templates() -> list[WorkflowTemplateRead]:
     return [WorkflowTemplateRead(
         key=item.key, version=item.version, label=item.label,
         description=item.description,
-        required_bindings=["runtime_id", "content_asset_id"],
+        required_bindings=list(item.required_bindings),
         parameters_schema=item.parameter_schema.model_json_schema(),
     ) for item in list_workflow_templates()]
 

@@ -57,6 +57,22 @@ directory, bounded orchestrator polling interval, and reconciliation batch
 size. Existing installations receive defaults without replacing operator
 values. It contains no credentials, claim tokens, or executable definitions.
 
+The optional `[managed_apps]` section contains the APK admission limit,
+absolute aapt2/apksigner paths, bounded inspection timeout/output sizes, and
+ZIP entry/expanded-size/compression-ratio limits. Defaults are added without
+overwriting existing operator settings. The installer checks configured tool
+paths and reports missing/unsafe tools but does not download or install Android
+SDK tooling. Package uploads remain safely stored and recoverable while
+inspection reports `APK_INSPECTOR_UNAVAILABLE` until both trusted tools exist.
+An admission-checked APK can instead be explicitly operator-approved at basic
+assurance; it then relies on mandatory Android package/path/enabled verification
+after install and makes no signer claim. Once a ManagedAppVersion is installable,
+Runtime install/verify uses only ADB and the integrity-checked managed blob; it
+does not invoke aapt2/apksigner. No SDK tooling or APK is downloaded automatically.
+The install boundary creates only a temporary private `.apk` hard link below
+the managed content staging directory; this satisfies ADB's local filename
+requirement without duplicating large APK bytes or exposing a host path.
+
 Content delivery reads verified ContentBlobs directly and does not duplicate
 them into JobArtifact storage. It uses the existing worker service and shared
 Runtime operation lock and requires no additional host daemon or path setting.
@@ -113,6 +129,12 @@ Polling defaults to two seconds. Failed top-level passes use bounded
 exponential backoff capped at 30 seconds; a successful pass resets the delay.
 SIGTERM sets a graceful stop boundary. Wait deadlines, linked Jobs, approval,
 pause, and cancellation state are durable across service restarts.
+
+Publishing preparation uses the same backend, worker, and workflow
+orchestrator; no additional service is required. Its verification steps are
+typed internal Jobs, and PublishingSession is a projection of durable Workflow
+truth. Service restarts never recalculate or substitute its pinned
+Account/Runtime/content/app bindings.
 
 Every SQLite connection created by the application installs
 `PRAGMA foreign_keys=ON`, including backend and standalone orchestrator

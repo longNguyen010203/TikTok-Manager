@@ -77,6 +77,15 @@ class ApplicationConfig:
     content_max_image_pixels: int
     content_max_image_frames: int
     content_inspection_lock_directory: Path
+    managed_app_max_apk_bytes: int
+    managed_app_aapt2_path: Path
+    managed_app_apksigner_path: Path
+    managed_app_inspection_timeout_seconds: int
+    managed_app_max_stdout_bytes: int
+    managed_app_max_stderr_bytes: int
+    managed_app_zip_max_entries: int
+    managed_app_zip_max_expanded_bytes: int
+    managed_app_zip_max_compression_ratio: int
     workflow_lock_directory: Path
     workflow_poll_interval_seconds: float
     workflow_reconcile_batch_size: int
@@ -120,6 +129,17 @@ class ApplicationConfig:
             raise ApplicationConfigurationError("Content inspection limits must be positive")
         if self.workflow_poll_interval_seconds <= 0 or self.workflow_reconcile_batch_size <= 0:
             raise ApplicationConfigurationError("Workflow orchestration settings must be positive")
+        if (
+            self.managed_app_max_apk_bytes <= 0
+            or self.managed_app_max_apk_bytes > self.content_max_total_bytes
+            or self.managed_app_inspection_timeout_seconds <= 0
+            or self.managed_app_max_stdout_bytes <= 0
+            or self.managed_app_max_stderr_bytes <= 0
+            or self.managed_app_zip_max_entries <= 0
+            or self.managed_app_zip_max_expanded_bytes <= 0
+            or self.managed_app_zip_max_compression_ratio <= 0
+        ):
+            raise ApplicationConfigurationError("Managed app inspection limits must be positive")
 
 
 def default_application_config(path: Path | None = None) -> ApplicationConfig:
@@ -161,6 +181,15 @@ def default_application_config(path: Path | None = None) -> ApplicationConfig:
         content_max_image_pixels=100_000_000,
         content_max_image_frames=500,
         content_inspection_lock_directory=Path("/tmp/tiktok-manager-content-locks"),
+        managed_app_max_apk_bytes=500 * 1024 * 1024,
+        managed_app_aapt2_path=Path("/usr/bin/aapt2"),
+        managed_app_apksigner_path=Path("/usr/bin/apksigner"),
+        managed_app_inspection_timeout_seconds=30,
+        managed_app_max_stdout_bytes=1024 * 1024,
+        managed_app_max_stderr_bytes=256 * 1024,
+        managed_app_zip_max_entries=20_000,
+        managed_app_zip_max_expanded_bytes=2 * 1024 * 1024 * 1024,
+        managed_app_zip_max_compression_ratio=200,
         workflow_lock_directory=Path("/tmp/tiktok-manager-workflow-locks"),
         workflow_poll_interval_seconds=2.0,
         workflow_reconcile_batch_size=100,
@@ -205,6 +234,7 @@ def load_application_config(
         network = data["network"]
         automation = data.get("automation", {})
         content = data.get("content", {})
+        managed_apps = data.get("managed_apps", {})
         workflow = data.get("workflow", {})
         runtime = data.get("runtime", {})
         security = data.get("security", {})
@@ -289,6 +319,31 @@ def load_application_config(
                     )
                 )
             ).expanduser(),
+            managed_app_max_apk_bytes=int(
+                managed_apps.get("max_apk_bytes", 500 * 1024 * 1024)
+            ),
+            managed_app_aapt2_path=Path(
+                str(managed_apps.get("aapt2_path", "/usr/bin/aapt2"))
+            ).expanduser(),
+            managed_app_apksigner_path=Path(
+                str(managed_apps.get("apksigner_path", "/usr/bin/apksigner"))
+            ).expanduser(),
+            managed_app_inspection_timeout_seconds=int(
+                managed_apps.get("inspection_timeout_seconds", 30)
+            ),
+            managed_app_max_stdout_bytes=int(
+                managed_apps.get("max_stdout_bytes", 1024 * 1024)
+            ),
+            managed_app_max_stderr_bytes=int(
+                managed_apps.get("max_stderr_bytes", 256 * 1024)
+            ),
+            managed_app_zip_max_entries=int(managed_apps.get("zip_max_entries", 20_000)),
+            managed_app_zip_max_expanded_bytes=int(
+                managed_apps.get("zip_max_expanded_bytes", 2 * 1024 * 1024 * 1024)
+            ),
+            managed_app_zip_max_compression_ratio=int(
+                managed_apps.get("zip_max_compression_ratio", 200)
+            ),
             workflow_lock_directory=Path(
                 str(workflow.get("lock_directory", "/tmp/tiktok-manager-workflow-locks"))
             ).expanduser(),
@@ -453,6 +508,33 @@ def _with_environment_overrides(config: ApplicationConfig) -> ApplicationConfig:
                     str(config.content_inspection_lock_directory),
                 )
             ),
+            managed_app_max_apk_bytes=int(
+                os.getenv("TIKTOK_MANAGER_MAX_APK_BYTES", str(config.managed_app_max_apk_bytes))
+            ),
+            managed_app_aapt2_path=Path(
+                os.getenv("TIKTOK_MANAGER_AAPT2_PATH", str(config.managed_app_aapt2_path))
+            ),
+            managed_app_apksigner_path=Path(
+                os.getenv("TIKTOK_MANAGER_APKSIGNER_PATH", str(config.managed_app_apksigner_path))
+            ),
+            managed_app_inspection_timeout_seconds=int(
+                os.getenv("TIKTOK_MANAGER_APK_INSPECTION_TIMEOUT_SECONDS", str(config.managed_app_inspection_timeout_seconds))
+            ),
+            managed_app_max_stdout_bytes=int(
+                os.getenv("TIKTOK_MANAGER_APK_MAX_STDOUT_BYTES", str(config.managed_app_max_stdout_bytes))
+            ),
+            managed_app_max_stderr_bytes=int(
+                os.getenv("TIKTOK_MANAGER_APK_MAX_STDERR_BYTES", str(config.managed_app_max_stderr_bytes))
+            ),
+            managed_app_zip_max_entries=int(
+                os.getenv("TIKTOK_MANAGER_APK_ZIP_MAX_ENTRIES", str(config.managed_app_zip_max_entries))
+            ),
+            managed_app_zip_max_expanded_bytes=int(
+                os.getenv("TIKTOK_MANAGER_APK_ZIP_MAX_EXPANDED_BYTES", str(config.managed_app_zip_max_expanded_bytes))
+            ),
+            managed_app_zip_max_compression_ratio=int(
+                os.getenv("TIKTOK_MANAGER_APK_ZIP_MAX_COMPRESSION_RATIO", str(config.managed_app_zip_max_compression_ratio))
+            ),
             workflow_lock_directory=Path(
                 os.getenv("TIKTOK_MANAGER_WORKFLOW_LOCK_DIRECTORY", str(config.workflow_lock_directory))
             ),
@@ -529,6 +611,7 @@ def _upgrade_automation_defaults(
     }
     content = parsed.get("content", {})
     workflow = parsed.get("workflow", {})
+    managed_apps = parsed.get("managed_apps", {})
     content_desired = {
         "root": _quote(defaults.content_root),
         "max_upload_bytes": str(defaults.content_max_upload_bytes),
@@ -554,16 +637,32 @@ def _upgrade_automation_defaults(
         "poll_interval_seconds": str(defaults.workflow_poll_interval_seconds),
         "reconcile_batch_size": str(defaults.workflow_reconcile_batch_size),
     }
+    managed_apps_desired = {
+        "max_apk_bytes": str(defaults.managed_app_max_apk_bytes),
+        "aapt2_path": _quote(defaults.managed_app_aapt2_path),
+        "apksigner_path": _quote(defaults.managed_app_apksigner_path),
+        "inspection_timeout_seconds": str(defaults.managed_app_inspection_timeout_seconds),
+        "max_stdout_bytes": str(defaults.managed_app_max_stdout_bytes),
+        "max_stderr_bytes": str(defaults.managed_app_max_stderr_bytes),
+        "zip_max_entries": str(defaults.managed_app_zip_max_entries),
+        "zip_max_expanded_bytes": str(defaults.managed_app_zip_max_expanded_bytes),
+        "zip_max_compression_ratio": str(defaults.managed_app_zip_max_compression_ratio),
+    }
     missing_workflow = [
         (key, value) for key, value in workflow_desired.items() if key not in workflow
     ]
-    if not missing and not missing_content and not missing_workflow:
+    missing_managed_apps = [
+        (key, value) for key, value in managed_apps_desired.items()
+        if key not in managed_apps
+    ]
+    if not missing and not missing_content and not missing_workflow and not missing_managed_apps:
         return
 
     lines = text.splitlines()
     _insert_missing_section(lines, "automation", missing)
     _insert_missing_section(lines, "content", missing_content)
     _insert_missing_section(lines, "workflow", missing_workflow)
+    _insert_missing_section(lines, "managed_apps", missing_managed_apps)
 
     payload = ("\n".join(lines).rstrip() + "\n").encode("utf-8")
     temporary = f".{config_path.name}.update-{uuid.uuid4().hex}"
@@ -677,6 +776,17 @@ def _serialize(config: ApplicationConfig) -> str:
             f"max_image_frames = {config.content_max_image_frames}",
             "inspection_lock_directory = "
             f"{_quote(config.content_inspection_lock_directory)}",
+            "",
+            "[managed_apps]",
+            f"max_apk_bytes = {config.managed_app_max_apk_bytes}",
+            f"aapt2_path = {_quote(config.managed_app_aapt2_path)}",
+            f"apksigner_path = {_quote(config.managed_app_apksigner_path)}",
+            f"inspection_timeout_seconds = {config.managed_app_inspection_timeout_seconds}",
+            f"max_stdout_bytes = {config.managed_app_max_stdout_bytes}",
+            f"max_stderr_bytes = {config.managed_app_max_stderr_bytes}",
+            f"zip_max_entries = {config.managed_app_zip_max_entries}",
+            f"zip_max_expanded_bytes = {config.managed_app_zip_max_expanded_bytes}",
+            f"zip_max_compression_ratio = {config.managed_app_zip_max_compression_ratio}",
             "",
             "[workflow]",
             f"lock_directory = {_quote(config.workflow_lock_directory)}",

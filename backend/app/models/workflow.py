@@ -58,6 +58,8 @@ class Workflow(Base):
     runtime_id_snapshot: Mapped[int | None] = mapped_column(Integer)
     content_asset_id: Mapped[int | None] = mapped_column(ForeignKey("content_assets.id", ondelete="RESTRICT"), index=True)
     content_asset_version_id: Mapped[int | None] = mapped_column(ForeignKey("content_asset_versions.id", ondelete="RESTRICT"), index=True)
+    managed_app_id: Mapped[int | None] = mapped_column(ForeignKey("managed_apps.id", ondelete="RESTRICT"), index=True)
+    managed_app_version_id: Mapped[int | None] = mapped_column(ForeignKey("managed_app_versions.id", ondelete="RESTRICT"), index=True)
     current_step_id: Mapped[int | None] = mapped_column(
         ForeignKey("workflow_steps.id", ondelete="SET NULL", use_alter=True, name="fk_workflows_current_step")
     )

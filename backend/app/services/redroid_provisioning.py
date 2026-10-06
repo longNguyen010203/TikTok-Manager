@@ -27,6 +27,7 @@ from app.services.redroid_provisioning_adapter import (
 )
 from app.services.redroid_provisioning_config import RedroidProvisioningSettings
 from app.services.runtime_network import add_default_direct_network_config
+from app.services.runtime_apps import RuntimeAppService
 
 
 class ProvisioningError(RuntimeError):
@@ -547,6 +548,7 @@ class RedroidProvisioningService:
                 .where(Workflow.runtime_id == runtime.id)
                 .values(runtime_id=None)
             )
+            RuntimeAppService.mark_runtime_removed(session, runtime.id)
             session.delete(device)
             session.commit()
             session.refresh(attempt)
@@ -632,6 +634,7 @@ class RedroidProvisioningService:
             session.add(runtime)
             session.flush()
             add_default_direct_network_config(session, runtime, applied=True)
+            RuntimeAppService.initialize_required(session, runtime)
             attempt.device_id = device.id
             attempt.runtime_id = runtime.id
             attempt.state = "completed"

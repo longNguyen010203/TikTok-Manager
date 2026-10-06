@@ -64,6 +64,23 @@ if [[ "${configured_ffmpeg}" != /* || ! -f "${configured_ffmpeg}" || \
   exit 1
 fi
 
+configured_aapt2="$(
+  cd "${backend_dir}"
+  "${venv_dir}/bin/python" -c \
+    'from app.config import load_application_config; print(load_application_config().managed_app_aapt2_path)'
+)"
+configured_apksigner="$(
+  cd "${backend_dir}"
+  "${venv_dir}/bin/python" -c \
+    'from app.config import load_application_config; print(load_application_config().managed_app_apksigner_path)'
+)"
+for apk_tool in "${configured_aapt2}" "${configured_apksigner}"; do
+  if [[ "${apk_tool}" != /* || ! -f "${apk_tool}" || -L "${apk_tool}" || ! -x "${apk_tool}" ]]; then
+    echo "Managed APK inspection tool is missing or unsafe: ${apk_tool}" >&2
+    echo "Managed APK inspection will remain unavailable until a trusted absolute tool path is configured." >&2
+  fi
+done
+
 if [[ -f "${database_path}" ]]; then
   backup_dir="${data_dir}/backups"
   mkdir -p "${backup_dir}"

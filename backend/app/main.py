@@ -14,9 +14,12 @@ from app.routers.content import router as content_router, delivery_router
 from app.routers.devices import router as devices_router, screen_process_manager
 from app.routers.health import router as health_router
 from app.routers.jobs import router as jobs_router
+from app.routers.managed_apps import router as managed_apps_router
 from app.routers.redroid_provisionings import router as redroid_provisionings_router
 from app.routers.runtime_networks import router as runtime_networks_router
 from app.routers.runtimes import router as runtimes_router
+from app.routers.runtime_apps import router as runtime_apps_router
+from app.routers.publishing import router as publishing_router
 from app.routers.workflows import router as workflows_router, template_router as workflow_templates_router
 from app.services.host_lifecycle import (
     ApplicationLifecycle,
@@ -111,8 +114,11 @@ def create_app(
     application.include_router(delivery_router)
     application.include_router(devices_router)
     application.include_router(jobs_router)
+    application.include_router(managed_apps_router)
     application.include_router(runtime_networks_router)
     application.include_router(runtimes_router)
+    application.include_router(runtime_apps_router)
+    application.include_router(publishing_router)
     application.include_router(redroid_provisionings_router)
     application.include_router(workflow_templates_router)
     application.include_router(workflows_router)

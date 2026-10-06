@@ -16,6 +16,8 @@ class WorkflowCreate(BaseModel):
     content_asset_id: int = Field(gt=0)
     content_asset_version_id: int | None = Field(default=None, gt=0)
     account_id: int | None = Field(default=None, gt=0)
+    managed_app_id: int | None = Field(default=None, gt=0)
+    managed_app_version_id: int | None = Field(default=None, gt=0)
     parameters: dict[str, Any] = Field(default_factory=dict)
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 
@@ -64,6 +66,8 @@ class WorkflowRead(BaseModel):
     runtime_id_snapshot: int | None
     content_asset_id: int | None
     content_asset_version_id: int | None
+    managed_app_id: int | None
+    managed_app_version_id: int | None
     current_step_id: int | None
     transition_version: int
     pause_requested_at: datetime | None
@@ -108,5 +112,8 @@ class WorkflowTemplateRead(BaseModel):
     version: int
     label: str
     description: str
-    required_bindings: list[Literal["runtime_id", "content_asset_id"]]
+    required_bindings: list[Literal[
+        "account_id", "runtime_id", "content_asset_id", "content_asset_version_id",
+        "managed_app_id", "managed_app_version_id",
+    ]]
     parameters_schema: dict[str, Any]

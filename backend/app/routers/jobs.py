@@ -38,6 +38,18 @@ from app.services.content_jobs import (
     reconcile_content_thumbnails,
 )
 from app.services.content_operation_lock import ContentVersionOperationGuard
+from app.services.apk_inspection import ApkInspectionError
+from app.services.managed_app_job_execution import ManagedAppJobExecutionService
+from app.services.runtime_app_job_execution import RuntimeAppJobExecutionService
+from app.services.publishing_job_execution import PublishingJobExecutionService, PublishingPreparationError
+from app.services.publishing_jobs import PublishingJobValidationError, is_publishing_job_type
+from app.services.android_app_management import AppManagementError
+from app.services.runtime_apps import RuntimeAppService
+from app.services.managed_app_jobs import (
+    ManagedAppJobValidationError,
+    is_managed_app_job_type,
+    reconcile_app_inspections,
+)
 from app.services.device_job_execution import DeviceJobExecutionService
 from app.services.device_jobs import (
     DeviceJobValidationError,
@@ -188,6 +200,10 @@ def claim_job(session: DatabaseSession, payload: JobClaimRequest | None = None) 
     reconcile_content_thumbnails(
         session, ContentVersionOperationGuard(config.content_inspection_lock_directory)
     )
+    reconcile_app_inspections(
+        session, ContentVersionOperationGuard(config.content_inspection_lock_directory)
+    )
+    RuntimeAppService.reconcile_jobs(session)
     claimed = claim_next_job(session, claimed_by=(payload or JobClaimRequest()).claimed_by)
     if claimed is None:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -198,8 +214,9 @@ def claim_job(session: DatabaseSession, payload: JobClaimRequest | None = None) 
 @router.post("", response_model=JobRead, status_code=status.HTTP_201_CREATED)
 def create_job(payload: JobCreate, session: DatabaseSession) -> Job:
     """Create a job with optional Account and Runtime targets."""
-    if is_content_job_type(payload.job_type):
-        raise HTTPException(status_code=422, detail="Internal content Jobs are server-created only")
+    if (is_content_job_type(payload.job_type) or is_managed_app_job_type(payload.job_type)
+            or payload.job_type.startswith("publishing.")):
+        raise HTTPException(status_code=422, detail="Internal Jobs are server-created only")
     _validate_account_id(payload.account_id, session)
     _validate_runtime_id(payload.runtime_id, session)
     data = payload.model_dump()
@@ -226,8 +243,13 @@ def update_job(job_id: JobId, payload: JobUpdate, session: DatabaseSession) -> J
     """Update fields supplied for a job."""
     job = _get_job_or_404(job_id, session)
     update_data = payload.model_dump(exclude_unset=True)
-    if is_content_job_type(job.job_type) or is_content_job_type(update_data.get("job_type")):
-        raise HTTPException(status_code=409, detail="Internal content Jobs are immutable")
+    if (
+        is_content_job_type(job.job_type) or is_content_job_type(update_data.get("job_type"))
+        or is_managed_app_job_type(job.job_type) or is_managed_app_job_type(update_data.get("job_type"))
+        or job.job_type.startswith("publishing.")
+        or (isinstance(update_data.get("job_type"), str) and update_data["job_type"].startswith("publishing."))
+    ):
+        raise HTTPException(status_code=409, detail="Internal Jobs are immutable")
     if is_device_job_type(job.job_type) and job.attempt_count > 0 and any(field in update_data for field in {"job_type", "runtime_id", "account_id", "payload"}):
         raise HTTPException(status_code=409, detail="Claimed device Job targets and payload are immutable")
     if "status" in update_data and update_data["status"] != job.status:
@@ -275,6 +297,7 @@ def fail_job(job_id: JobId, payload: JobFailed, session: DatabaseSession, claim_
     try:
         result = mark_job_failed(session, job, claim_token, attempt, error_message=payload.error_message, error_code=payload.error_code, retryable=payload.retryable)
         ContentDeliveryService.sync_failed_job(session, result)
+        RuntimeAppService.sync_failed_job(session, result)
         session.commit()
         session.refresh(result)
         return result
@@ -298,7 +321,18 @@ def heartbeat(job_id: JobId, session: DatabaseSession, claim_token: ClaimToken, 
 def execute_job(job_id: JobId, session: DatabaseSession, claim_token: ClaimToken, attempt: ClaimAttempt) -> JobExecuteRead:
     job = _get_job_for_update_or_404(job_id, session)
     try:
-        if is_content_job_type(job.job_type):
+        if is_publishing_job_type(job.job_type):
+            result = PublishingJobExecutionService(
+                session, screen_manager=screen_process_manager
+            ).execute(job, claim_token, attempt)
+        elif is_managed_app_job_type(job.job_type):
+            if job.job_type == "app.inspect":
+                result = ManagedAppJobExecutionService(session).execute(job, claim_token, attempt)
+            else:
+                result = RuntimeAppJobExecutionService(
+                    session, screen_manager=screen_process_manager
+                ).execute(job, claim_token, attempt)
+        elif is_content_job_type(job.job_type):
             if job.job_type == "content.inspect":
                 result = ContentJobExecutionService(session).execute(job, claim_token, attempt)
             elif job.job_type == "content.thumbnail":
@@ -318,6 +352,35 @@ def execute_job(job_id: JobId, session: DatabaseSession, claim_token: ClaimToken
         raise HTTPException(status_code=422, detail=str(error)) from error
     except ContentJobValidationError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    except ManagedAppJobValidationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except PublishingJobValidationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except PublishingPreparationError as error:
+        code = 409 if error.code in {
+            "RUNTIME_BUSY", "RUNTIME_STOPPED", "RUNTIME_SCREEN_ACTIVE",
+            "APP_NOT_INSTALLED", "APP_VERSION_MISMATCH", "APP_PACKAGE_DISABLED",
+            "APP_RUNTIME_UNAVAILABLE",
+        } else (503 if error.retryable else 422)
+        raise HTTPException(status_code=code, detail={
+            "code": error.code, "message": error.safe_message,
+            "retryable": error.retryable,
+        }) from error
+    except ApkInspectionError as error:
+        code = 409 if error.code in {"APP_INSPECTION_BUSY", "APP_INSPECTION_CANCELLED"} else (503 if error.retryable else 422)
+        raise HTTPException(
+            status_code=code,
+            detail={"code": error.code, "message": error.safe_message, "retryable": error.retryable},
+        ) from error
+    except AppManagementError as error:
+        code = 409 if error.code in {
+            "APP_OPERATION_CANCELLED", "APP_DOWNGRADE_BLOCKED",
+            "APP_SIGNATURE_MISMATCH", "APP_PACKAGE_DISABLED",
+        } else (503 if error.retryable else 422)
+        raise HTTPException(
+            status_code=code,
+            detail={"code": error.code, "message": error.safe_message, "retryable": error.retryable},
+        ) from error
     except ContentProcessingError as error:
         code = 409 if error.code in {
             "CONTENT_PROCESSING_BUSY", "CONTENT_PROCESSING_CANCELLED"

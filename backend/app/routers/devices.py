@@ -46,6 +46,7 @@ from app.services.runtime_network_orchestration import (
 )
 from app.services.network_config import RuntimeNetworkSettings
 from app.services.runtime_operation_lock import RuntimeOperationGuard
+from app.services.runtime_apps import RuntimeAppService
 
 router = APIRouter(prefix="/devices", tags=["devices"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
@@ -135,6 +136,7 @@ def start_device(
     )
     result = _execute_lifecycle(lambda: service.start(device))
     _reconcile_network_after_ready(device, session, network_cleaner)
+    _reconcile_required_apps_after_ready(device, session)
     return result
 
 
@@ -164,6 +166,7 @@ def restart_device(
     )
     result = _execute_lifecycle(lambda: service.restart(device))
     _reconcile_network_after_ready(device, session, network_cleaner)
+    _reconcile_required_apps_after_ready(device, session, verify_installed=True)
     return result
 
 
@@ -290,6 +293,27 @@ def _reconcile_network_after_ready(
         logger.error(
             "Network reconciliation after lifecycle start failed for Runtime %s",
             target.runtime.id,
+        )
+
+
+def _reconcile_required_apps_after_ready(
+    device: Device, session: Session, *, verify_installed: bool = False
+) -> None:
+    """Schedule convergence after lifecycle released the Runtime lock."""
+    target = get_redroid_target(device)
+    try:
+        RuntimeAppService.converge_required(
+            session,
+            target.runtime.id,
+            schedule=True,
+            verify_installed=verify_installed,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        # Core lifecycle truth remains independent from publishing readiness.
+        logger.error(
+            "Required app convergence failed for Runtime %s", target.runtime.id
         )
 
 

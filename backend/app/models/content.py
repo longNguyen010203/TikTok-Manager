@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 ASSET_TYPES = ("video", "image", "audio", "other")
 ASSET_SOURCES = ("upload", "promoted_artifact", "generated", "imported")
 ASSET_STATUSES = ("processing", "ready", "invalid", "archived", "deleted")
+ASSET_PURPOSES = ("library", "managed_app_package")
 PROCESSING_STATUSES = ("processing", "ready", "invalid")
 BLOB_STATUSES = ("active", "orphaned", "missing", "deleted")
 VARIANT_STATUSES = ("processing", "ready", "invalid", "deleted")
@@ -119,6 +120,10 @@ class ContentAsset(Base):
             name="ck_content_assets_status",
         ),
         CheckConstraint(
+            "purpose IN ('library', 'managed_app_package')",
+            name="ck_content_assets_purpose",
+        ),
+        CheckConstraint(
             "length(display_name) BETWEEN 1 AND 255",
             name="ck_content_assets_display_name",
         ),
@@ -138,6 +143,9 @@ class ContentAsset(Base):
     notes: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    purpose: Mapped[str] = mapped_column(
+        String(30), default="library", server_default="library", nullable=False, index=True
+    )
     # Application-enforced pointer avoids a cyclic DDL dependency with versions.
     current_version_id: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(

@@ -108,3 +108,48 @@ def test_content_thumbnail_is_registered_without_runtime_target() -> None:
     assert create_default_registry().dispatch(execution) == {
         "content_variant_id": 13, "status": "ready"
     }
+
+
+def test_app_inspect_is_registered_without_runtime_target() -> None:
+    class Client:
+        def execute_job(self, job_id, claim_token, attempt):
+            return {"managed_app_version_id": 4, "status": "ready"}
+
+    execution = JobExecutionContext(
+        7, "app.inspect", None, None, {"managed_app_version_id": 4}, 1,
+        "t" * 32, datetime.now(timezone.utc), Client(), Event(),
+    )
+    assert create_default_registry().dispatch(execution) == {
+        "managed_app_version_id": 4, "status": "ready"
+    }
+
+
+@pytest.mark.parametrize("job_type", ["app.install", "app.verify"])
+def test_runtime_app_jobs_are_registered_with_exact_runtime(job_type: str) -> None:
+    class Client:
+        def execute_job(self, job_id, claim_token, attempt):
+            return {"installation_id": 12, "status": "installed"}
+
+    execution = JobExecutionContext(
+        8, job_type, 19, None, {"runtime_app_installation_id": 12}, 1,
+        "t" * 32, datetime.now(timezone.utc), Client(), Event(),
+    )
+    assert create_default_registry().dispatch(execution) == {
+        "installation_id": 12, "status": "installed"
+    }
+
+
+@pytest.mark.parametrize("job_type", [
+    "publishing.verify_runtime", "publishing.verify_app",
+    "publishing.verify_app_state",
+])
+def test_publishing_jobs_are_registered_with_exact_runtime(job_type: str) -> None:
+    class Client:
+        def execute_job(self, job_id, claim_token, attempt):
+            return {"publishing_ready": True}
+
+    execution = JobExecutionContext(
+        9, job_type, 19, 4, {"publishing_session_id": 3}, 1,
+        "t" * 32, datetime.now(timezone.utc), Client(), Event(),
+    )
+    assert create_default_registry().dispatch(execution) == {"publishing_ready": True}

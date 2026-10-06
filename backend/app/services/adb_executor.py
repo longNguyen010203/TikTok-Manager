@@ -46,6 +46,16 @@ class AdbBinaryResult:
     stdout: bytes
 
 
+@dataclass(frozen=True)
+class AdbInstalledPackage:
+    package_name: str
+    package_path: str
+    version_name: str | None
+    version_code: int | None
+    enabled: bool
+    signer_fingerprint: str | None
+
+
 CommandRunner = Callable[..., subprocess.CompletedProcess[bytes]]
 CancellationHook = Callable[[], bool]
 
@@ -139,6 +149,56 @@ class AdbExecutor:
         if result.returncode != 0 or not value.isdigit():
             return None
         return int(value)
+
+    def installed_package(
+        self, serial: str, package_name: str, *, timeout: float | None = None
+    ) -> AdbInstalledPackage | None:
+        """Return normalized package-manager state without exposing raw output."""
+        self._validate_package_name(package_name)
+        package_path = self.package_path(serial, package_name)
+        if package_path is None:
+            return None
+        if not package_path.startswith("/data/app/") or any(
+            character in package_path for character in ("\x00", "\n", "\r")
+        ):
+            raise AdbExecutorError("failed", "Android package path is invalid")
+        result = self._text(
+            serial,
+            ["shell", "dumpsys", "package", package_name],
+            timeout=timeout,
+        )
+        version_code_match = re.search(r"(?:^|\s)versionCode=(\d+)(?:\s|$)", result.stdout)
+        version_name_match = re.search(r"(?:^|\s)versionName=([^\s]+)", result.stdout)
+        enabled_match = re.search(r"(?:^|\s)enabled=(true|false|[0-4])(?:\s|$)", result.stdout)
+        digest_match = re.search(
+            r"SHA-256(?: certificate)? digest:\s*([0-9A-Fa-f:]{64,95})",
+            result.stdout,
+        )
+        signer = None
+        if digest_match:
+            candidate = digest_match.group(1).replace(":", "").lower()
+            if re.fullmatch(r"[0-9a-f]{64}", candidate):
+                signer = candidate
+        enabled_value = enabled_match.group(1) if enabled_match else "true"
+        return AdbInstalledPackage(
+            package_name=package_name,
+            package_path=package_path,
+            version_name=version_name_match.group(1) if version_name_match else None,
+            version_code=int(version_code_match.group(1)) if version_code_match else None,
+            enabled=enabled_value in {"true", "0", "1"},
+            signer_fingerprint=signer,
+        )
+
+    def install_package(
+        self, serial: str, apk_path: Path, *, timeout: float = 300.0
+    ) -> None:
+        """Install one backend-resolved monolithic APK with the fixed update policy."""
+        path = Path(apk_path)
+        if not path.is_absolute():
+            raise ValueError("APK path must be absolute")
+        # -r permits a same-signer upgrade while deliberately omitting -d, -g,
+        # uninstall, split-package flags, and every caller-controlled option.
+        self._text(serial, ["install", "-r", str(path)], timeout=timeout)
 
     def launch_package(self, serial: str, package_name: str) -> None:
         self._validate_package_name(package_name)

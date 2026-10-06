@@ -9,7 +9,8 @@ from collections.abc import Callable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import ContentAsset, ContentAssetVersion, Job, Runtime, Workflow, WorkflowStep
+from app.models import (Account, ContentAsset, ContentAssetVersion, Job, ManagedApp,
+                        ManagedAppVersion, PublishingSession, Runtime, Workflow, WorkflowStep)
 from app.models.timestamps import utc_now
 from app.services.content_delivery import ContentDeliveryError
 from app.services.job_lifecycle import cancel_job
@@ -18,6 +19,8 @@ from app.services.workflow_lock import WorkflowOperationGuard, WorkflowOperation
 from app.services.workflow_service import append_workflow_event
 from app.services.workflow_state import transition_step, transition_workflow
 from app.services.workflow_wait import WorkflowWaitError, calculate_resume_at, is_due
+from app.services.managed_apps import ManagedAppService
+from app.services.publishing_sessions import sync_publishing_session
 
 LOGGER = logging.getLogger(__name__)
 
@@ -46,6 +49,7 @@ class WorkflowOrchestrator:
                         workflow = session.get(Workflow, workflow_id)
                         if workflow is not None:
                             self.reconcile(session, workflow)
+                            sync_publishing_session(session, workflow)
                             session.commit()
                             reconciled += 1
             except WorkflowOperationLockBusy:
@@ -234,6 +238,15 @@ class WorkflowOrchestrator:
             "content_delivery_id": "delivery_id", "delivery_id": "delivery_id",
             "status": "delivery_status", "remote_filename": "remote_filename",
             "media_uri": "media_uri", "sha256": "sha256",
+            "managed_app_id": "managed_app_id",
+            "managed_app_version_id": "managed_app_version_id",
+            "expected_package": "expected_package",
+            "observed_version_name": "observed_version_name",
+            "observed_version_code": "observed_version_code",
+            "runtime_ready": "runtime_ready",
+            "required_apps_ready": "required_apps_ready",
+            "publishing_ready": "publishing_ready",
+            "installed": "installed", "running": "running", "launched": "launched",
         }
         for source, target in mapping.items():
             if source in result:
@@ -248,13 +261,27 @@ class WorkflowOrchestrator:
         if runtime is None or runtime.id != workflow.runtime_id_snapshot or runtime.runtime_type != "redroid":
             return "WORKFLOW_RUNTIME_UNAVAILABLE", "Pinned Runtime is no longer available"
         asset = session.get(ContentAsset, workflow.content_asset_id) if workflow.content_asset_id else None
-        if asset is None or asset.status == "deleted":
+        if asset is None or asset.status == "deleted" or asset.purpose != "library":
             return "CONTENT_DELETED", "Pinned content is no longer available"
         version = session.get(ContentAssetVersion, workflow.content_asset_version_id) if workflow.content_asset_version_id else None
         if version is None or version.content_asset_id != asset.id or version.processing_status != "ready":
             return "CONTENT_VERSION_NOT_READY", "Pinned content version is not ready"
         if version.blob is None or version.blob.status != "active":
             return "CONTENT_BLOB_INVALID", "Pinned content blob is unavailable"
+        if workflow.template_key == "publishing_prepare_review":
+            if workflow.account_id is None or session.get(Account, workflow.account_id) is None:
+                return "ACCOUNT_NOT_FOUND", "Pinned Account is no longer available"
+            app = session.get(ManagedApp, workflow.managed_app_id) if workflow.managed_app_id else None
+            app_version = session.get(ManagedAppVersion, workflow.managed_app_version_id) if workflow.managed_app_version_id else None
+            if app is None or app_version is None or app_version.managed_app_id != app.id:
+                return "APP_VERSION_NOT_READY", "Pinned managed app version is unavailable"
+            if not ManagedAppService.is_installable(app, app_version):
+                return "APP_VERSION_NOT_READY", "Pinned managed app version is not install-eligible"
+            record = session.scalar(select(PublishingSession).where(PublishingSession.workflow_id == workflow.id))
+            if (record is None or record.runtime_id_snapshot != workflow.runtime_id_snapshot
+                    or record.content_asset_version_id != workflow.content_asset_version_id
+                    or record.managed_app_id != app.id or record.managed_app_version_id != app_version.id):
+                return "WORKFLOW_BINDING_INVALID", "Publishing session bindings are inconsistent"
         return None
 
     @staticmethod

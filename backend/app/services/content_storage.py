@@ -25,6 +25,7 @@ from app.services.content_validation import DetectedContent
 
 _STORAGE_KEY = re.compile(r"^[0-9a-f]{32}$")
 _STAGING_KEY = re.compile(r"^\.upload-[0-9a-f]{32}$")
+_APK_VIEW_KEY = re.compile(r"^\.apk-view-[0-9a-f]{32}\.apk$")
 
 
 class ContentStorageError(RuntimeError):
@@ -146,6 +147,16 @@ class ContentStorageService:
             return os.read(descriptor, maximum)
         finally:
             os.close(descriptor)
+
+    @contextmanager
+    def open_staged(self, staged: StagedContent) -> Iterator[BinaryIO]:
+        """Open an exact generated staging file without following symlinks."""
+        descriptor = self._open_staged(staged)
+        stream = os.fdopen(descriptor, "rb")
+        try:
+            yield stream
+        finally:
+            stream.close()
 
     @contextmanager
     def maintenance_lock(self, *, wait: bool = True) -> Iterator[None]:
@@ -291,6 +302,64 @@ class ContentStorageService:
             )
         return path
 
+    @contextmanager
+    def temporary_apk_view(self, blob: ContentBlob) -> Iterator[Path]:
+        """Expose verified bytes with an ADB-compatible generated suffix.
+
+        Content blobs deliberately have extensionless internal identities, but
+        the adb client rejects local install sources that do not end in `.apk`.
+        A private hard link avoids copying a large package and is removed after
+        the exact owned install child finishes.
+        """
+        self.verify_blob(blob)
+        name = f".apk-view-{uuid.uuid4().hex}.apk"
+        blobs_fd = self._open_directory(self.blobs)
+        staging_fd = self._open_directory(self.staging)
+        try:
+            os.link(
+                blob.storage_key,
+                name,
+                src_dir_fd=blobs_fd,
+                dst_dir_fd=staging_fd,
+                follow_symlinks=False,
+            )
+            source_info = os.stat(
+                blob.storage_key, dir_fd=blobs_fd, follow_symlinks=False
+            )
+            view_info = os.stat(name, dir_fd=staging_fd, follow_symlinks=False)
+            self._validate_private_regular_info(view_info)
+            if (
+                source_info.st_dev != view_info.st_dev
+                or source_info.st_ino != view_info.st_ino
+                or view_info.st_size != blob.size_bytes
+            ):
+                raise ContentStorageError(
+                    "CONTENT_STORAGE_UNSAFE", "Temporary APK view is unsafe"
+                )
+            os.fsync(staging_fd)
+        except Exception as error:
+            try:
+                os.unlink(name, dir_fd=staging_fd)
+            except FileNotFoundError:
+                pass
+            os.close(staging_fd)
+            os.close(blobs_fd)
+            if isinstance(error, ContentStorageError):
+                raise
+            raise ContentStorageError(
+                "CONTENT_STORAGE_UNSAFE", "Temporary APK view could not be created"
+            ) from error
+        try:
+            yield self.staging / name
+        finally:
+            try:
+                os.unlink(name, dir_fd=staging_fd)
+                os.fsync(staging_fd)
+            except FileNotFoundError:
+                pass
+            os.close(staging_fd)
+            os.close(blobs_fd)
+
     def discard_staged(self, staged: StagedContent) -> None:
         if not _STAGING_KEY.fullmatch(staged.name):
             raise ContentStorageError("CONTENT_STORAGE_UNSAFE", "Staging identity is invalid")
@@ -343,7 +412,7 @@ class ContentStorageService:
                 continue
             age = current.timestamp() - info.st_mtime
             if (
-                _STAGING_KEY.fullmatch(entry.name)
+                (_STAGING_KEY.fullmatch(entry.name) or _APK_VIEW_KEY.fullmatch(entry.name))
                 and stat.S_ISREG(info.st_mode)
                 and not stat.S_ISLNK(info.st_mode)
                 and info.st_uid == os.getuid()

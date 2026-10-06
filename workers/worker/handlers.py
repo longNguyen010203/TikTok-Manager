@@ -32,4 +32,10 @@ def create_default_registry() -> HandlerRegistry:
     registry.register("content.inspect", execute_backend_job)
     registry.register("content.thumbnail", execute_backend_job)
     registry.register("content.deliver", execute_backend_job)
+    registry.register("app.inspect", execute_backend_job)
+    registry.register("app.install", execute_backend_job)
+    registry.register("app.verify", execute_backend_job)
+    registry.register("publishing.verify_runtime", execute_backend_job)
+    registry.register("publishing.verify_app", execute_backend_job)
+    registry.register("publishing.verify_app_state", execute_backend_job)
     return registry

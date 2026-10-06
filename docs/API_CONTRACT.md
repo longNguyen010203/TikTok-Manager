@@ -1036,6 +1036,78 @@ means another process owns that Workflow's transition lock. Approval rejection
 uses `WORKFLOW_APPROVAL_REJECTED`. Responses and events omit internal Job
 payloads, claim ownership, paths, commands, and subprocess output.
 
+## Managed Android packages
+
+Managed-app endpoints accept definitions and APK bytes only. Clients cannot
+provide discovered package/version/signer metadata, a storage key, host path,
+tool command, Runtime, ADB serial, or installation flags.
+
+- `GET /managed-apps` lists newest first with backend pagination.
+- `POST /managed-apps` accepts only `key`, `display_name`,
+  `android_package_name`, and `install_policy`. Repeating the exact definition
+  is idempotent; conflicting reuse returns `409`.
+- `GET /managed-apps/{id}` and `PATCH /managed-apps/{id}` return/update safe
+  metadata. PATCH supports display name, status, and installation policy;
+  key/package identity is not mutable.
+- `POST /managed-apps/{id}/versions` accepts one multipart APK plus optional
+  display metadata. It returns `202`; identical bytes for the same app reuse
+  the existing version. Split APK/APKS/AAB uploads are unsupported.
+- `GET /managed-apps/{id}/versions` and
+  `GET /managed-apps/{id}/versions/{version_id}` expose normalized inspection
+  state and never expose a path, storage key, or raw tool output.
+- `POST /managed-apps/{id}/versions/{version_id}/approve-basic` explicitly
+  accepts an admission-checked immutable APK for mandatory post-install package
+  verification. It does not assert package metadata or signer identity.
+- `POST /managed-apps/{id}/versions/{version_id}/activate` accepts only a ready,
+  verified package-matching version or an explicitly approved basic version.
+  Repeating the same activation is idempotent and no Runtime installation is
+  triggered.
+- `POST /managed-apps/{id}/versions/{version_id}/retire` preserves history and
+  rejects the active or currently inspecting version.
+
+Upload creates the internal runtime-free `app.inspect` Job. Public `POST /jobs`
+rejects that type. Deterministic package/signature/malformed errors are
+non-retryable; missing or timed-out tooling is a sanitized retryable
+infrastructure failure. The normal Content Library does not list or download
+managed package assets, and generic media delivery rejects them.
+
+Version responses expose `inspection_level` (`basic` or `verified`),
+`package_verification` (`post_install` or `pre_and_post_install`), and basic
+approval state. Basic approval is never presented as signer verification.
+
+Runtime installation endpoints accept only managed IDs. They never accept an
+APK path, package name, ADB serial, or install flags:
+
+- `GET /runtimes/{id}/apps` returns durable desired/observed installation state.
+- `POST /runtimes/{id}/apps/{app_id}/install` accepts an optional ready
+  `managed_app_version_id`; otherwise it pins the current version. A stopped
+  Runtime records pending intent and creates no Job.
+- `POST /runtimes/{id}/apps/{app_id}/verify` creates an internal `app.verify`
+  Job only for a running Runtime.
+- `GET /runtimes/{id}/publishing-readiness` reports independent booleans for
+  Android/ADB readiness, required-app convergence, and their conjunction. It
+  does not imply login or platform acceptance.
+
+`app.install` and `app.verify` are server-created only, exact-Runtime Jobs.
+Stable failures include `APP_NOT_INSTALLED`, `APP_VERSION_MISMATCH`,
+`APP_PACKAGE_MISMATCH`, `APP_BASIC_UPDATE_REQUIRES_VERIFIED`,
+`APP_SIGNATURE_MISMATCH`, `APP_INSTALL_FAILED`, `APP_VERIFY_FAILED`,
+`APP_PACKAGE_DISABLED`, `APP_DOWNGRADE_BLOCKED`, `APP_VERSION_NOT_READY`,
+`APP_BLOB_MISSING`, `APP_BLOB_INVALID`, and `APP_RUNTIME_UNAVAILABLE`.
+
+## Publishing preparation
+
+- `publishing_prepare_review:v1` requires `account_id`, `runtime_id`,
+  `content_asset_version_id`, `managed_app_id`, and
+  `managed_app_version_id`.
+- `POST /workflows` accepts those exact bindings but no custom steps, package
+  name, Job payload, or Android/host path.
+- Internal `publishing.verify_runtime`, `publishing.verify_app`, and
+  `publishing.verify_app_state` Jobs are server-created only. The template
+  reuses pinned `content.deliver` and safe `device.launch_app` before approval.
+- `GET /publishing-sessions` and `GET /publishing-sessions/{id}` expose safe
+  preparation history. Approval does not represent a publish action.
+
 ## Deprovision a managed Redroid device
 
 - Method: `POST`
@@ -1065,7 +1137,8 @@ payloads, claim ownership, paths, commands, and subprocess output.
 Only a completed `redroid_provisionings` record can authorize this operation.
 The backend first acquires the shared Runtime operation lock. Active automation
 or another Runtime mutation returns `409 Conflict` and is not interrupted.
-Pending/retrying `device.*` and `content.deliver` Jobs for that exact Runtime
+Pending/retrying `device.*`, `content.deliver`, `app.install`, and `app.verify`
+Jobs for that exact Runtime
 are cancelled with a durable `runtime_deprovisioned` event; no Job or Delivery
 is redirected. Active delivery/automation blocks deprovision. The backend then
 closes its tracked screen, stops a running container, verifies the recorded
@@ -1077,6 +1150,8 @@ clears its nullable Runtime pointer while preserving `runtime_id_snapshot`.
 Workflow history follows the same rule. A pending Workflow pinned to the
 removed Runtime fails durably with `WORKFLOW_RUNTIME_UNAVAILABLE` and is never
 retargeted.
+RuntimeAppInstallation history also clears its nullable live Runtime pointer,
+retains `runtime_id_snapshot`, and records `removed`.
 The allocated
 device number is permanently reserved.
 

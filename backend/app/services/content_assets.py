@@ -214,7 +214,7 @@ class ContentAssetService:
     def get(self, session: Session, asset_id: int) -> ContentAsset:
         asset = session.scalar(
             select(ContentAsset)
-            .where(ContentAsset.id == asset_id)
+            .where(ContentAsset.id == asset_id, ContentAsset.purpose == "library")
             .execution_options(populate_existing=True)
             .options(
                 selectinload(ContentAsset.tags),

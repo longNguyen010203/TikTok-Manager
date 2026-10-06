@@ -129,6 +129,14 @@ def test_storage_permissions_atomic_install_and_duplicate_reuse(tmp_path: Path) 
             assert stat.S_IMODE(storage.blobs.stat().st_mode) == 0o700
             assert stat.S_IMODE(storage.staging.stat().st_mode) == 0o700
             assert stat.S_IMODE(storage.path_for(blob).stat().st_mode) == 0o600
+            original = storage.path_for(blob)
+            with storage.temporary_apk_view(blob) as apk_view:
+                assert apk_view.name.endswith(".apk")
+                assert apk_view.parent == storage.staging
+                assert apk_view.is_file()
+                assert apk_view.stat().st_ino == original.stat().st_ino
+                assert stat.S_IMODE(apk_view.stat().st_mode) == 0o600
+            assert not apk_view.exists()
             assert list(storage.staging.iterdir()) == []
     finally:
         engine.dispose()

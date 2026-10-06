@@ -12,14 +12,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import (
-    Account, ContentAsset, ContentAssetVersion, Job, Runtime, Workflow,
-    WorkflowEvent, WorkflowStep,
+    Account, ContentAsset, ContentAssetVersion, Job, ManagedApp, ManagedAppVersion,
+    PublishingSession, Runtime, Workflow, WorkflowEvent, WorkflowStep,
 )
 from app.models.timestamps import utc_now
 from app.services.job_lifecycle import JobRetryLimitError, cancel_job, retry_failed_job
 from app.services.workflow_lock import WorkflowOperationGuard, WorkflowOperationLockBusy
 from app.services.workflow_state import transition_step, transition_workflow
 from app.services.workflow_templates import WorkflowTemplateError, get_workflow_template
+from app.services.managed_apps import ManagedAppService
+from app.services.publishing_sessions import sync_publishing_session
 
 
 class WorkflowError(RuntimeError):
@@ -71,6 +73,8 @@ class WorkflowService:
         content_asset_id: int,
         content_asset_version_id: int | None,
         account_id: int | None,
+        managed_app_id: int | None,
+        managed_app_version_id: int | None,
         parameters: dict[str, Any],
         idempotency_key: str | None,
     ) -> tuple[Workflow, bool]:
@@ -90,6 +94,8 @@ class WorkflowService:
         asset = session.get(ContentAsset, content_asset_id)
         if asset is None:
             raise WorkflowError("CONTENT_NOT_FOUND", "Content was not found", status_code=404)
+        if asset.purpose != "library":
+            raise WorkflowError("CONTENT_NOT_FOUND", "Content was not found", status_code=404)
         if asset.status == "deleted":
             raise WorkflowError("CONTENT_DELETED", "Content was deleted")
         pinned_id = content_asset_version_id or asset.current_version_id
@@ -106,12 +112,33 @@ class WorkflowService:
                 raise WorkflowError("ACCOUNT_NOT_FOUND", "Account was not found", status_code=404)
             if account.runtime_id is not None and account.runtime_id != runtime.id:
                 raise WorkflowError("ACCOUNT_RUNTIME_MISMATCH", "Account is assigned to a different Runtime")
+        app: ManagedApp | None = None
+        app_version: ManagedAppVersion | None = None
+        if template.key == "publishing_prepare_review":
+            if content_asset_version_id is None:
+                raise WorkflowError("CONTENT_VERSION_REQUIRED", "Publishing preparation requires an exact content version", status_code=422)
+            if account_id is None:
+                raise WorkflowError("ACCOUNT_REQUIRED", "Publishing preparation requires an Account", status_code=422)
+            if managed_app_id is None or managed_app_version_id is None:
+                raise WorkflowError("MANAGED_APP_REQUIRED", "Publishing preparation requires an exact managed app version", status_code=422)
+            app = session.get(ManagedApp, managed_app_id)
+            app_version = session.get(ManagedAppVersion, managed_app_version_id)
+            if app is None or app.status != "active":
+                raise WorkflowError("APP_NOT_FOUND", "Managed app was not found", status_code=404)
+            if app_version is None or app_version.managed_app_id != app.id:
+                raise WorkflowError("APP_VERSION_NOT_READY", "Managed app version does not belong to the selected app")
+            if not ManagedAppService.is_installable(app, app_version):
+                raise WorkflowError("APP_VERSION_NOT_READY", "Managed app version is not install-eligible")
+        elif managed_app_id is not None or managed_app_version_id is not None:
+            raise WorkflowError("INVALID_WORKFLOW_BINDINGS", "Managed app bindings are not supported by this template", status_code=422)
 
         fingerprint_payload = {
             "template_key": template.key, "template_version": template.version,
             "name": name, "description": description, "runtime_id": runtime.id,
             "content_asset_id": asset.id, "content_asset_version_id": version.id,
             "account_id": account_id, "parameters": validated,
+            "managed_app_id": app.id if app else None,
+            "managed_app_version_id": app_version.id if app_version else None,
         }
         fingerprint = hashlib.sha256(
             json.dumps(fingerprint_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
@@ -137,6 +164,8 @@ class WorkflowService:
             runtime_id_snapshot=runtime.id,
             content_asset_id=asset.id,
             content_asset_version_id=version.id,
+            managed_app_id=app.id if app else None,
+            managed_app_version_id=app_version.id if app_version else None,
         )
         session.add(workflow)
         try:
@@ -186,6 +215,19 @@ class WorkflowService:
             "template_key": template.key, "template_version": template.version,
             "runtime_id": runtime.id, "content_asset_version_id": version.id,
         })
+        if template.key == "publishing_prepare_review":
+            assert account_id is not None and app is not None and app_version is not None
+            session.add(PublishingSession(
+                workflow_id=workflow.id,
+                account_id=account_id,
+                account_id_snapshot=account_id,
+                runtime_id=runtime.id,
+                runtime_id_snapshot=runtime.id,
+                content_asset_version_id=version.id,
+                managed_app_id=app.id,
+                managed_app_version_id=app_version.id,
+                status="preparing",
+            ))
         try:
             session.commit()
         except IntegrityError as error:
@@ -229,6 +271,7 @@ class WorkflowService:
                     self._retry(session, workflow)
                 else:
                     raise WorkflowError("INVALID_WORKFLOW_COMMAND", "Workflow command is invalid", status_code=422)
+                sync_publishing_session(session, workflow)
                 session.commit()
                 session.refresh(workflow)
                 return workflow
@@ -269,6 +312,7 @@ class WorkflowService:
                     append_workflow_event(session, workflow, "rejected", step=step)
                     append_workflow_event(session, workflow, "step_failed", step=step, metadata={"error_code": step.error_code})
                     append_workflow_event(session, workflow, "workflow_failed", metadata={"error_code": step.error_code})
+                sync_publishing_session(session, workflow)
                 session.commit()
                 session.refresh(workflow)
                 return workflow

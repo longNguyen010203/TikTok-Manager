@@ -57,6 +57,10 @@ class ContentDeliveryService:
         )
         if asset is None:
             raise ContentDeliveryError("CONTENT_NOT_FOUND", "Content was not found")
+        if asset.purpose != "library":
+            raise ContentDeliveryError(
+                "CONTENT_PURPOSE_INVALID", "Managed application packages cannot be delivered as media"
+            )
         if asset.status == "deleted":
             raise ContentDeliveryError("CONTENT_DELETED", "Content was deleted")
         chosen_id = version_id if version_id is not None else asset.current_version_id

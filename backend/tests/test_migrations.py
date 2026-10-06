@@ -15,7 +15,7 @@ PRE_JOB_LOG_REVISION = "20260918_0003"
 PRE_REDROID_CONFIG_REVISION = "20260918_0004"
 PRE_UNIQUE_CONFIG_REVISION = "20261001_0005"
 PRE_PROVISIONING_REVISION = "20261001_0006"
-LATEST_REVISION = "20261005_0019"
+LATEST_REVISION = "20261006_0023"
 
 
 def test_upgrade_head_creates_accounts_table(
@@ -50,9 +50,62 @@ def test_upgrade_head_creates_accounts_table(
             "workflow_steps",
             "workflow_step_job_runs",
             "workflow_events",
+            "managed_apps",
+            "managed_app_versions",
+            "managed_app_events",
+            "runtime_app_installations",
+            "runtime_app_installation_runs",
+            "publishing_sessions",
         }.issubset(
             inspector.get_table_names()
         )
+        content_asset_columns = {
+            column["name"]: column for column in inspector.get_columns("content_assets")
+        }
+        assert content_asset_columns["purpose"]["nullable"] is False
+        managed_version_uniques = {
+            tuple(constraint["column_names"])
+            for constraint in inspector.get_unique_constraints("managed_app_versions")
+        }
+        assert ("managed_app_id", "sha256") in managed_version_uniques
+        assert ("content_asset_version_id",) in managed_version_uniques
+        managed_version_columns = {
+            column["name"]: column
+            for column in inspector.get_columns("managed_app_versions")
+        }
+        assert managed_version_columns["inspection_level"]["nullable"] is False
+        assert "basic_approved_at" in managed_version_columns
+        runtime_app_uniques = {
+            tuple(constraint["column_names"])
+            for constraint in inspector.get_unique_constraints(
+                "runtime_app_installations"
+            )
+        }
+        assert ("runtime_id", "managed_app_id") in runtime_app_uniques
+        runtime_app_fks = {
+            tuple(foreign_key["constrained_columns"]): foreign_key
+            for foreign_key in inspector.get_foreign_keys(
+                "runtime_app_installations"
+            )
+        }
+        assert runtime_app_fks[("runtime_id",)]["options"]["ondelete"] == "SET NULL"
+        assert runtime_app_fks[("desired_managed_app_version_id",)]["options"]["ondelete"] == "RESTRICT"
+        run_uniques = {
+            tuple(constraint["column_names"])
+            for constraint in inspector.get_unique_constraints(
+                "runtime_app_installation_runs"
+            )
+        }
+        assert ("job_id",) in run_uniques
+        workflow_columns = {
+            column["name"] for column in inspector.get_columns("workflows")
+        }
+        assert {"managed_app_id", "managed_app_version_id"}.issubset(workflow_columns)
+        publishing_uniques = {
+            tuple(constraint["column_names"])
+            for constraint in inspector.get_unique_constraints("publishing_sessions")
+        }
+        assert ("workflow_id",) in publishing_uniques
         assert "alembic_version" in inspector.get_table_names()
         assert {
             "runtime_network_configs",

@@ -24,7 +24,12 @@ class RuntimeAutomationCleanupCoordinator:
                 with self.session_factory() as session:
                     jobs = list(session.scalars(select(Job).where(
                         Job.runtime_id == runtime_id,
-                        or_(Job.job_type.like("device.%"), Job.job_type == "content.deliver"),
+                        or_(
+                            Job.job_type.like("device.%"),
+                            Job.job_type == "content.deliver",
+                            Job.job_type.in_(["app.install", "app.verify"]),
+                            Job.job_type.like("publishing.%"),
+                        ),
                         Job.status.in_([JobStatus.PENDING.value, JobStatus.RETRYING.value, JobStatus.RUNNING.value, JobStatus.CANCELLING.value]),
                     )).all())
                     if any(job.status in {JobStatus.RUNNING.value, JobStatus.CANCELLING.value} for job in jobs):

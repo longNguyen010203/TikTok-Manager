@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from app.models.device import Device
     from app.models.job import Job
     from app.models.runtime_network import RuntimeNetworkConfig, RuntimeNetworkConfigRevision, RuntimeNetworkCredential, RuntimeNetworkState
+    from app.models.managed_app import RuntimeAppInstallation
 
 
 class Runtime(Base):
@@ -57,4 +58,7 @@ class Runtime(Base):
     )
     network_credential: Mapped["RuntimeNetworkCredential | None"] = relationship(
         back_populates="runtime", cascade="all, delete-orphan", uselist=False
+    )
+    app_installations: Mapped[list["RuntimeAppInstallation"]] = relationship(
+        back_populates="runtime", foreign_keys="RuntimeAppInstallation.runtime_id"
     )

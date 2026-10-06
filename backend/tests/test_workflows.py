@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import multiprocessing
+from types import SimpleNamespace
 from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Iterator
 from datetime import timedelta
@@ -17,7 +18,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.database import get_db, init_db
 from app.models import (
     Account, ContentAsset, ContentAssetVersion, ContentBlob, Device, Job,
-    Runtime, Workflow, WorkflowEvent, WorkflowStep, WorkflowStepJobRun,
+    ManagedApp, ManagedAppVersion, PublishingSession, Runtime, Workflow,
+    WorkflowEvent, WorkflowStep, WorkflowStepJobRun,
 )
 from app.services.workflow_lock import WorkflowOperationGuard, WorkflowOperationLockBusy, WorkflowOperationLockError
 from app.services.workflow_orchestrator import WorkflowOrchestrator
@@ -25,6 +27,8 @@ from app.services.workflow_service import WorkflowError, WorkflowService
 from app.services.workflow_state import WorkflowTransitionError, transition_step, transition_workflow
 from app.services.workflow_wait import WorkflowWaitError, calculate_resume_at
 from app.services.job_lifecycle import recover_expired_jobs
+from app.services.publishing_job_execution import PublishingJobExecutionService
+from app.services.runtime_apps import RuntimeAppService
 from app.workflow_orchestrator import poll_delay
 from app.models.timestamps import utc_now
 from tests.app_factory import create_test_app
@@ -57,6 +61,21 @@ def workflow_api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Te
         asset.current_version_id = version.id
         account = Account(name="A", username="a", platform="generic", status="active", runtime_id=runtime.id)
         session.add(account); session.commit()
+        package_blob = ContentBlob(storage_key="c" * 32, sha256="d" * 64, size_bytes=20, detected_mime_type="application/vnd.android.package-archive", status="active")
+        package_asset = ContentAsset(asset_type="other", display_name="Test APK", source="upload", status="ready", purpose="managed_app_package")
+        package_version = ContentAssetVersion(asset=package_asset, version_number=1, blob=package_blob, original_filename="app.apk", detected_mime_type="application/vnd.android.package-archive", canonical_extension=".apk", processing_status="ready")
+        session.add_all([package_blob, package_asset, package_version]); session.flush()
+        package_asset.current_version_id = package_version.id
+        app_row = ManagedApp(key="test-app", display_name="Test App", android_package_name="com.example.test", status="active", install_policy="required")
+        session.add(app_row); session.flush()
+        managed_version = ManagedAppVersion(
+            managed_app_id=app_row.id, content_asset_id=package_asset.id,
+            content_asset_version_id=package_version.id, sha256=package_blob.sha256,
+            status="ready", inspection_level="basic", basic_approved_at=utc_now(),
+            inspector_name="basic-admission",
+        )
+        session.add(managed_version); session.flush(); app_row.current_version_id = managed_version.id
+        session.commit()
     app = create_test_app()
     def override() -> Iterator[Session]:
         with sessions() as session:
@@ -84,6 +103,7 @@ def test_template_creation_pins_bindings_and_is_idempotent(workflow_api: TestCli
     assert templates.status_code == 200
     assert [(item["key"], item["version"]) for item in templates.json()] == [
         ("content_delivery_review", 1), ("content_delivery_wait_review", 1),
+        ("publishing_prepare_review", 1),
     ]
     first = workflow_api.post("/workflows", json=request_body(idempotency_key="create-1"))
     assert first.status_code == 201
@@ -100,6 +120,146 @@ def test_template_creation_pins_bindings_and_is_idempotent(workflow_api: TestCli
     with workflow_api.app.state.workflow_sessions() as session:
         assert len(list(session.scalars(select(WorkflowStep)))) == 2
         assert len(list(session.scalars(select(WorkflowEvent)))) == 1
+
+
+def test_publishing_template_pins_all_bindings_and_creates_session(workflow_api: TestClient) -> None:
+    response = workflow_api.post("/workflows", json=request_body(
+        template_key="publishing_prepare_review", name="Prepare publishing",
+        account_id=1, content_asset_version_id=1,
+        managed_app_id=1, managed_app_version_id=1,
+    ))
+    assert response.status_code == 201, response.text
+    data = response.json()
+    assert data["account_id"] == 1
+    assert data["managed_app_id"] == 1
+    assert data["managed_app_version_id"] == 1
+    assert [step["step_type"] for step in data["steps"]] == [
+        "publishing.verify_runtime", "publishing.verify_app", "content.deliver",
+        "device.launch_app", "publishing.verify_app_state", "workflow.approval",
+    ]
+    with workflow_api.app.state.workflow_sessions() as session:
+        record = session.scalar(select(PublishingSession).where(PublishingSession.workflow_id == data["id"]))
+        assert record is not None
+        assert (record.account_id_snapshot, record.runtime_id_snapshot) == (1, 1)
+        assert record.content_asset_version_id == 1
+        assert record.managed_app_version_id == 1
+    listed = workflow_api.get("/publishing-sessions").json()
+    assert listed["total"] == 1 and listed["items"][0]["workflow_id"] == data["id"]
+
+
+def test_publishing_template_rejects_missing_or_wrong_app_binding(workflow_api: TestClient) -> None:
+    missing = workflow_api.post("/workflows", json=request_body(
+        template_key="publishing_prepare_review", account_id=1,
+    ))
+    assert missing.status_code == 422
+    wrong = workflow_api.post("/workflows", json=request_body(
+        template_key="publishing_prepare_review", account_id=1, content_asset_version_id=1,
+        managed_app_id=1, managed_app_version_id=999,
+    ))
+    assert wrong.status_code == 409
+
+
+def test_publishing_workflow_materializes_typed_jobs_and_prepared_history(workflow_api: TestClient) -> None:
+    created = workflow_api.post("/workflows", json=request_body(
+        template_key="publishing_prepare_review", name="Prepare end to end",
+        account_id=1, content_asset_version_id=1,
+        managed_app_id=1, managed_app_version_id=1,
+    )).json()
+    workflow_api.post(f"/workflows/{created['id']}/start")
+    sessions = workflow_api.app.state.workflow_sessions
+    orchestrator = WorkflowOrchestrator(
+        sessions, WorkflowOperationGuard(workflow_api.app.state.workflow_lock_directory)
+    )
+    expected = [
+        "publishing.verify_runtime", "publishing.verify_app", "content.deliver",
+        "device.launch_app", "publishing.verify_app_state",
+    ]
+    for expected_type in expected:
+        orchestrator.run_once()
+        with sessions() as session:
+            workflow = session.get(Workflow, created["id"])
+            step = session.get(WorkflowStep, workflow.current_step_id)
+            job = session.get(Job, step.job_id)
+            assert job.job_type == expected_type
+            assert job.runtime_id == 1 and job.account_id == 1
+            if expected_type == "device.launch_app":
+                assert job.payload == {"package_name": "com.example.test"}
+            elif expected_type.startswith("publishing."):
+                assert set(job.payload) == {"publishing_session_id"}
+            job.status = "succeeded"
+            job.result = {
+                "managed_app_id": 1, "managed_app_version_id": 1,
+                "expected_package": "com.example.test", "installed": True,
+                "launched": True, "publishing_ready": True,
+            }
+            session.commit()
+    orchestrator.run_once()
+    detail = workflow_api.get(f"/workflows/{created['id']}").json()
+    assert detail["status"] == "waiting"
+    approval = detail["steps"][-1]
+    assert approval["step_type"] == "workflow.approval"
+    with sessions() as session:
+        record = session.scalar(select(PublishingSession).where(PublishingSession.workflow_id == created["id"]))
+        assert record.status == "waiting_approval"
+        assert session.query(Job).count() == 5
+    approved = workflow_api.post(
+        f"/workflows/{created['id']}/steps/{approval['id']}/approve",
+        json={"actor": "operator", "comment": "Environment prepared"},
+    )
+    assert approved.status_code == 200
+    orchestrator.run_once()
+    with sessions() as session:
+        record = session.scalar(select(PublishingSession).where(PublishingSession.workflow_id == created["id"]))
+        assert record.status == "prepared"
+        assert record.approved_at is not None and record.prepared_at is not None
+
+
+def test_publishing_runtime_check_executes_through_claim_boundary(
+    workflow_api: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = workflow_api.post("/workflows", json=request_body(
+        template_key="publishing_prepare_review", name="Verify runtime",
+        account_id=1, content_asset_version_id=1,
+        managed_app_id=1, managed_app_version_id=1,
+    )).json()
+    workflow_api.post(f"/workflows/{created['id']}/start")
+    WorkflowOrchestrator(
+        workflow_api.app.state.workflow_sessions,
+        WorkflowOperationGuard(workflow_api.app.state.workflow_lock_directory),
+    ).run_once()
+
+    class FakeAutomation:
+        def get_device_state(self, runtime_id: int):
+            assert runtime_id == 1
+            return SimpleNamespace(ready=True)
+
+    monkeypatch.setattr(PublishingJobExecutionService, "_automation", lambda self: FakeAutomation())
+    monkeypatch.setattr(
+        RuntimeAppService, "readiness",
+        staticmethod(lambda session, runtime, runtime_ready: SimpleNamespace(
+            required_apps_ready=True, publishing_ready=True,
+        )),
+    )
+    claimed = workflow_api.post("/jobs/claim", json={"claimed_by": "publishing-test"})
+    assert claimed.status_code == 200
+    claim = claimed.json()
+    executed = workflow_api.post(
+        f"/jobs/{claim['id']}/execute",
+        headers={
+            "X-Job-Claim-Token": claim["claim_token"],
+            "X-Job-Attempt": str(claim["attempt_count"]),
+        },
+    )
+    assert executed.status_code == 200, executed.text
+    assert executed.json()["result"] == {
+        "runtime_id": 1, "runtime_ready": True,
+        "required_apps_ready": True, "publishing_ready": True,
+    }
+    rejected = workflow_api.post("/jobs", json={
+        "job_type": "publishing.verify_runtime", "runtime_id": 1,
+        "payload": {"publishing_session_id": 1},
+    })
+    assert rejected.status_code == 422
 
 
 def test_concurrent_idempotent_creation_returns_one_workflow(

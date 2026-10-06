@@ -119,12 +119,40 @@ Manager host lifecycle:
 - Daily content maintenance reclaims only stale generated staging and
   grace-aged proven-unreferenced blobs. Content has no age expiry; ready and
   historically referenced bytes are not quota-evicted.
+- Managed Android packages reuse ContentBlob storage and quota through hidden
+  `managed_app_package` ContentAssets. Admission performs bounded ZIP structure
+  checks, then the existing worker executes a runtime-free internal
+  `app.inspect` Job. Trusted absolute aapt2/apksigner tools optionally promote
+  assurance from `basic` to `verified` and extract normalized package/version/
+  SDK/signer metadata. An explicitly operator-approved basic version stays
+  accurately labeled and requires authoritative post-install Android
+  verification. APK bytes are never executed on the host and package assets
+  cannot enter ordinary content delivery.
+- ManagedApp activation is explicit. A ready version must match the app's fixed
+  Android package and established signer. Activation marks existing Runtime
+  installation intent outdated but never performs a fleet-wide install.
+- RuntimeAppInstallation separates desired/observed package state from core
+  Runtime lifecycle. Internal `app.install` and `app.verify` Jobs resolve an
+  inspected ContentBlob and exact Runtime server-side, share
+  RuntimeOperationGuard, and converge with a fixed no-downgrade install policy.
+  ADB receives a short-lived private `.apk` hard-link view of the verified,
+  extensionless ContentBlob because the ADB client requires an APK suffix; the
+  generated view is never client-controlled and is removed after execution.
+  Start/restart schedules required-app work after readiness and after releasing
+  the lifecycle lock; app failure affects publishing readiness, not lifecycle.
 - Workflow orchestration is a durable control plane above Jobs, never a second
   execution queue. Server-owned versioned templates materialize immutable,
   sequential WorkflowStep rows; the orchestrator observes linked Job outcomes
   and advances one step at a time under a per-Workflow cross-process lock.
   Runtime and ready ContentAssetVersion bindings are pinned when a Workflow is
   created, and no recovery path silently retargets either binding.
+- Generic publishing preparation is a server-owned template with pinned
+  Account, Runtime, ContentAssetVersion, ManagedApp, and ManagedAppVersion
+  bindings. Typed verification Jobs reuse the worker and Runtime lock; delivery
+  and launch reuse existing safe primitives. PublishingSession mirrors domain
+  history while Workflow and Job rows remain execution authority. Approval
+  records only that the Android environment is prepared, not that publishing
+  occurred.
 - The workflow orchestrator is an independent user service. It creates Jobs
   only through typed service adapters, never claims Jobs, runs ADB, or accepts
   caller-defined steps/payloads. Durable approval and pause/cancel boundaries
