@@ -155,13 +155,21 @@ def test_publishing_jobs_are_registered_with_exact_runtime(job_type: str) -> Non
     assert create_default_registry().dispatch(execution) == {"publishing_ready": True}
 
 
-def test_tiktok_detect_screen_is_registered_with_exact_runtime() -> None:
+@pytest.mark.parametrize("job_type", [
+    "tiktok.detect_screen", "tiktok.open_create", "tiktok.open_media_picker",
+    "tiktok.select_media",
+    "tiktok.open_caption",
+    "tiktok.set_caption",
+    "tiktok.set_post_options",
+    "tiktok.prepare_publish",
+])
+def test_tiktok_actions_are_registered_with_exact_runtime(job_type: str) -> None:
     class Client:
         def execute_job(self, job_id, claim_token, attempt):
             return {"screen": "HOME", "changed": False}
 
     execution = JobExecutionContext(
-        10, "tiktok.detect_screen", 19, None,
+        10, job_type, 19, None,
         {"runtime_id": 19, "managed_app_id": 1, "ui_profile_id": 1}, 1,
         "t" * 32, datetime.now(timezone.utc), Client(), Event(),
     )

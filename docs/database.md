@@ -450,6 +450,55 @@ stored in SQLite. The seeded `com.ss.android.ugc.trill` 44.4.3 profile is in
 testing state and intentionally has no fabricated selectors pending live
 calibration.
 
+Migration `20261006_0025` appends testing profile version 2 for the observed
+TikTok 44.4.3 HOME hierarchy. Version 1 is not modified, so existing Jobs stay
+pinned to its original resource and fingerprint. New Jobs select and persist
+the highest compatible non-retired profile ID.
+
+Migration `20261006_0026` appends testing profile version 3 for the observed
+TikTok 44.4.3 CAMERA_CREATE hierarchy and its exact semantic gallery-entry
+control. Earlier profile generations remain immutable, and Jobs continue to
+pin one profile ID before execution.
+
+Migration `20261006_0027` appends testing profile version 4 for the observed
+TikTok 44.4.3 MEDIA_PICKER hierarchy. Its fingerprint pins the picker root,
+header, category strip, ViewPager, and media GridView definitions while
+preserving profile v3 for historical Jobs.
+
+Migration `20261007_0028` appends testing profile version 5 for the observed
+TikTok 44.4.3 post-selection `EDIT_MEDIA` hierarchy. The immutable row pins the
+repository definition and fingerprint; stable scene, bottom-action, Next, and
+tool-list structure is calibrated while dynamic preview nodes remain excluded.
+Earlier Jobs retain their exact previously pinned profile generation.
+
+Migration `20261007_0029` appends testing profile version 6. It preserves v5
+and changes only the observed editor Next selector to action-authorized for the
+one-attempt `tiktok.open_caption` boundary.
+
+Migration `20261007_0030` appends testing profile version 7 for the observed
+92-node `READY_TO_PUBLISH` screen. The immutable definition pins caption,
+options, bottom-action, Drafts, and Post signals; final submission controls are
+observational and non-actionable.
+
+Migration `20261007_0031` appends testing profile version 8. It preserves v7
+and authorizes only the observed `caption_input` EditText for the typed
+one-attempt caption action; Drafts and Post remain non-actionable.
+
+Migration `20261007_0032` appends testing profile version 9. It preserves v8
+and authorizes only the observed READY_TO_PUBLISH privacy entry for a
+one-attempt calibration boundary.
+
+Migration `20261007_0033` appends testing profile version 10. It preserves v9
+and records the observed POST_SETTINGS privacy bottom sheet, including only
+the exact Everyone and Only you choice mappings as actionable. The dynamic
+Friends choice remains intentionally unsupported, and Drafts/Post remain
+non-actionable.
+
+Migration `20261007_0034` appends testing profile version 11. It preserves v10
+and records the observed privacy-sheet auto-close behavior plus the exact
+READY_TO_PUBLISH summaries for Everyone and Only you. These summaries are
+verification signals only; Drafts/Post remain non-actionable.
+
 - One Device has zero or more Runtime records. Deleting a Device cascades to its
   Runtime records.
 - One Runtime belongs to exactly one Device.

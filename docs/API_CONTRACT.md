@@ -1125,6 +1125,119 @@ The safe result contains only screen, foreground package, profile identity and
 fingerprint, node count, display category, and `changed=false`. Raw XML, node
 text, screenshots, ADB output, selectors, and paths are never returned. There
 is no public endpoint for raw UI primitives or caller-defined selectors.
+Login/signup/challenge activities are intentionally returned as `UNKNOWN`;
+they do not authorize navigation or account automation. Unsupported screens
+remain non-actionable.
+
+Testing profile v2 recognizes the calibrated English-locale HOME screen for
+`com.ss.android.ugc.trill` 44.4.3 from multiple observed navigation signals.
+`POST /runtimes/{runtime_id}/tiktok/open-create` accepts only
+`{"managed_app_id": N}` and creates the server-owned `tiktok.open_create`
+Job. The Job requires calibrated HOME, resolves the unique profile-owned
+Create selector, and holds the exact Runtime lock through its postcondition.
+No selector, package, coordinate, or tap input is accepted. An already
+calibrated media picker is idempotent with `changed=false`.
+
+Testing profile v3 additionally recognizes the observed `CAMERA_CREATE` screen
+from multiple exact camera UI signals. `open_create` succeeds when it reaches
+CAMERA_CREATE and returns `changed=false` when invoked there again.
+
+`POST /runtimes/{runtime_id}/tiktok/open-media-picker` also accepts only
+`{"managed_app_id": N}`. It creates the internal
+`tiktok.open_media_picker` Job, requires CAMERA_CREATE, resolves the unique
+server-owned gallery entry, and accepts no selector, path, coordinate, package,
+or ADB input. It does not select media. Until an observed MEDIA_PICKER profile
+is calibrated, a dispatched transition whose postcondition cannot be proven is
+reported conservatively rather than retried blindly. Testing profile v4 now
+recognizes the observed picker from exact root, header, Recents, tab-strip,
+ViewPager, and GridView signals. The empty-state message is optional, so the
+same definition applies after media is delivered. Calling this endpoint while
+already on MEDIA_PICKER succeeds with `changed=false` and dispatches no tap.
+
+Android permission-controller dialogs are classified separately from TikTok
+screens. `TIKTOK_PERMISSION_REQUIRED` is a non-retryable operator boundary;
+safe logs may include overlay kind, permission kind, action, and whether this
+Job dispatched its action. The backend never selects a permission response.
+The observed photos/media prompt uses
+`permission_allow_button`/`permission_deny_button` and is handled by the same
+operator boundary. Unknown overlays remain `TIKTOK_UI_STATE_UNCERTAIN`.
+
+`POST /runtimes/{runtime_id}/tiktok/select-media` accepts exactly:
+
+```json
+{"managed_app_id": 1, "content_delivery_id": 69}
+```
+
+It creates the internal one-attempt `tiktok.select_media` Job. The delivery
+must have succeeded with MediaStore import on the exact Runtime and must still
+pin a ready library ContentAssetVersion. The request cannot supply a filename,
+MediaStore ID, selector, coordinate, package, path, or ADB input.
+
+The internal `MediaIdentityResolver` may resolve an otherwise
+unlabelled tile only when the exact delivery is the sole eligible typed
+MediaStore record, the picker has exactly one candidate tile, and its observed
+duration matches the authoritative MediaStore duration. Any additional
+eligible record or evidence mismatch fails closed. The hierarchy, screen,
+inventory, and candidate are revalidated immediately before the one internal
+tap. The Job is never automatically replayed after dispatch. The first proven
+departure from MEDIA_PICKER is reported as `screen_after=UNKNOWN` with
+`calibration_required=true`; no endpoint exposes the inventory or accepts a
+caller-selected tile.
+
+Testing profile v5 calibrates the observed successor as `EDIT_MEDIA` from
+multiple stable scene, bottom-action, Next-action, and tool-list signals.
+Successful selection therefore returns `screen_after=EDIT_MEDIA`,
+`changed=true`, and `tap_dispatched=true`. Calling the same typed action while
+already on EDIT_MEDIA is a non-mutating idempotent observation with
+`changed=false` and `tap_dispatched=false`; it never taps the picker again.
+This endpoint does not activate Next or enter the caption/post flow.
+
+`POST /runtimes/{runtime_id}/tiktok/open-caption` accepts only
+`{"managed_app_id": N}`. It creates a server-owned `tiktok.open_caption` Job
+with `max_attempts=1`; callers cannot provide selectors, coordinates, text, or
+ADB input. The action requires EDIT_MEDIA, revalidates an unchanged hierarchy
+and the unique profile-owned `editor_next_action`, then taps once. An
+uncalibrated successor is returned truthfully with `calibration_required=true`
+rather than replayed. Testing profile v7 classifies the observed successor as
+READY_TO_PUBLISH. Re-entry there is non-mutating. The endpoint never activates
+Drafts/Post and never enters caption text.
+
+`POST /runtimes/{runtime_id}/tiktok/set-caption` accepts exactly
+`{"managed_app_id": N, "caption": "..."}` and creates a one-attempt
+`tiktok.set_caption` Job. The normalized caption is limited to 150 characters
+after Unicode NFKC, deterministic whitespace collapse, edge trimming, and
+control-character rejection; ordinary multilingual letters, hashtags, emoji,
+and punctuation remain valid. Empty is allowed. The current typed ADB text
+provider supports a verified ASCII transport subset and rejects unsupported
+transport input before focusing or changing the field. Results expose
+screen before/after, changed, caption length, verification, and whether the
+keyboard appeared, but never echo caption text. The exact `gbc` EditText must
+resolve uniquely on READY_TO_PUBLISH. Exact equality is verified after entry;
+an already-equal caption is a zero-mutation success. No selector, coordinate,
+package, keyevent, ADB command, or final submission control is accepted.
+
+`POST /runtimes/{runtime_id}/tiktok/set-post-options` accepts exactly
+`{"managed_app_id": N, "privacy": "everyone" | "only_you" | null}` and
+creates a one-attempt `tiktok.set_post_options` Job. `null` is a safe
+calibration/observation request. From READY_TO_PUBLISH the action may open only
+the profile-owned privacy entry; from POST_SETTINGS it observes directly. It
+revalidates the foreground, screen, hierarchy fingerprint, and unique target
+before any tap, then verifies the selected checked state. The observed
+`Friends` choice is intentionally not supported because its accessibility
+description contains dynamic account-specific text. No arbitrary option,
+selector, coordinate, Drafts, Post, or final submission action is accepted.
+
+`POST /runtimes/{runtime_id}/tiktok/prepare-publish` accepts exactly
+`managed_app_id`, `content_delivery_id`, `expected_caption`, and
+`expected_privacy` (`everyone` or `only_you`). It creates the internal,
+read-only `tiktok.prepare_publish` Job. The backend revalidates the exact
+succeeded imported delivery and pinned ContentAssetVersion, verifies its exact
+MediaStore ID/name/size/MIME/duration, and then verifies caption, privacy
+summary, and unique observational Drafts/Post controls across two unchanged
+READY_TO_PUBLISH snapshots. Results never echo caption text and report
+`prepared=true`, individual verification booleans, and `changed=false`. The
+action accepts no selectors, coordinates, paths, package names, MediaStore IDs,
+ADB input, or submission instruction.
 
 ## Deprovision a managed Redroid device
 

@@ -62,6 +62,17 @@ class AdbForegroundApp:
     activity_name: str | None
 
 
+@dataclass(frozen=True)
+class AdbMediaRecord:
+    media_id: int
+    display_name: str
+    size_bytes: int | None
+    mime_type: str | None
+    duration_ms: int | None
+    relative_path: str | None
+    bucket_display_name: str | None
+
+
 CommandRunner = Callable[..., subprocess.CompletedProcess[bytes]]
 CancellationHook = Callable[[], bool]
 
@@ -301,6 +312,50 @@ class AdbExecutor:
                 matches.append(int(match.group(1)))
         return matches[-1] if matches else None
 
+    def list_media_records(self, serial: str) -> tuple[AdbMediaRecord, ...]:
+        """Return a bounded normalized MediaStore inventory from a fixed URI."""
+        result = self._text(
+            serial,
+            [
+                "shell", "content", "query", "--uri",
+                "content://media/external/file", "--projection",
+                "_id:_display_name:_size:mime_type:duration:relative_path:bucket_display_name",
+            ],
+            raise_on_nonzero=False,
+        )
+        if result.returncode != 0:
+            return ()
+        records: list[AdbMediaRecord] = []
+        pattern = re.compile(
+            r"(?:^|[ ,])_id=(\d+), _display_name=([^,]+), _size=([^,]+), "
+            r"mime_type=([^,]+), duration=([^,]+), relative_path=([^,]+), "
+            r"bucket_display_name=(.*)$"
+        )
+        for line in result.stdout.splitlines():
+            match = pattern.search(line)
+            if match is None:
+                continue
+            media_id = int(match.group(1))
+            display_name = match.group(2).strip()
+            if not _SAFE_MEDIA_NAME.fullmatch(display_name):
+                continue
+            values = [value.strip() for value in match.groups()[2:]]
+            size = int(values[0]) if values[0].isdigit() else None
+            duration = int(values[2]) if values[2].isdigit() else None
+            mime = None if values[1] in {"NULL", "null"} else values[1][:255]
+            relative = None if values[3] in {"NULL", "null"} else values[3][:512]
+            bucket = None if values[4] in {"NULL", "null"} else values[4][:255]
+            records.append(AdbMediaRecord(
+                media_id=media_id,
+                display_name=display_name,
+                size_bytes=size,
+                mime_type=mime,
+                duration_ms=duration,
+                relative_path=relative,
+                bucket_display_name=bucket,
+            ))
+        return tuple(records)
+
     def display_size(self, serial: str) -> tuple[int, int]:
         result = self._text(serial, ["shell", "wm", "size"])
         matches = re.findall(r"(?:Physical|Override) size:\s*(\d+)x(\d+)", result.stdout)
@@ -315,17 +370,17 @@ class AdbExecutor:
             serial, ["exec-out", "uiautomator", "dump", "/dev/tty"],
             timeout=timeout, raise_on_nonzero=False,
         )
-        marker = direct.stdout.find("<?xml")
-        if direct.returncode == 0 and marker >= 0:
-            return direct.stdout[marker:]
+        extracted = self._extract_uiautomator_xml(direct.stdout)
+        if direct.returncode == 0 and extracted is not None:
+            return extracted
         fixed_path = "/sdcard/window_dump_tiktok_manager.xml"
         self._text(serial, ["shell", "uiautomator", "dump", fixed_path], timeout=timeout)
         try:
             result = self._text(serial, ["exec-out", "cat", fixed_path], timeout=timeout)
-            marker = result.stdout.find("<?xml")
-            if marker < 0:
+            extracted = self._extract_uiautomator_xml(result.stdout)
+            if extracted is None:
                 raise AdbExecutorError("failed", "Android UI hierarchy was unavailable")
-            return result.stdout[marker:]
+            return extracted
         finally:
             self._text(
                 serial, ["shell", "rm", "-f", fixed_path],
@@ -333,7 +388,9 @@ class AdbExecutor:
             )
 
     def foreground_window(self, serial: str) -> AdbForegroundApp:
-        result = self._text(serial, ["shell", "dumpsys", "window", "windows"])
+        # Android 12's `dumpsys window windows` omits mCurrentFocus on the
+        # validated Redroid build; the fixed service-level dump retains it.
+        result = self._text(serial, ["shell", "dumpsys", "window"])
         return self._parse_foreground(result.stdout)
 
     def foreground_activity(self, serial: str) -> AdbForegroundApp:
@@ -383,6 +440,42 @@ class AdbExecutor:
         if not isinstance(encoded_text, str) or not _SAFE_ENCODED_TEXT.fullmatch(encoded_text):
             raise ValueError("encoded input text is invalid")
         self._text(serial, ["shell", "input", "text", encoded_text])
+
+    def clear_focused_text(self, serial: str, character_count: int) -> None:
+        """Clear one focused field with fixed backend-owned Android keycodes."""
+        if (
+            isinstance(character_count, bool)
+            or not isinstance(character_count, int)
+            or not 0 <= character_count <= 512
+        ):
+            raise ValueError("focused text length is invalid")
+        if character_count == 0:
+            return
+        # KEYCODE_MOVE_END followed by exactly the bounded number of
+        # KEYCODE_DEL events. No caller chooses either keycode.
+        self._text(
+            serial,
+            ["shell", "input", "keyevent", "123"]
+            + ["67"] * character_count,
+        )
+
+    def is_keyboard_visible(self, serial: str) -> bool:
+        """Return normalized IME visibility without exposing dumpsys output."""
+        output = self._text(
+            serial, ["shell", "dumpsys", "input_method"]
+        ).stdout
+        # InputMethodManagerService's current request state is authoritative.
+        # InputMethodService may retain mIsInputViewShown=true briefly while
+        # its view exists but the system has already hidden it.
+        primary = re.findall(r"(?:^|\s)mInputShown=(true|false)", output)
+        if primary:
+            return primary[-1] == "true"
+        fallback = re.findall(
+            r"(?:mIsInputViewShown|isInputViewShown)=(true|false)", output,
+        )
+        if not fallback:
+            raise AdbExecutorError("failed", "Android keyboard state is unavailable")
+        return fallback[-1] == "true"
 
     def keyevent(self, serial: str, keycode: int) -> None:
         if isinstance(keycode, bool) or keycode not in {3, 4, 19, 20, 21, 22, 23, 66, 82, 187}:
@@ -555,3 +648,13 @@ class AdbExecutor:
             if match and _PACKAGE_NAME.fullmatch(match.group(1)):
                 return AdbForegroundApp(match.group(1), match.group(2))
         raise AdbExecutorError("failed", "ADB foreground-app query failed")
+
+    @staticmethod
+    def _extract_uiautomator_xml(output: str) -> str | None:
+        """Strip UIAutomator's device-specific pre/postamble from one document."""
+        start = output.find("<?xml")
+        closing = "</hierarchy>"
+        end = output.find(closing, start + 5) if start >= 0 else -1
+        if start < 0 or end < 0:
+            return None
+        return output[start:end + len(closing)]

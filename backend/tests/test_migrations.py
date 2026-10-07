@@ -15,7 +15,7 @@ PRE_JOB_LOG_REVISION = "20260918_0003"
 PRE_REDROID_CONFIG_REVISION = "20260918_0004"
 PRE_UNIQUE_CONFIG_REVISION = "20261001_0005"
 PRE_PROVISIONING_REVISION = "20261001_0006"
-LATEST_REVISION = "20261006_0024"
+LATEST_REVISION = "20261007_0034"
 
 
 def test_upgrade_head_creates_accounts_table(
@@ -108,8 +108,23 @@ def test_upgrade_head_creates_accounts_table(
         }
         assert ("workflow_id",) in publishing_uniques
         with test_engine.connect() as connection:
-            profile = connection.execute(text("SELECT package_name, min_version_code, max_version_code, status FROM tiktok_ui_profiles")).one()
-            assert profile == ("com.ss.android.ugc.trill", 440403, 440403, "testing")
+            profiles = connection.execute(text(
+                "SELECT version, package_name, min_version_code, max_version_code, status "
+                "FROM tiktok_ui_profiles ORDER BY version"
+            )).all()
+            assert profiles == [
+                (1, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                (2, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                (3, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                (4, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                    (5, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                    (6, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                    (7, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                    (8, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                    (9, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                    (10, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                    (11, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                ]
         assert "alembic_version" in inspector.get_table_names()
         assert {
             "runtime_network_configs",

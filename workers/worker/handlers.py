@@ -39,4 +39,11 @@ def create_default_registry() -> HandlerRegistry:
     registry.register("publishing.verify_app", execute_backend_job)
     registry.register("publishing.verify_app_state", execute_backend_job)
     registry.register("tiktok.detect_screen", execute_backend_job)
+    registry.register("tiktok.open_create", execute_backend_job)
+    registry.register("tiktok.open_media_picker", execute_backend_job)
+    registry.register("tiktok.select_media", execute_backend_job)
+    registry.register("tiktok.open_caption", execute_backend_job)
+    registry.register("tiktok.set_caption", execute_backend_job)
+    registry.register("tiktok.set_post_options", execute_backend_job)
+    registry.register("tiktok.prepare_publish", execute_backend_job)
     return registry

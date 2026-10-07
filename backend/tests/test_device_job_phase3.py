@@ -69,6 +69,51 @@ def test_device_job_requires_exact_valid_redroid_runtime(phase3_api: TestClient)
         "job_type": "tiktok.detect_screen", "runtime_id": runtime["id"],
         "payload": {"runtime_id": runtime["id"], "managed_app_id": 1, "ui_profile_id": 1},
     }).status_code == 422
+    assert phase3_api.post("/jobs", json={
+        "job_type": "tiktok.open_create", "runtime_id": runtime["id"],
+        "payload": {"runtime_id": runtime["id"], "managed_app_id": 1, "ui_profile_id": 1},
+    }).status_code == 422
+    assert phase3_api.post("/jobs", json={
+        "job_type": "tiktok.open_media_picker", "runtime_id": runtime["id"],
+        "payload": {"runtime_id": runtime["id"], "managed_app_id": 1, "ui_profile_id": 1},
+    }).status_code == 422
+    assert phase3_api.post("/jobs", json={
+        "job_type": "tiktok.select_media", "runtime_id": runtime["id"],
+        "payload": {
+            "runtime_id": runtime["id"], "managed_app_id": 1,
+            "ui_profile_id": 1, "content_delivery_id": 69,
+        },
+    }).status_code == 422
+    assert phase3_api.post("/jobs", json={
+        "job_type": "tiktok.open_caption", "runtime_id": runtime["id"],
+        "payload": {
+            "runtime_id": runtime["id"], "managed_app_id": 1,
+            "ui_profile_id": 1, "coordinates": [10, 10],
+        },
+    }).status_code == 422
+    assert phase3_api.post("/jobs", json={
+        "job_type": "tiktok.set_caption", "runtime_id": runtime["id"],
+        "payload": {
+            "runtime_id": runtime["id"], "managed_app_id": 1,
+            "ui_profile_id": 8, "caption": "safe",
+            "keyevent": 66,
+        },
+    }).status_code == 422
+    assert phase3_api.post("/jobs", json={
+        "job_type": "tiktok.set_post_options", "runtime_id": runtime["id"],
+        "payload": {
+            "runtime_id": runtime["id"], "managed_app_id": 1,
+            "ui_profile_id": 9, "privacy": None, "selector": "post",
+        },
+    }).status_code == 422
+    assert phase3_api.post("/jobs", json={
+        "job_type": "tiktok.prepare_publish", "runtime_id": runtime["id"],
+        "payload": {
+            "runtime_id": runtime["id"], "managed_app_id": 1,
+            "ui_profile_id": 11, "content_delivery_id": 69,
+            "expected_caption": "safe", "expected_privacy": "everyone",
+        },
+    }).status_code == 422
 
 
 def test_claim_token_is_unique_hashed_hidden_and_heartbeat_owned(phase3_api: TestClient) -> None:

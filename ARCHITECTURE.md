@@ -178,6 +178,39 @@ Manager host lifecycle:
   definitions. The initial Trill 44.4.3 profile is deliberately `testing` and
   uncalibrated rather than containing guessed selectors. Internal
   `tiktok.detect_screen` observes only and never launches or mutates the app.
+  Initial Phase 3 calibration reached an unsupported login/signup activity.
+  A later operator-prepared disposable Runtime exposed real HOME semantics, so
+  testing profile v2 recognizes HOME from four required and four reinforcing
+  observed signals. Profile v1 remains immutable for pinned Jobs; no
+  coordinate fallback or guessed selector was introduced. Server-created
+  `tiktok.open_create` is the first mutation action and accepts no selector or
+  coordinate input. Testing profile v3 recognizes the observed CAMERA_CREATE
+  screen and exposes a typed, profile-owned `tiktok.open_media_picker`
+  transition; testing profile v4 recognizes the semantic picker structure and
+  makes that transition idempotent. MediaIdentityResolver maps
+  an exact ContentDelivery only from independently verified MediaStore and UI
+  evidence and rejects grid position alone. The typed, one-attempt
+  `tiktok.select_media` action revalidates that identity twice before its
+  single tap. Testing profile v5 recognizes the observed post-selection media
+  editor from stable scene, tool, Next-action, and bottom-action signals;
+  re-entry on that screen never selects again. The one-attempt
+  `tiktok.open_caption` boundary revalidates the v6 Next selector against an
+  unchanged snapshot before one tap; testing profile v7 recognizes the real
+  `READY_TO_PUBLISH` successor, while Drafts/Post remain non-actionable.
+  `tiktok.set_caption` is a separate one-attempt boundary with deterministic
+  bounded Unicode normalization, exact field replacement/verification, typed
+  keyboard observation, and caption-free logs; generic text/keyevent
+  primitives remain internal. `tiktok.set_post_options` is likewise a
+  one-attempt, profile-owned boundary. Its v10 privacy model recognizes the
+  observed POST_SETTINGS bottom sheet and permits only the calibrated
+  `everyone` and `only_you` values; Drafts/Post remain observational and
+  non-actionable. `tiktok.prepare_publish` is the read-only final boundary: it
+  revalidates an exact ContentDelivery/MediaStore record, caption, privacy
+  summary, and unique Drafts/Post presence across two unchanged READY snapshots
+  without receiving or invoking any UI mutation primitive.
+  Android permission-controller overlays are resolved before
+  TikTok screen classification and stop at a non-retryable operator boundary;
+  the service does not grant or deny permissions.
 - Device Jobs use a typed registry and a lease-protected backend execution
   boundary. Workers receive complete execution context but never execute ADB;
   every heartbeat and terminal mutation is fenced by a hashed claim token and

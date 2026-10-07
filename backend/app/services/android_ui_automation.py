@@ -10,7 +10,7 @@ from typing import Callable, Iterator
 
 from sqlalchemy.orm import Session
 
-from app.services.adb_executor import AdbExecutor, AdbForegroundApp
+from app.services.adb_executor import AdbExecutor, AdbForegroundApp, AdbMediaRecord
 from app.services.android_automation import AutomationReadinessService, RuntimeTarget, RuntimeTargetResolver, ScreenSessionInspector
 from app.services.android_ui_hierarchy import UiHierarchy, UiHierarchyParser
 from app.services.automation_errors import AutomationError, automation_error
@@ -30,15 +30,19 @@ class DisplayState:
 
 
 class TextEntryProvider:
+    def validate(self, value: str) -> None: ...
     def enter(self, adb: AdbExecutor, serial: str, value: str) -> None: ...
 
 
 class AsciiTextEntryProvider(TextEntryProvider):
     _SAFE = re.compile(r"^[A-Za-z0-9 .,!?@_+\-]{1,256}$")
 
-    def enter(self, adb: AdbExecutor, serial: str, value: str) -> None:
-        if not self._SAFE.fullmatch(value):
+    def validate(self, value: str) -> None:
+        if value and not self._SAFE.fullmatch(value):
             raise tiktok_error("TIKTOK_TEXT_UNSUPPORTED")
+
+    def enter(self, adb: AdbExecutor, serial: str, value: str) -> None:
+        self.validate(value)
         # Android input uses %s for spaces; this remains one argv element.
         adb.input_text(serial, value.replace(" ", "%s"))
 
@@ -72,6 +76,10 @@ class AndroidUiSession:
         category = "compact" if longest < 1280 else "standard" if longest < 2200 else "large"
         return DisplayState(width, height, rotation, orientation, category)
 
+    def get_media_inventory(self) -> tuple[AdbMediaRecord, ...]:
+        """Return the fixed, typed MediaStore inventory for this exact Runtime."""
+        return self.adb.list_media_records(self.target.adb_serial)
+
     def tap_element(self, element: ResolvedUiElement) -> None:
         if not element.actionable:
             raise tiktok_error("TIKTOK_ELEMENT_NOT_FOUND")
@@ -98,6 +106,17 @@ class AndroidUiSession:
 
     def set_text(self, value: str) -> None:
         self.text.enter(self.adb, self.target.adb_serial, value)
+
+    def replace_focused_text(self, current_length: int, value: str) -> None:
+        self.adb.clear_focused_text(self.target.adb_serial, current_length)
+        if value:
+            self.text.enter(self.adb, self.target.adb_serial, value)
+
+    def validate_text_entry(self, value: str) -> None:
+        self.text.validate(value)
+
+    def is_keyboard_visible(self) -> bool:
+        return self.adb.is_keyboard_visible(self.target.adb_serial)
 
     def back(self) -> None:
         self.adb.keyevent(self.target.adb_serial, 4)
@@ -133,6 +152,10 @@ class AndroidUiAutomationService:
         try:
             with self.guard.acquire_runtime(runtime_id, timeout=self.lock_timeout):
                 target = RuntimeTargetResolver(self.session).resolve(runtime_id)
+                # Runtime identity is now pinned in an immutable value object.
+                # Release SQLite's read transaction before readiness checks and
+                # the potentially long UI interaction begin.
+                self.session.commit()
                 self.readiness.wait_until_ready(target)
                 yield AndroidUiSession(target, self.adb, self.parser, self.text_provider)
         except RuntimeOperationLockBusy as error:

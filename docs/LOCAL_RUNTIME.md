@@ -151,6 +151,45 @@ operator settings. UIAutomator data is processed in memory and is not
 persisted. Phase 3 calibration uses a disposable Runtime and the testing
 44.4.3 profile; no additional daemon is required.
 
+The first Phase 3 calibration Runtime opened TikTok 44.4.3 on its login/signup
+activity rather than HOME. Normal runtime setup does not attempt login,
+signup, challenge handling, or account switching. UI mutation actions remain
+disabled until an operator supplies a lawfully prepared disposable Runtime
+whose initial state is HOME; the backend will not navigate past the unsupported
+state automatically.
+
+Runtime 17 later provided an operator-prepared HOME state for the same app
+version. Testing profile v2 now contains its observed semantic HOME signals
+with no coordinate fallback. This only enables HOME detection; it does not
+expose a UI mutation endpoint.
+
+Runtime 17 also calibrated the guarded editor boundary. `tiktok.open_caption`
+is a one-attempt Job and may only be created through the narrow Runtime API.
+Its single observed Next dispatch reached `READY_TO_PUBLISH`; it did not type a
+caption or activate Drafts/Post. UI profiles v6/v7 remain `testing` and exact
+to Trill 44.4.3 / 440403 at the calibrated portrait display.
+
+Caption entry uses profile v8 and `POST
+/runtimes/{runtime_id}/tiktok/set-caption`. It is one-attempt, holds the shared
+Runtime lock, and verifies exact field text before returning. Only caption
+length/hash enter structured logs. This action does not press Drafts/Post or
+change post settings.
+
+Privacy calibration uses immutable testing profiles v9/v10 and `POST
+/runtimes/{runtime_id}/tiktok/set-post-options`. Profile v9 authorizes only the
+observed READY_TO_PUBLISH privacy entry. Profile v10 recognizes the observed
+POST_SETTINGS bottom sheet and its checked-state controls. Only `everyone` and
+`only_you` are server-owned values; `privacy=null` observes/calibrates without
+selecting a value. The action is one-attempt, holds the Runtime lock, and never
+targets Drafts/Post.
+
+Final pre-publish verification uses `POST
+/runtimes/{runtime_id}/tiktok/prepare-publish`. It is read-only but still holds
+the exact Runtime lock so the observed hierarchy and MediaStore identity cannot
+race another Runtime mutation. It verifies two unchanged READY_TO_PUBLISH
+snapshots and never taps, focuses, types, navigates Back, or activates Drafts or
+Post.
+
 Artifact retention is run by
 `tiktok-manager-artifact-cleanup.timer` approximately every six hours. The
 timer is persistent across user-manager downtime and the cleanup command uses

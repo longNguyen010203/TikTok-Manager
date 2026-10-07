@@ -87,7 +87,10 @@ class UiHierarchyParser:
             if not bounds_match:
                 raise tiktok_error("TIKTOK_UI_DUMP_INVALID")
             left, top, right, bottom = map(int, bounds_match.groups())
-            if right <= left or bottom <= top:
+            # Android emits legitimate zero-area system decoration nodes (for
+            # example a hidden navigation-bar background). Reversed bounds are
+            # invalid, but an empty rectangle is safe to retain as non-actionable.
+            if right < left or bottom < top:
                 raise tiktok_error("TIKTOK_UI_DUMP_INVALID")
             password = self._boolean(element, "password")
             text = "" if password else element.attrib.get("text", "")
