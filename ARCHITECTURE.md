@@ -161,6 +161,14 @@ Manager host lifecycle:
   are stored as Fernet ciphertext in `account_secrets` using the installation's
   external mode-`0600` master key; ordinary Account serializers expose presence
   metadata only.
+- Account registration is designed as a state-driven Workflow controller above
+  typed Jobs, not a fixed tap sequence. A fresh login/signup entry and an
+  existing-session HOME/PROFILE entry converge only after each screen/action is
+  live-calibrated. Durable observations and active Job linkage prevent blind
+  replay after restart; verification challenges pause for an operator and are
+  never solved or bypassed. The Phase 1 `account_registration:v1` blueprint is
+  intentionally non-public/non-executable until those entry transitions and a
+  durable registration-session adapter are implemented.
 - The workflow orchestrator is an independent user service. It creates Jobs
   only through typed service adapters, never claims Jobs, runs ADB, or accepts
   caller-defined steps/payloads. Durable approval and pause/cancel boundaries

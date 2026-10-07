@@ -952,6 +952,13 @@ Manual validation:
 
 Status: IN PROGRESS
 
+Phase 1 architecture:
+- State-driven entry routing and fail-closed calibration catalog implemented.
+- `account_registration:v1` is defined as a non-public blueprint pending real
+  entry-screen/action calibration and durable registration-session support.
+- Fresh and existing-session paths converge conceptually at `SIGNUP_METHOD`;
+  no registration mutation or verification handling is implemented yet.
+
 Goal:
 Build a safe, state-driven TikTok account registration workflow that supports
 multiple calibrated entry paths and converges on one canonical registration flow.

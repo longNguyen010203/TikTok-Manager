@@ -247,6 +247,22 @@ omit rejected request values. A missing/unsafe/wrong master key fails secret
 writes with `503` and causes production startup to fail when encrypted rows
 already exist.
 
+## Account registration workflow architecture
+
+`account_registration:v1` is reserved as a server-owned state-driven Workflow
+blueprint. Phase 1 does not expose it from `GET /workflow-templates` and does
+not accept registration creation requests because signup entry screens/actions
+are not yet calibrated. The future request contract will accept IDs only:
+Account, Runtime, ManagedApp, ManagedAppVersion, and pinned UI profile. It will
+not accept credentials, arbitrary steps, selectors, coordinates, or Job
+payloads.
+
+Verification/challenge detection will return a durable operator-required state
+with safe type/identifier metadata. Resume will trigger a new observation; it
+will not replay the previous UI mutation. Account secrets remain accessible
+only to the exact internal typed execution boundary and never appear in the
+Workflow API, events, steps, Jobs, or JobLogs.
+
 ## Delete/archive account
 
 - Method: `DELETE`
