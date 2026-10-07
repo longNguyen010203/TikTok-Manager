@@ -19,14 +19,16 @@ import { AccountCreateModal } from "@/components/accounts/AccountCreateModal";
 import { AccountEditModal } from "@/components/accounts/AccountEditModal";
 import { AccountDeleteDialog } from "@/components/accounts/AccountDeleteDialog";
 import { AccountAssignModal } from "@/components/accounts/AccountAssignModal";
+import { AccountSecretsModal } from "@/components/accounts/AccountSecretsModal";
 import {
   Users,
   CheckCircle2,
-  PauseCircle,
   AlertCircle,
   RefreshCw,
   Server,
   Cpu,
+  KeyRound,
+  Archive,
 } from "lucide-react";
 
 export default function AccountsPage() {
@@ -35,20 +37,30 @@ export default function AccountsPage() {
   const [runtimes, setRuntimes] = useState<Runtime[]>([]);
   const [runtimesMap, setRuntimesMap] = useState<Record<number, Runtime>>({});
   const [devicesMap, setDevicesMap] = useState<Record<number, Device>>({});
+
+  // Backend-driven query parameters
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(20);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
+  const [niche, setNiche] = useState("");
+  const [tag, setTag] = useState("");
+  const [runtimeId, setRuntimeId] = useState("");
+  const [deviceId, setDeviceId] = useState("");
+  const [includeArchived, setIncludeArchived] = useState(false);
+
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Modals & Dialogs state
+  // Modals state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [assigningAccount, setAssigningAccount] = useState<Account | null>(null);
   const [deletingAccount, setDeletingAccount] = useState<Account | null>(null);
+  const [managingSecretsAccount, setManagingSecretsAccount] =
+    useState<Account | null>(null);
 
-  // Notifications
+  // Banner notifications
   const [bannerMessage, setBannerMessage] = useState<{
     type: "success" | "error";
     text: string;
@@ -57,29 +69,77 @@ export default function AccountsPage() {
   const [refreshIndex, setRefreshIndex] = useState(0);
   const apiBaseUrl = accountService.getBaseUrl();
 
-  // Fetch accounts, runtimes, and devices from FastAPI backend
+  // Load accounts based strictly on backend queries
+  // Main data fetch effect
+  useEffect(() => {
+    let ignore = false;
+
+    accountService
+      .getAccounts({
+        page: currentPage,
+        page_size: pageSize,
+        status: status === "all" ? undefined : status,
+        niche: niche.trim() || undefined,
+        tag: tag.trim() || undefined,
+        runtime_id: runtimeId ? parseInt(runtimeId, 10) : undefined,
+        device_id: deviceId ? parseInt(deviceId, 10) : undefined,
+        query: search.trim() || undefined,
+        include_archived: includeArchived,
+      })
+      .then((accountsRes) => {
+        if (!ignore) {
+          setAccounts(accountsRes.items);
+          setTotal(accountsRes.total);
+          setError(null);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!ignore) {
+          let msg = formatApiError(err);
+          if (
+            msg.toLowerCase().includes("failed to fetch") ||
+            msg.toLowerCase().includes("networkerror")
+          ) {
+            msg = `Unable to connect to FastAPI backend at ${apiBaseUrl}. Ensure the backend service is active.`;
+          }
+          setError(msg);
+          setAccounts([]);
+          setTotal(0);
+        }
+      })
+      .finally(() => {
+        if (!ignore) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [
+    currentPage,
+    pageSize,
+    status,
+    niche,
+    tag,
+    runtimeId,
+    deviceId,
+    search,
+    includeArchived,
+    apiBaseUrl,
+    refreshIndex,
+  ]);
+
+  // Initial & peripheral data load: Runtimes & Devices
   useEffect(() => {
     let ignore = false;
 
     Promise.all([
-      accountService.getAccounts({
-        page: currentPage,
-        page_size: pageSize,
-        status: status === "all" ? undefined : status,
-      }),
-      runtimeService.getRuntimes({
-        page: 1,
-        page_size: 100,
-      }),
-      deviceService.getDevices({
-        page: 1,
-        page_size: 100,
-      }),
+      runtimeService.getRuntimes({ page: 1, page_size: 100 }),
+      deviceService.getDevices({ page: 1, page_size: 100 }),
     ])
-      .then(([accountsRes, runtimesRes, devicesRes]) => {
+      .then(([runtimesRes, devicesRes]) => {
         if (!ignore) {
-          setAccounts(accountsRes.items);
-          setTotal(accountsRes.total);
           setRuntimes(runtimesRes.items);
 
           const rMap: Record<number, Runtime> = {};
@@ -93,64 +153,75 @@ export default function AccountsPage() {
             dMap[dev.id] = dev;
           });
           setDevicesMap(dMap);
-
-          setError(null);
-          setIsLoading(false);
         }
       })
-      .catch((err: unknown) => {
-        if (!ignore) {
-          let msg = formatApiError(err);
-          if (
-            msg.toLowerCase().includes("failed to fetch") ||
-            msg.toLowerCase().includes("networkerror")
-          ) {
-            msg = `Unable to connect to FastAPI backend at ${apiBaseUrl}. Ensure the backend server is running.`;
-          }
-          setError(msg);
-          setAccounts([]);
-          setTotal(0);
-          setIsLoading(false);
-        }
+      .catch(() => {
+        // Soft fail for peripheral resources
       });
 
     return () => {
       ignore = true;
     };
-  }, [currentPage, pageSize, status, refreshIndex, apiBaseUrl]);
+  }, []);
 
   const handleRefresh = () => {
     setIsLoading(true);
     setRefreshIndex((idx) => idx + 1);
   };
 
-  // Reset page when search or status filter changes
+  // Reset to page 1 on filter changes
   const handleSearchChange = (value: string) => {
     setSearch(value);
     setCurrentPage(1);
   };
 
   const handleStatusChange = (newStatus: string) => {
-    setIsLoading(true);
     setStatus(newStatus);
     setCurrentPage(1);
   };
 
-  const handlePageChange = (newPage: number) => {
-    setIsLoading(true);
-    setCurrentPage(newPage);
+  const handleNicheChange = (newNiche: string) => {
+    setNiche(newNiche);
+    setCurrentPage(1);
   };
 
-  const handlePageSizeChange = (newPageSize: number) => {
-    setIsLoading(true);
-    setPageSize(newPageSize);
+  const handleTagChange = (newTag: string) => {
+    setTag(newTag);
+    setCurrentPage(1);
+  };
+
+  const handleRuntimeIdChange = (newRtId: string) => {
+    setRuntimeId(newRtId);
+    setCurrentPage(1);
+  };
+
+  const handleDeviceIdChange = (newDevId: string) => {
+    setDeviceId(newDevId);
+    setCurrentPage(1);
+  };
+
+  const handleIncludeArchivedChange = (newInclude: boolean) => {
+    setIncludeArchived(newInclude);
     setCurrentPage(1);
   };
 
   const handleClearFilters = () => {
-    setIsLoading(true);
     setSearch("");
     setStatus("all");
+    setNiche("");
+    setTag("");
+    setRuntimeId("");
+    setDeviceId("");
+    setIncludeArchived(false);
+    setCurrentPage(1);
+  };
+
+  const handlePageChange = (newPage: number) => {
+    setCurrentPage(newPage);
+  };
+
+  const handlePageSizeChange = (newPageSize: number) => {
+    setPageSize(newPageSize);
     setCurrentPage(1);
   };
 
@@ -160,7 +231,7 @@ export default function AccountsPage() {
       const created = await accountService.createAccount(input);
       setBannerMessage({
         type: "success",
-        text: `Account "@${created.username}" created successfully!`,
+        text: `Account "${created.display_name}" created successfully!`,
       });
       setTimeout(() => setBannerMessage(null), 5000);
       setCurrentPage(1);
@@ -170,15 +241,12 @@ export default function AccountsPage() {
     }
   };
 
-  const handleUpdateAccount = async (
-    id: number,
-    input: UpdateAccountInput
-  ) => {
+  const handleUpdateAccount = async (id: number, input: UpdateAccountInput) => {
     try {
       const updated = await accountService.updateAccount(id, input);
       setBannerMessage({
         type: "success",
-        text: `Account "@${updated.username}" updated successfully!`,
+        text: `Account "${updated.display_name}" updated successfully!`,
       });
       setTimeout(() => setBannerMessage(null), 5000);
       handleRefresh();
@@ -187,12 +255,12 @@ export default function AccountsPage() {
     }
   };
 
-  const handleDeleteAccount = async (id: number) => {
+  const handleArchiveAccount = async (id: number) => {
     try {
       await accountService.deleteAccount(id);
       setBannerMessage({
         type: "success",
-        text: `Account ID #${id} deleted successfully.`,
+        text: `Account ID #${id} archived successfully. Historical records preserved.`,
       });
       setTimeout(() => setBannerMessage(null), 5000);
       handleRefresh();
@@ -201,20 +269,42 @@ export default function AccountsPage() {
     }
   };
 
-  // Client-side search filtering across current items
-  const displayedAccounts = search.trim()
-    ? accounts.filter((acc) => {
-        const q = search.trim().toLowerCase();
-        const runtimeName = acc.runtime_id ? runtimesMap[acc.runtime_id]?.name.toLowerCase() || "" : "";
-        return (
-          acc.name.toLowerCase().includes(q) ||
-          acc.username.toLowerCase().includes(q) ||
-          runtimeName.includes(q)
-        );
-      })
-    : accounts;
+  const handleAssignRuntime = async (accountId: number, rtId: number) => {
+    try {
+      await accountService.assignRuntime(accountId, rtId);
+      setBannerMessage({
+        type: "success",
+        text: `Runtime #${rtId} assigned to Account #${accountId}.`,
+      });
+      setTimeout(() => setBannerMessage(null), 5000);
+      handleRefresh();
+    } catch (err: unknown) {
+      throw err;
+    }
+  };
 
-  const isFiltered = search.trim().length > 0 || status !== "all";
+  const handleUnassignRuntime = async (accountId: number) => {
+    try {
+      await accountService.unassignRuntime(accountId);
+      setBannerMessage({
+        type: "success",
+        text: `Runtime unassigned from Account #${accountId}.`,
+      });
+      setTimeout(() => setBannerMessage(null), 5000);
+      handleRefresh();
+    } catch (err: unknown) {
+      throw err;
+    }
+  };
+
+  const isFiltered =
+    search.trim().length > 0 ||
+    status !== "all" ||
+    niche.trim().length > 0 ||
+    tag.trim().length > 0 ||
+    runtimeId !== "" ||
+    deviceId !== "" ||
+    includeArchived;
 
   return (
     <div className="space-y-6">
@@ -223,10 +313,10 @@ export default function AccountsPage() {
         <div>
           <h2 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2.5">
             <Users className="w-6 h-6 text-rose-600" />
-            <span>Account Management</span>
+            <span>Account Control Center</span>
           </h2>
           <p className="text-sm text-slate-500 mt-1">
-            Connected to FastAPI backend • Real-time CRUD and runtime execution assignments.
+            Authoritative account registry, write-only credentials, execution assignments, and lifecycle governance.
           </p>
         </div>
 
@@ -235,7 +325,8 @@ export default function AccountsPage() {
             type="button"
             onClick={handleRefresh}
             disabled={isLoading}
-            className="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-200 text-xs font-medium rounded-lg text-slate-700 bg-white hover:bg-slate-50 transition-colors shadow-2xs disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-200 text-xs font-medium rounded-lg text-slate-700 bg-white hover:bg-slate-50 transition-colors shadow-2xs disabled:opacity-50 cursor-pointer"
+            title="Refresh accounts"
           >
             <RefreshCw
               className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`}
@@ -277,15 +368,21 @@ export default function AccountsPage() {
         <div className="flex items-center gap-2">
           <Server className="w-4 h-4 text-slate-500 shrink-0" />
           <span className="font-medium text-slate-800">
-            Backend Endpoint:
+            Canonical Backend Endpoint:
           </span>
           <code className="px-1.5 py-0.5 rounded bg-white border border-slate-200 font-mono text-[11px] text-slate-700">
             {apiBaseUrl}
           </code>
         </div>
-        <span className="text-[11px] text-slate-500">
-          Available Execution Runtimes: <strong className="font-semibold text-slate-800">{runtimes.length}</strong>
-        </span>
+        <div className="flex items-center gap-3 text-[11px] text-slate-500">
+          <span>
+            Available Runtimes: <strong className="font-semibold text-slate-800">{runtimes.length}</strong>
+          </span>
+          <span>&bull;</span>
+          <span>
+            Derived Devices: <strong className="font-semibold text-slate-800">{Object.keys(devicesMap).length}</strong>
+          </span>
+        </div>
       </div>
 
       {/* Overview Stat Chips */}
@@ -295,7 +392,7 @@ export default function AccountsPage() {
             <Users className="w-4 h-4" />
           </div>
           <div>
-            <p className="text-[11px] font-medium text-slate-500">Total Accounts</p>
+            <p className="text-[11px] font-medium text-slate-500">Registry Total</p>
             <p className="text-lg font-bold text-slate-900">{total}</p>
           </div>
         </div>
@@ -305,21 +402,9 @@ export default function AccountsPage() {
             <CheckCircle2 className="w-4 h-4" />
           </div>
           <div>
-            <p className="text-[11px] font-medium text-slate-500">Active</p>
+            <p className="text-[11px] font-medium text-slate-500">Active Listed</p>
             <p className="text-lg font-bold text-slate-900">
               {accounts.filter((a) => a.status === "active").length}
-            </p>
-          </div>
-        </div>
-
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-slate-100 text-slate-500">
-            <PauseCircle className="w-4 h-4" />
-          </div>
-          <div>
-            <p className="text-[11px] font-medium text-slate-500">Inactive</p>
-            <p className="text-lg font-bold text-slate-900">
-              {accounts.filter((a) => a.status === "inactive").length}
             </p>
           </div>
         </div>
@@ -329,7 +414,7 @@ export default function AccountsPage() {
             <Cpu className="w-4 h-4" />
           </div>
           <div>
-            <p className="text-[11px] font-medium text-slate-500">Assigned</p>
+            <p className="text-[11px] font-medium text-slate-500">Assigned Runtime</p>
             <p className="text-lg font-bold text-slate-900">
               {accounts.filter((a) => a.runtime_id !== null).length}
             </p>
@@ -337,13 +422,25 @@ export default function AccountsPage() {
         </div>
 
         <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-slate-100 text-slate-400">
-            <AlertCircle className="w-4 h-4" />
+          <div className="p-2 rounded-lg bg-emerald-50 text-emerald-700">
+            <KeyRound className="w-4 h-4" />
           </div>
           <div>
-            <p className="text-[11px] font-medium text-slate-500">Unassigned</p>
+            <p className="text-[11px] font-medium text-slate-500">With Credentials</p>
             <p className="text-lg font-bold text-slate-900">
-              {accounts.filter((a) => a.runtime_id === null).length}
+              {accounts.filter((a) => a.secret_present).length}
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-purple-50 text-purple-600">
+            <Archive className="w-4 h-4" />
+          </div>
+          <div>
+            <p className="text-[11px] font-medium text-slate-500">Archived Mode</p>
+            <p className="text-xs font-bold text-slate-900 mt-1">
+              {includeArchived ? "Included" : "Hidden"}
             </p>
           </div>
         </div>
@@ -351,19 +448,33 @@ export default function AccountsPage() {
 
       {/* Main Table Card */}
       <div className="bg-white rounded-xl border border-slate-200/80 shadow-2xs overflow-hidden">
-        {/* Toolbar: Search, Status Filter, Create Account Button */}
+        {/* Toolbar: Search, Filters, Create Account Button */}
         <AccountToolbar
           search={search}
           onSearchChange={handleSearchChange}
           status={status}
           onStatusChange={handleStatusChange}
+          niche={niche}
+          onNicheChange={handleNicheChange}
+          tag={tag}
+          onTagChange={handleTagChange}
+          runtimeId={runtimeId}
+          onRuntimeIdChange={handleRuntimeIdChange}
+          deviceId={deviceId}
+          onDeviceIdChange={handleDeviceIdChange}
+          includeArchived={includeArchived}
+          onIncludeArchivedChange={handleIncludeArchivedChange}
+          isFiltered={isFiltered}
+          onClearFilters={handleClearFilters}
           onCreateClick={() => setIsCreateModalOpen(true)}
+          runtimes={runtimes}
+          devicesMap={devicesMap}
           apiBaseUrl={apiBaseUrl}
         />
 
-        {/* Account Table with Runtime column, Edit, Assign, and Delete actions */}
+        {/* Server-Driven Account Table */}
         <AccountTable
-          accounts={displayedAccounts}
+          accounts={accounts}
           runtimesMap={runtimesMap}
           devicesMap={devicesMap}
           isLoading={isLoading}
@@ -375,6 +486,7 @@ export default function AccountsPage() {
           onEditAccount={(acc) => setEditingAccount(acc)}
           onDeleteAccount={(acc) => setDeletingAccount(acc)}
           onAssignRuntime={(acc) => setAssigningAccount(acc)}
+          onManageSecrets={(acc) => setManagingSecretsAccount(acc)}
         />
 
         {/* Pagination UI */}
@@ -392,11 +504,12 @@ export default function AccountsPage() {
       {/* Create Account Modal */}
       <AccountCreateModal
         isOpen={isCreateModalOpen}
+        runtimes={runtimes}
         onClose={() => setIsCreateModalOpen(false)}
         onSubmit={handleCreateAccount}
       />
 
-      {/* Edit Account Modal (with Runtime selector) */}
+      {/* Edit Account Modal */}
       <AccountEditModal
         account={editingAccount}
         runtimes={runtimes}
@@ -404,6 +517,7 @@ export default function AccountsPage() {
         isOpen={editingAccount !== null}
         onClose={() => setEditingAccount(null)}
         onSubmit={handleUpdateAccount}
+        onOpenSecrets={(acc) => setManagingSecretsAccount(acc)}
       />
 
       {/* Quick Assign Runtime Modal */}
@@ -413,17 +527,24 @@ export default function AccountsPage() {
         devicesMap={devicesMap}
         isOpen={assigningAccount !== null}
         onClose={() => setAssigningAccount(null)}
-        onAssign={async (accountId, runtimeId) => {
-          await handleUpdateAccount(accountId, { runtime_id: runtimeId });
-        }}
+        onAssignRuntime={handleAssignRuntime}
+        onUnassignRuntime={handleUnassignRuntime}
       />
 
-      {/* Delete Confirmation Dialog */}
+      {/* Archive Account Dialog */}
       <AccountDeleteDialog
         account={deletingAccount}
         isOpen={deletingAccount !== null}
         onClose={() => setDeletingAccount(null)}
-        onConfirm={handleDeleteAccount}
+        onConfirm={handleArchiveAccount}
+      />
+
+      {/* Write-Only Secrets Modal */}
+      <AccountSecretsModal
+        account={managingSecretsAccount}
+        isOpen={managingSecretsAccount !== null}
+        onClose={() => setManagingSecretsAccount(null)}
+        onAccountUpdated={handleRefresh}
       />
     </div>
   );
