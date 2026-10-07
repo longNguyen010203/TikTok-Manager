@@ -892,3 +892,34 @@ Acceptance criteria:
 - App/UI changes fail safely with typed errors instead of tapping blindly.
 - Existing Runtime, Content, Workflow, ManagedApp, and Publishing behavior remains intact.
 - Live disposable Redroid validation passes.
+
+---
+
+## TIK-025 — Account Registry & Control Center
+
+Status: IN PROGRESS
+
+Goal:
+Build the canonical account registry and control center used by later
+registration, publishing, scheduling, and metrics workflows.
+
+Scope:
+- canonical Account data model
+- encrypted account secrets
+- runtime/device assignment
+- account lifecycle/status
+- niche and metadata
+- follower/like metrics foundation
+- backend CRUD/query APIs
+- frontend Account Control Center
+- search/filter/pagination
+- assignment visibility
+- audit-safe secret handling
+
+Out of scope:
+- automatic account registration
+- CAPTCHA/OTP handling
+- login automation
+- batch registration
+- publishing
+- metrics scraping
