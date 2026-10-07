@@ -945,3 +945,32 @@ Manual validation:
 - no decrypted secret exposed
 - create/edit nullable fields passed
 - error state passed
+
+---
+
+## TIK-026 — Account Registration Workflow v1
+
+Status: IN PROGRESS
+
+Goal:
+Build a safe, state-driven TikTok account registration workflow that supports
+multiple calibrated entry paths and converges on one canonical registration flow.
+
+Entry paths:
+
+1. Fresh device / no existing TikTok account
+   - TikTok may launch directly into signup/login entry screens.
+
+2. Device with an existing account/session
+   - TikTok may launch into HOME/PROFILE and require navigation to an
+     Add Account / Sign Up entry point.
+
+The workflow must detect the current screen and choose the appropriate path.
+It must not assume one fixed screen sequence.
+
+Out of scope:
+- CAPTCHA bypass
+- OTP bypass
+- automated challenge solving
+- identity verification bypass
+- batch registration
