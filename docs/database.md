@@ -76,18 +76,35 @@ PostgreSQL
 Fields:
 
 - id: integer primary key
-- name: string (maximum 255 characters, required)
-- username: string (maximum 255 characters, required)
-- platform: string (maximum 50 characters, required)
-- status: string (maximum 50 characters, required)
+- name: required synchronized compatibility alias for `display_name`
+- display_name: nullable only for migration compatibility; all API-created rows set it
+- username, email, phone: nullable identity/contact fields
+- platform: required compatibility field (new API writes default to `tiktok`)
+- status: server-validated lifecycle status
+- registration_state: `unknown`, `pending`, `registered`, or `failed`
+- health_status: `unknown`, `healthy`, `warning`, or `unhealthy`
+- status_reason, niche: nullable bounded business metadata
 - notes: nullable text
+- archived_at: nullable soft-archive timestamp
+- follower_count, following_count, likes_count, video_count: nullable,
+  non-negative metric snapshots
+- metrics_updated_at: nullable metric observation timestamp
 - runtime_id: nullable foreign key to `runtimes.id`; deleting the referenced
   runtime sets this field to null
 - created_at: UTC datetime, set when the row is created
 - updated_at: UTC datetime, set when the row is created and updated by the ORM
 
-The SQL table name is `accounts`. Platform and status remain strings so their
-allowed values can be defined alongside API validation in a later task.
+`account_tags` stores normalized, unique `(account_id, tag)` values and cascades
+on Account deletion. `account_secrets` stores one Fernet ciphertext per
+allowlisted `(account_id, secret_type)`, using `fernet-v1`. The application key
+is outside SQLite at the configured mode-`0600` credential-key path. Secret
+plaintext is request-memory-only and has no read API. Startup validates that
+the configured key can decrypt existing account-secret rows.
+
+Migration `20261007_0035` extends the existing canonical table rather than
+creating a parallel registry. It makes handles nullable, backfills
+`display_name = name`, defaults existing registration state to `unknown`, and
+preserves all Account IDs and Runtime/Job/Workflow/Publishing references.
 
 ## Device
 

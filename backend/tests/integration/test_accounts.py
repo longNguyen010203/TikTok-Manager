@@ -58,7 +58,7 @@ def test_list_accounts(integration_environment: IntegrationEnvironment) -> None:
     assert body["total"] == 2
     assert body["page"] == 1
     assert body["page_size"] == 20
-    assert [item["id"] for item in body["items"]] == [first["id"], second["id"]]
+    assert [item["id"] for item in body["items"]] == [second["id"], first["id"]]
 
 
 def test_get_account_by_id(integration_environment: IntegrationEnvironment) -> None:
@@ -98,7 +98,10 @@ def test_delete_account(integration_environment: IntegrationEnvironment) -> None
     assert response.status_code == 204
     assert response.content == b""
     with Session(integration_environment.engine) as session:
-        assert session.get(Account, created["id"]) is None
+        persisted = session.get(Account, created["id"])
+        assert persisted is not None
+        assert persisted.status == "archived"
+        assert persisted.archived_at is not None
 
 
 def test_account_pagination(integration_environment: IntegrationEnvironment) -> None:
@@ -113,7 +116,7 @@ def test_account_pagination(integration_environment: IntegrationEnvironment) -> 
     assert body["page_size"] == 2
     assert [item["id"] for item in body["items"]] == [
         created[2]["id"],
-        created[3]["id"],
+        created[1]["id"],
     ]
 
 
@@ -139,7 +142,7 @@ def test_account_status_filtering(
         (
             "post",
             "/accounts",
-            {"name": "Missing fields", "username": "incomplete"},
+            {"username": "incomplete"},
         ),
         ("post", "/accounts", account_payload(1) | {"name": "   "}),
         ("get", "/accounts?page=0", None),

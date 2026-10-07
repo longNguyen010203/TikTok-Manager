@@ -916,6 +916,15 @@ Scope:
 - assignment visibility
 - audit-safe secret handling
 
+Phase 1 backend foundation:
+- Migration `20261007_0035` extends the existing canonical Account entity.
+- Registry CRUD/query, Runtime assignment, normalized tags, soft archive, and
+  nullable metrics foundation are implemented.
+- Account secrets use a separate encrypted, write-only service/API boundary;
+  no normal Account response returns credential material.
+- Registration/login automation, metrics collection, and frontend work remain
+  later phases.
+
 Out of scope:
 - automatic account registration
 - CAPTCHA/OTP handling

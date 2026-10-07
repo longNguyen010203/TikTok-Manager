@@ -34,7 +34,7 @@ def test_init_db_creates_application_tables(database_engine: Engine) -> None:
     )
 
     columns = {column["name"]: column for column in inspector.get_columns("accounts")}
-    assert set(columns) == {
+    assert {
         "id",
         "name",
         "username",
@@ -44,19 +44,20 @@ def test_init_db_creates_application_tables(database_engine: Engine) -> None:
         "runtime_id",
         "created_at",
         "updated_at",
-    }
+    }.issubset(columns)
     assert columns["id"]["primary_key"] == 1
     assert columns["notes"]["nullable"] is True
     assert columns["runtime_id"]["nullable"] is True
     for field in (
         "name",
-        "username",
         "platform",
         "status",
         "created_at",
         "updated_at",
     ):
         assert columns[field]["nullable"] is False
+    assert columns["username"]["nullable"] is True
+    assert {"account_tags", "account_secrets"}.issubset(inspector.get_table_names())
 
     job_columns = {
         column["name"]: column for column in inspector.get_columns("jobs")

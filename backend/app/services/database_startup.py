@@ -11,12 +11,13 @@ from sqlalchemy.orm import Session
 
 from app.database import DatabaseSettings
 from app.services.network_credentials import NetworkCredentialProvider
+from app.services.account_secrets import AccountSecretProvider
 from app.services.redroid_provisioning_config import RedroidProvisioningSettings
 
 # Uvicorn configures this logger for the installed service, making the database
 # identity visible in the journal without requiring a separate logging setup.
 logger = logging.getLogger("uvicorn.error")
-LATEST_ALEMBIC_REVISION = "20261007_0034"
+LATEST_ALEMBIC_REVISION = "20261007_0035"
 
 
 class DatabaseStartupError(RuntimeError):
@@ -29,10 +30,12 @@ class DatabaseStartupValidator:
         engine: Engine,
         settings: DatabaseSettings,
         credential_provider: NetworkCredentialProvider | None = None,
+        account_secret_provider: AccountSecretProvider | None = None,
     ) -> None:
         self.engine = engine
         self.settings = settings
         self.credential_provider = credential_provider
+        self.account_secret_provider = account_secret_provider
 
     def validate(self) -> None:
         if self.settings.sqlite_path is not None and not self.settings.sqlite_path.is_file():
@@ -69,6 +72,9 @@ class DatabaseStartupValidator:
                 # Creates the installation key only when no encrypted rows exist.
                 # A missing/wrong key with stored credentials fails closed.
                 self.credential_provider.ensure_key(session)
+        if self.account_secret_provider is not None:
+            with Session(self.engine) as session:
+                self.account_secret_provider.ensure_key(session)
         logger.info(
             "Database ready: mode=%s path=%s alembic_revision=%s",
             self.settings.mode,

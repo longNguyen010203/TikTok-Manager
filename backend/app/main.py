@@ -31,6 +31,7 @@ from app.services.database_startup import DatabaseStartupValidator
 from app.services.android_network import AndroidNetworkAdapter
 from app.services.network_config import RuntimeNetworkSettings
 from app.services.network_credentials import MasterKeyManager, NetworkCredentialProvider
+from app.services.account_secrets import AccountSecretProvider
 from app.services.network_operation_lock import RuntimeNetworkOperationGuard
 from app.services.network_secrets import SecretResolver
 from app.services.redroid_runtime import RedroidRuntimeAdapter
@@ -48,9 +49,9 @@ def create_app(
         runtime_adapter = RedroidRuntimeAdapter()
         network_settings = RuntimeNetworkSettings.from_environment()
         application_config = load_application_config()
-        credential_provider = NetworkCredentialProvider(
-            MasterKeyManager(application_config.credential_key_path)
-        )
+        key_manager = MasterKeyManager(application_config.credential_key_path)
+        credential_provider = NetworkCredentialProvider(key_manager)
+        account_secret_provider = AccountSecretProvider(key_manager)
         lifecycle = HostLifecycleManager(
             SessionLocal,
             runtime_adapter,
@@ -72,7 +73,7 @@ def create_app(
                 credential_provider=credential_provider,
             ),
             database_readiness_check=DatabaseStartupValidator(
-                engine, DATABASE_SETTINGS, credential_provider
+                engine, DATABASE_SETTINGS, credential_provider, account_secret_provider
             ).validate,
         )
 

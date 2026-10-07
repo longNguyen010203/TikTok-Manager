@@ -272,6 +272,19 @@ def test_account_can_be_assigned_and_unassigned(runtime_api: TestClient) -> None
     assert unassigned.status_code == 200
     assert unassigned.json()["runtime_id"] is None
 
+    assigned = runtime_api.put(
+        f"/accounts/{account.json()['id']}/runtime",
+        json={"runtime_id": runtime["id"]},
+    )
+    assert assigned.status_code == 200
+    assert assigned.json()["runtime_id"] == runtime["id"]
+    assert assigned.json()["device_id"] == device["id"]
+
+    removed = runtime_api.delete(f"/accounts/{account.json()['id']}/runtime")
+    assert removed.status_code == 200
+    assert removed.json()["runtime_id"] is None
+    assert removed.json()["device_id"] is None
+
 
 def test_delete_runtime_preserves_and_unassigns_account(
     runtime_api: TestClient,

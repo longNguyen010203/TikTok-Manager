@@ -1,6 +1,6 @@
 """Database models."""
 
-from app.models.account import Account
+from app.models.account import Account, AccountSecret, AccountTag
 from app.models.content import (
     ContentAsset,
     ContentAssetTag,
@@ -35,6 +35,8 @@ from app.models.tiktok_ui import TikTokUiProfile
 
 __all__ = [
     "Account",
+    "AccountSecret",
+    "AccountTag",
     "ContentAsset",
     "ContentAssetTag",
     "ContentAssetVersion",

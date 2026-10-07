@@ -10,7 +10,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import RuntimeNetworkConfig, RuntimeNetworkCredential
+from app.models import AccountSecret, RuntimeNetworkConfig, RuntimeNetworkCredential
 from app.models.timestamps import utc_now
 from app.services.network_secrets import SecretResolver, SecretValue
 from app.services.proxy_bridge import BridgeCredentials
@@ -168,11 +168,14 @@ class NetworkCredentialProvider:
             ) from error
 
     def _cipher(self, session: Session) -> Fernet:
-        count = session.scalar(
+        network_count = session.scalar(
             select(func.count()).select_from(RuntimeNetworkCredential)
         ) or 0
+        account_count = session.scalar(
+            select(func.count()).select_from(AccountSecret)
+        ) or 0
         key = self.key_manager.load_or_create(
-            encrypted_credentials_exist=count > 0
+            encrypted_credentials_exist=(network_count + account_count) > 0
         )
         try:
             return Fernet(key)

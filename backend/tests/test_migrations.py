@@ -15,7 +15,7 @@ PRE_JOB_LOG_REVISION = "20260918_0003"
 PRE_REDROID_CONFIG_REVISION = "20260918_0004"
 PRE_UNIQUE_CONFIG_REVISION = "20261001_0005"
 PRE_PROVISIONING_REVISION = "20261001_0006"
-LATEST_REVISION = "20261007_0034"
+LATEST_REVISION = "20261007_0035"
 
 
 def test_upgrade_head_creates_accounts_table(
@@ -57,6 +57,8 @@ def test_upgrade_head_creates_accounts_table(
             "runtime_app_installation_runs",
             "publishing_sessions",
             "tiktok_ui_profiles",
+            "account_tags",
+            "account_secrets",
         }.issubset(
             inspector.get_table_names()
         )
@@ -76,6 +78,15 @@ def test_upgrade_head_creates_accounts_table(
         }
         assert managed_version_columns["inspection_level"]["nullable"] is False
         assert "basic_approved_at" in managed_version_columns
+        account_columns = {
+            column["name"]: column for column in inspector.get_columns("accounts")
+        }
+        assert account_columns["username"]["nullable"] is True
+        assert {
+            "display_name", "email", "phone", "registration_state", "health_status",
+            "status_reason", "niche", "archived_at", "follower_count",
+            "following_count", "likes_count", "video_count", "metrics_updated_at",
+        }.issubset(account_columns)
         runtime_app_uniques = {
             tuple(constraint["column_names"])
             for constraint in inspector.get_unique_constraints(
@@ -448,7 +459,7 @@ def test_upgrade_preserves_existing_accounts(
         with test_engine.connect() as connection:
             row = connection.execute(
                 text(
-                    "SELECT name, username, runtime_id FROM accounts "
+                    "SELECT name, display_name, username, registration_state, health_status, runtime_id FROM accounts "
                     "WHERE username = 'existing'"
                 )
             ).one()
@@ -456,7 +467,10 @@ def test_upgrade_preserves_existing_accounts(
             current_revision = migration_context.get_current_revision()
 
         assert row.name == "Existing Account"
+        assert row.display_name == "Existing Account"
         assert row.username == "existing"
+        assert row.registration_state == "unknown"
+        assert row.health_status == "unknown"
         assert row.runtime_id is None
         assert current_revision == LATEST_REVISION
     finally:

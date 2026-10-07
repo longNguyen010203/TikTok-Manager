@@ -97,21 +97,39 @@ Each endpoint should define:
 {
   "id": 1,
   "name": "Primary Account",
+  "display_name": "Primary Account",
   "username": "creator",
+  "email": "creator@example.com",
+  "phone": null,
   "platform": "tiktok",
   "status": "active",
+  "registration_state": "registered",
+  "health_status": "healthy",
+  "status_reason": null,
+  "niche": "travel",
   "notes": "Optional notes",
+  "tags": ["priority"],
   "runtime_id": null,
+  "device_id": null,
+  "follower_count": null,
+  "following_count": null,
+  "likes_count": null,
+  "video_count": null,
+  "metrics_updated_at": null,
+  "secret_present": true,
+  "secret_types": ["account_password"],
   "created_at": "2026-09-18T10:00:00",
-  "updated_at": "2026-09-18T10:00:00"
+  "updated_at": "2026-09-18T10:00:00",
+  "archived_at": null
 }
 ```
 
-`name` and `username` are non-empty strings with a maximum length of 255.
-`platform` and `status` are non-empty strings with a maximum length of 50.
-`notes` is a string or `null`. `runtime_id` is a positive integer referencing an
-existing Runtime, or `null`. Leading and trailing whitespace is removed from
-string fields.
+`display_name` is canonical; `name` is a synchronized compatibility alias.
+`username` may be null until discovered. Usernames are lowercased and a leading
+`@` is removed; emails are lowercased. `device_id` is derived from the assigned
+Runtime and is never independently assigned. Metrics are nullable non-negative
+integers. Secret values are never returned: only presence and allowlisted types
+(`account_password`, `email_password`, `recovery_credential`) are exposed.
 
 ## List accounts
 
@@ -121,6 +139,9 @@ string fields.
   - `page`: integer greater than or equal to 1; defaults to 1.
   - `page_size`: integer from 1 through 100; defaults to 20.
   - `status`: optional non-empty string; filters by exact status match.
+  - `query`: matches name, handle, email, or niche.
+  - `niche`, `tag`, `runtime_id`, `device_id`: optional exact filters.
+  - `include_archived`: defaults to false.
 - Request body: none.
 - Success: `200 OK`.
 
@@ -133,8 +154,8 @@ string fields.
 }
 ```
 
-Accounts are ordered by ascending `id`. `total` counts all records matching the
-filter before pagination.
+Accounts are ordered by `created_at DESC, id DESC`. Filtering and counting occur
+before pagination.
 
 Error cases:
 
@@ -161,17 +182,22 @@ Error cases:
 
 ```json
 {
-  "name": "Primary Account",
+  "display_name": "Primary Account",
   "username": "creator",
-  "platform": "tiktok",
+  "email": "creator@example.com",
   "status": "active",
+  "registration_state": "registered",
+  "niche": "travel",
+  "tags": ["priority"],
   "notes": null,
   "runtime_id": null
 }
 ```
 
-`name`, `username`, `platform`, and `status` are required. `notes` and
-`runtime_id` are optional and default to `null`.
+`display_name` is required, although the legacy `name` alias remains accepted.
+Username, contact fields, Runtime assignment, bounded health state, business
+metadata, tags, and metrics are optional. Platform defaults to `tiktok`, status
+to `active`, and registration and health states to `unknown`.
 
 - Success: `201 Created` with the created Account object.
 
@@ -185,12 +211,14 @@ Error cases:
 
 - Method: `PATCH`
 - Path: `/accounts/{id}`
-- Request body: any subset of `name`, `username`, `platform`, `status`, `notes`,
-  and `runtime_id`.
+- Request body: any mutable Account field, including registry metadata, tags,
+  metrics, and `runtime_id`. Bytes/secrets are not accepted here.
 - Success: `200 OK` with the updated Account object.
 
-An empty object is accepted as a no-op. `notes` and `runtime_id` may be set to
-`null`; the other fields may not be `null`.
+An empty object is accepted as a no-op. Nullable identity/contact, notes,
+business metadata, metrics, and `runtime_id` may be cleared with `null`.
+Display name, platform, lifecycle status, registration state, and health state
+may not be null.
 
 Error cases:
 
@@ -200,12 +228,33 @@ Error cases:
 - `404 Not Found` with `{"detail": "Runtime not found"}` when `runtime_id`
   references a missing Runtime.
 
-## Delete account
+## Assign or unassign an Account Runtime
+
+- `PUT /accounts/{id}/runtime` with `{"runtime_id": 12}` assigns an exact
+  existing Runtime.
+- `DELETE /accounts/{id}/runtime` clears the assignment.
+- Both return the safe Account object, including derived `device_id`.
+
+## Account secrets
+
+- `GET /accounts/{id}/secrets` returns presence metadata only.
+- `PUT /accounts/{id}/secrets/{secret_type}` accepts `{"value": "..."}` and
+  atomically encrypts/replaces one allowlisted secret.
+- `DELETE /accounts/{id}/secrets/{secret_type}` removes it.
+
+No API returns decrypted values, ciphertext, or key material. Validation errors
+omit rejected request values. A missing/unsafe/wrong master key fails secret
+writes with `503` and causes production startup to fail when encrypted rows
+already exist.
+
+## Delete/archive account
 
 - Method: `DELETE`
 - Path: `/accounts/{id}`
 - Request body: none.
-- Success: `204 No Content` with an empty body.
+- Success: `204 No Content` with an empty body. The Account is soft-archived,
+  hidden from ordinary get/list operations, and retained for Job, Workflow, and
+  PublishingSession history. It can be restored with a status PATCH.
 
 Error cases:
 

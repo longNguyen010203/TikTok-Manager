@@ -153,6 +153,14 @@ Manager host lifecycle:
   history while Workflow and Job rows remain execution authority. Approval
   records only that the Android environment is prepared, not that publishing
   occurred.
+- The Account Registry extends the original canonical Account row rather than
+  introducing a second identity system. Nullable discovered identity, bounded
+  lifecycle/business metadata, normalized tags, Runtime assignment, and metric
+  snapshots share that row, preserving all Job/Workflow/Publishing foreign
+  keys. Account credentials cross a dedicated write-only service boundary and
+  are stored as Fernet ciphertext in `account_secrets` using the installation's
+  external mode-`0600` master key; ordinary Account serializers expose presence
+  metadata only.
 - The workflow orchestrator is an independent user service. It creates Jobs
   only through typed service adapters, never claims Jobs, runs ADB, or accepts
   caller-defined steps/payloads. Durable approval and pause/cancel boundaries
