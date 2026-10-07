@@ -897,7 +897,7 @@ Acceptance criteria:
 
 ## TIK-025 — Account Registry & Control Center
 
-Status: IN PROGRESS
+Status: DONE
 
 Goal:
 Build the canonical account registry and control center used by later
@@ -932,3 +932,16 @@ Out of scope:
 - batch registration
 - publishing
 - metrics scraping
+
+Manual validation:
+- real account data loaded
+- nullable username -> No handle
+- unassigned runtime -> Unassigned
+- search/filter/pagination passed
+- runtime assign/unassign passed
+- archive/include archived/restore passed
+- write-only secrets create/update/delete passed
+- secret input cleared after save
+- no decrypted secret exposed
+- create/edit nullable fields passed
+- error state passed
