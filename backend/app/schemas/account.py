@@ -202,6 +202,8 @@ class AccountRead(BaseModel):
     platform: str
     status: str
     registration_state: str
+    registration_ready: bool
+    registration_completed_at: datetime | None
     health_status: str
     status_reason: str | None
     niche: str | None
@@ -231,6 +233,36 @@ class AccountList(BaseModel):
 class AccountRuntimeAssignment(BaseModel):
     model_config = ConfigDict(extra="forbid")
     runtime_id: int = Field(gt=0)
+
+
+class AccountRegistrationComplete(BaseModel):
+    """Safe operator-supplied metadata for manual registration completion."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    username: str | None = Field(default=None, max_length=255)
+    display_name: str | None = Field(default=None, min_length=1, max_length=255)
+    notes: str | None = Field(default=None, max_length=10_000)
+
+    @field_validator("username", mode="before")
+    @classmethod
+    def normalize_username(cls, value: Any) -> Any:
+        return _normalize_username(value)
+
+    @model_validator(mode="after")
+    def validate_supplied_identity(self) -> "AccountRegistrationComplete":
+        for field in ("username", "display_name"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
+        return self
+
+
+class AccountRegistrationFailure(BaseModel):
+    """Bounded operator reason for a failed manual registration attempt."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    reason: str = Field(min_length=1, max_length=500)
 
 
 class AccountSecretWrite(BaseModel):

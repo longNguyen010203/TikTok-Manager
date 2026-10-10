@@ -161,6 +161,15 @@ Manager host lifecycle:
   are stored as Fernet ciphertext in `account_secrets` using the installation's
   external mode-`0600` master key; ordinary Account serializers expose presence
   metadata only.
+- TIK-025B makes registration operator-managed for the MVP while preserving the
+  deferred TIK-026 controller. The canonical Account registration enum remains
+  `unknown`, `pending`, `registered`, and `failed`; narrow complete/fail/reopen
+  API transitions reject secret and automation inputs. A nullable completion
+  timestamp is the only added persistence. `registration_ready` is derived by
+  the backend from registered state, an existing Runtime assignment, active
+  Account lifecycle, and non-archival. It intentionally does not require a
+  password, health state, or running Runtime, and does not change historical
+  Job/Workflow/Publishing bindings.
 - Account registration is designed as a state-driven Workflow controller above
   typed Jobs, not a fixed tap sequence. A fresh login/signup entry and an
   existing-session HOME/PROFILE entry converge only after each screen/action is

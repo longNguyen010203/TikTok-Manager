@@ -39,3 +39,33 @@ This phase does not register or log into accounts, handle OTP/CAPTCHA, publish
 content, scrape metrics, or modify the frontend. Metrics are operator/API-fed
 snapshots only. Phase 2 should consume the safe Account response and separate
 secret-write endpoints without ever caching or rendering a secret value.
+
+## TIK-025B manual registration lifecycle
+
+The MVP uses operator-managed registration while automated TIK-026 registration
+is deferred. It reuses the existing `registration_state` values:
+
+- `unknown`: legacy/imported state has not been assessed;
+- `pending`: an operator intends to start or restart registration;
+- `registered`: the operator confirmed registration on the assigned Runtime;
+- `failed`: the manual attempt needs operator attention, with a bounded reason
+  in `status_reason`.
+
+No additional `needs_attention` state is needed: `failed` plus `status_reason`
+already represents that condition. The canonical transitions are exposed as
+typed complete, fail, and reopen operations. Completion accepts only optional
+handle, display-name, and notes metadata. Passwords and all other secrets remain
+exclusive to the existing write-only AccountSecret API.
+
+`registration_ready` is a backend-derived response field, not stored state. It
+is true only when registration is `registered`, lifecycle status is `active`,
+the Account is not archived, and its assigned Runtime still exists. Runtime
+running status, health status, and password presence are deliberately not part
+of this registry-level eligibility rule. Existing Job, Workflow, and Publishing
+bindings are unchanged; consumers can adopt the projection without retargeting
+historical bindings.
+
+Migration `20261010_0048` adds only nullable `registration_completed_at`.
+Existing rows and registration states are preserved. Reopening or failing clears
+the timestamp; a successful completion records it and clears the prior failure
+reason.

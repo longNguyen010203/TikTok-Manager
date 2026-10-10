@@ -14,11 +14,20 @@ from app.schemas.account import (
     AccountCreate,
     AccountList,
     AccountRead,
+    AccountRegistrationComplete,
+    AccountRegistrationFailure,
     AccountRuntimeAssignment,
     AccountSecretMetadata,
     AccountSecretType,
     AccountSecretWrite,
     AccountUpdate,
+)
+from app.services.account_registration_lifecycle import (
+    complete_manual_registration,
+    fail_manual_registration,
+    registration_ready,
+    reopen_manual_registration,
+    require_manual_completion_eligible,
 )
 from app.services.account_secrets import AccountSecretError, AccountSecretProvider
 from app.services.network_credentials import MasterKeyManager
@@ -71,6 +80,8 @@ def _read(account: Account) -> AccountRead:
         platform=account.platform,
         status=account.status,
         registration_state=account.registration_state,
+        registration_ready=registration_ready(account),
+        registration_completed_at=account.registration_completed_at,
         health_status=account.health_status,
         status_reason=account.status_reason,
         niche=account.niche,
@@ -163,6 +174,12 @@ def create_account(payload: AccountCreate, session: DatabaseSession) -> AccountR
     display_name = payload.display_name or payload.name
     assert display_name is not None
     account = Account(name=display_name, display_name=display_name, **data)
+    if account.registration_state == "registered":
+        # Preserve the original create contract while applying the same safety
+        # invariant as the explicit completion endpoint.
+        account.runtime = session.get(Runtime, account.runtime_id)
+        require_manual_completion_eligible(account)
+        account.registration_completed_at = utc_now()
     _replace_tags(account, payload.tags)
     session.add(account)
     session.commit()
@@ -194,6 +211,24 @@ def update_account(
             account.archived_at = account.archived_at or utc_now()
         elif account.archived_at is not None:
             account.archived_at = None
+    if (
+        "registration_state" in update_data
+        and account.registration_state == "registered"
+    ):
+        # Legacy PATCH support remains compatible, but cannot bypass the
+        # canonical registration-completion invariants.
+        if account.runtime_id is not None:
+            account.runtime = session.get(Runtime, account.runtime_id)
+        require_manual_completion_eligible(account)
+        account.status_reason = None
+        account.registration_completed_at = (
+            account.registration_completed_at or utc_now()
+        )
+    elif (
+        "registration_state" in update_data
+        and account.registration_state != "registered"
+    ):
+        account.registration_completed_at = None
     session.commit()
     session.expire_all()
     return _read(_get_account_or_404(account.id, session, include_archived=True))
@@ -215,6 +250,43 @@ def assign_runtime(
 def unassign_runtime(account_id: int, session: DatabaseSession) -> AccountRead:
     account = _get_account_or_404(account_id, session)
     account.runtime_id = None
+    session.commit()
+    session.expire_all()
+    return _read(_get_account_or_404(account.id, session))
+
+
+@router.post("/{account_id}/registration/complete", response_model=AccountRead)
+def complete_account_registration(
+    account_id: int,
+    payload: AccountRegistrationComplete,
+    session: DatabaseSession,
+) -> AccountRead:
+    account = _get_account_or_404(account_id, session)
+    complete_manual_registration(account, payload)
+    session.commit()
+    session.expire_all()
+    return _read(_get_account_or_404(account.id, session))
+
+
+@router.post("/{account_id}/registration/fail", response_model=AccountRead)
+def fail_account_registration(
+    account_id: int,
+    payload: AccountRegistrationFailure,
+    session: DatabaseSession,
+) -> AccountRead:
+    account = _get_account_or_404(account_id, session)
+    fail_manual_registration(account, payload.reason)
+    session.commit()
+    session.expire_all()
+    return _read(_get_account_or_404(account.id, session))
+
+
+@router.post("/{account_id}/registration/reopen", response_model=AccountRead)
+def reopen_account_registration(
+    account_id: int, session: DatabaseSession
+) -> AccountRead:
+    account = _get_account_or_404(account_id, session)
+    reopen_manual_registration(account)
     session.commit()
     session.expire_all()
     return _read(_get_account_or_404(account.id, session))
