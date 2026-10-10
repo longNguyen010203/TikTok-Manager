@@ -1001,7 +1001,7 @@ Create Account record
 → Save/update credentials
 → Mark Account as Registered
 → Account becomes eligible for downstream automation
-
+ 
 Scope:
 - explicit manual-registration lifecycle
 - registration readiness/status in Account Control Center
@@ -1017,6 +1017,7 @@ Out of scope:
 - OTP automation
 - CAPTCHA automation
 - identity verification automation
+<<<<<<< HEAD
 - automated email verification
 
 Phase 1 backend completion:
@@ -1029,3 +1030,6 @@ Phase 1 backend completion:
   `20261010_0048`; existing Account IDs and bindings are preserved.
 - Keeps the TIK-026 registration state machine/calibration implementation
   intact and deferred.
+=======
+- automated email verification  
+>>>>>>> main
