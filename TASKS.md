@@ -950,7 +950,7 @@ Manual validation:
 
 ## TIK-026 — Account Registration Workflow v1
 
-Status: IN PROGRESS
+Status: DEFERRED
 
 Phase 1 architecture:
 - State-driven entry routing and fail-closed calibration catalog implemented.
@@ -981,3 +981,40 @@ Out of scope:
 - automated challenge solving
 - identity verification bypass
 - batch registration
+
+---
+
+## TIK-025B — Manual Account Registration Support
+
+Status: IN PROGRESS
+
+Goal:
+Support operator-managed TikTok registration using the existing Account,
+Runtime, Device, and secret-management foundations.
+
+Canonical MVP flow:
+
+Create Account record
+→ Assign Runtime
+→ Open Runtime screen
+→ Operator registers TikTok manually
+→ Save/update credentials
+→ Mark Account as Registered
+→ Account becomes eligible for downstream automation
+
+Scope:
+- explicit manual-registration lifecycle
+- registration readiness/status in Account Control Center
+- Runtime/Device assignment
+- operator guidance/state
+- mark registered / needs attention
+- credential presence checks
+- registration metadata
+- eligibility for later publishing/scheduling/metrics
+
+Out of scope:
+- automated signup
+- OTP automation
+- CAPTCHA automation
+- identity verification automation
+- automated email verification
