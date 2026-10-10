@@ -1018,8 +1018,6 @@ Out of scope:
 - CAPTCHA automation
 - identity verification automation
 <<<<<<< HEAD
-- automated email verification  
-=======
 - automated email verification
 
 Phase 1 backend completion:
@@ -1032,4 +1030,6 @@ Phase 1 backend completion:
   `20261010_0048`; existing Account IDs and bindings are preserved.
 - Keeps the TIK-026 registration state machine/calibration implementation
   intact and deferred.
->>>>>>> codex/backend
+=======
+- automated email verification  
+>>>>>>> main
