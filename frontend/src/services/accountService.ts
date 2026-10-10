@@ -2,6 +2,8 @@ import {
   Account,
   AccountListParams,
   AccountListResponse,
+  AccountRegistrationCompleteInput,
+  AccountRegistrationFailureInput,
   AccountSecretMetadata,
   AccountSecretType,
   CreateAccountInput,
@@ -18,6 +20,15 @@ export interface IAccountService {
   deleteAccount(id: number): Promise<void>;
   assignRuntime(id: number, runtimeId: number): Promise<Account>;
   unassignRuntime(id: number): Promise<Account>;
+  completeRegistration(
+    id: number,
+    payload?: AccountRegistrationCompleteInput
+  ): Promise<Account>;
+  failRegistration(
+    id: number,
+    payload: AccountRegistrationFailureInput
+  ): Promise<Account>;
+  reopenRegistration(id: number): Promise<Account>;
   getAccountSecrets(id: number): Promise<AccountSecretMetadata[]>;
   putAccountSecret(
     id: number,
@@ -63,6 +74,12 @@ export class FastApiAccountService implements IAccountService {
     if (status === 404) {
       const msg = typeof detail === "string" ? detail : "Account not found";
       return new ApiError(404, msg, detail);
+    }
+
+    if (status === 409) {
+      const msg =
+        typeof detail === "string" ? detail : "Account lifecycle conflict";
+      return new ApiError(409, msg, detail);
     }
 
     if (status === 422) {
@@ -358,6 +375,85 @@ export class FastApiAccountService implements IAccountService {
         Accept: "application/json",
       },
     });
+
+    if (!response.ok) {
+      throw await this.parseError(response);
+    }
+
+    return response.json();
+  }
+
+  async completeRegistration(
+    id: number,
+    payload?: AccountRegistrationCompleteInput
+  ): Promise<Account> {
+    const body: Record<string, unknown> = {};
+    if (payload?.username !== undefined) {
+      body.username = payload.username
+        ? payload.username.trim().replace(/^@/, "")
+        : null;
+    }
+    if (payload?.display_name !== undefined) {
+      body.display_name = payload.display_name
+        ? payload.display_name.trim()
+        : null;
+    }
+    if (payload?.notes !== undefined) {
+      body.notes = payload.notes ? payload.notes.trim() : null;
+    }
+
+    const response = await fetch(
+      `${this.baseUrl}/accounts/${id}/registration/complete`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(body),
+      }
+    );
+
+    if (!response.ok) {
+      throw await this.parseError(response);
+    }
+
+    return response.json();
+  }
+
+  async failRegistration(
+    id: number,
+    payload: AccountRegistrationFailureInput
+  ): Promise<Account> {
+    const response = await fetch(
+      `${this.baseUrl}/accounts/${id}/registration/fail`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ reason: payload.reason.trim() }),
+      }
+    );
+
+    if (!response.ok) {
+      throw await this.parseError(response);
+    }
+
+    return response.json();
+  }
+
+  async reopenRegistration(id: number): Promise<Account> {
+    const response = await fetch(
+      `${this.baseUrl}/accounts/${id}/registration/reopen`,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+        },
+      }
+    );
 
     if (!response.ok) {
       throw await this.parseError(response);

@@ -38,6 +38,8 @@ export interface Account {
   platform: string;
   status: AccountStatus;
   registration_state: RegistrationState;
+  registration_ready: boolean;
+  registration_completed_at: string | null;
   health_status: AccountHealthStatus;
   status_reason: string | null;
   niche: string | null;
@@ -55,6 +57,16 @@ export interface Account {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+}
+
+export interface AccountRegistrationCompleteInput {
+  username?: string | null;
+  display_name?: string | null;
+  notes?: string | null;
+}
+
+export interface AccountRegistrationFailureInput {
+  reason: string;
 }
 
 export interface AccountListParams {
@@ -198,4 +210,26 @@ export function formatMetricNumber(num: number | null | undefined): string {
     return `${(num / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
   }
   return num.toLocaleString();
+}
+
+/**
+ * Derive human-readable explanations when an Account is not registration-ready.
+ * Based STRICTLY on known Account fields: archived, runtime, status, registration state.
+ */
+export function getRegistrationUnreadyReasons(account: Account): string[] {
+  if (account.registration_ready) return [];
+  const reasons: string[] = [];
+  if (account.archived_at !== null || account.status === "archived") {
+    reasons.push("Account is archived");
+  }
+  if (account.runtime_id === null) {
+    reasons.push("Runtime missing");
+  }
+  if (account.status !== "active") {
+    reasons.push(`Inactive status (${account.status})`);
+  }
+  if (account.registration_state !== "registered") {
+    reasons.push(`Not registered (${account.registration_state})`);
+  }
+  return reasons;
 }

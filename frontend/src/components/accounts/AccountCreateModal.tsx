@@ -1,7 +1,15 @@
 "use client";
 
 import React, { useState } from "react";
-import { X, Loader2, Sparkles, ChevronDown, ChevronUp, AlertCircle } from "lucide-react";
+import {
+  X,
+  Loader2,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
+  AlertCircle,
+  UserCheck,
+} from "lucide-react";
 import {
   AccountHealthStatus,
   AccountStatus,
@@ -30,7 +38,7 @@ export function AccountCreateModal({
   const [phone, setPhone] = useState("");
   const [status, setStatus] = useState<AccountStatus>("active");
   const [registrationState, setRegistrationState] =
-    useState<RegistrationState>("unknown");
+    useState<RegistrationState>("pending");
   const [healthStatus, setHealthStatus] =
     useState<AccountHealthStatus>("unknown");
   const [statusReason, setStatusReason] = useState("");
@@ -104,7 +112,7 @@ export function AccountCreateModal({
       setEmail("");
       setPhone("");
       setStatus("active");
-      setRegistrationState("unknown");
+      setRegistrationState("pending");
       setHealthStatus("unknown");
       setStatusReason("");
       setNiche("");
@@ -169,6 +177,17 @@ export function AccountCreateModal({
               <span>{formError}</span>
             </div>
           )}
+
+          {/* Operator Registration Workflow Guidance */}
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-600 flex items-start gap-2.5">
+            <UserCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+            <div className="text-[11px] leading-relaxed">
+              <span className="font-semibold text-slate-800">
+                Manual Registration Workflow:
+              </span>{" "}
+              New accounts default to <strong>Pending registration</strong>. Assign an execution Runtime, launch the Screen Viewer to register on TikTok, store write-only credentials, and then mark as Registered to enable automated workflows.
+            </div>
+          </div>
 
           {/* Primary Identity */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -280,10 +299,10 @@ export function AccountCreateModal({
                 onChange={(e) => setRegistrationState(e.target.value as RegistrationState)}
                 className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-rose-500 font-medium"
               >
-                <option value="unknown">Unknown</option>
-                <option value="pending">Pending</option>
+                <option value="pending">Pending (Recommended)</option>
                 <option value="registered">Registered</option>
                 <option value="failed">Failed</option>
+                <option value="unknown">Unknown</option>
               </select>
             </div>
 

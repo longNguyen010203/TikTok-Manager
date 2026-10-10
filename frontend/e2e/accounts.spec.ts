@@ -49,6 +49,8 @@ interface MockAccount {
   likes_count: number | null;
   video_count: number | null;
   metrics_updated_at: string | null;
+  registration_ready: boolean;
+  registration_completed_at: string | null;
   secret_present: boolean;
   secret_types: string[];
   created_at: string;
@@ -146,6 +148,8 @@ function initMockData() {
       likes_count: 4500000,
       video_count: 85,
       metrics_updated_at: now,
+      registration_ready: true,
+      registration_completed_at: "2026-10-05T12:00:00Z",
       secret_present: true,
       secret_types: ["account_password", "email_password"],
       created_at: "2026-10-01T00:00:00Z",
@@ -174,6 +178,8 @@ function initMockData() {
       likes_count: 0,
       video_count: 0,
       metrics_updated_at: null,
+      registration_ready: false,
+      registration_completed_at: null,
       secret_present: false,
       secret_types: [],
       created_at: "2026-10-02T00:00:00Z",
@@ -202,6 +208,8 @@ function initMockData() {
       likes_count: 120000,
       video_count: 42,
       metrics_updated_at: "2026-10-05T08:00:00Z",
+      registration_ready: false,
+      registration_completed_at: "2026-10-04T12:00:00Z",
       secret_present: true,
       secret_types: ["account_password"],
       created_at: "2026-10-03T00:00:00Z",
@@ -230,11 +238,43 @@ function initMockData() {
       likes_count: 5000,
       video_count: 10,
       metrics_updated_at: "2026-09-01T00:00:00Z",
+      registration_ready: false,
+      registration_completed_at: "2026-08-15T00:00:00Z",
       secret_present: false,
       secret_types: [],
       created_at: "2026-08-01T00:00:00Z",
       updated_at: "2026-09-15T00:00:00Z",
       archived_at: "2026-09-15T00:00:00Z",
+    },
+    {
+      id: 5,
+      name: "Beauty Trends Weekly",
+      display_name: "Beauty Trends Weekly",
+      username: "beautytrends",
+      email: "beauty@example.com",
+      phone: null,
+      platform: "tiktok",
+      status: "active",
+      registration_state: "registered",
+      health_status: "healthy",
+      status_reason: null,
+      niche: "beauty",
+      notes: "Registered account with runtime unassigned",
+      tags: ["beauty"],
+      runtime_id: null,
+      device_id: null,
+      follower_count: 5000,
+      following_count: 50,
+      likes_count: 20000,
+      video_count: 15,
+      metrics_updated_at: now,
+      registration_ready: false,
+      registration_completed_at: "2026-10-04T10:00:00Z",
+      secret_present: true,
+      secret_types: ["account_password"],
+      created_at: "2026-10-02T00:00:00Z",
+      updated_at: "2026-10-04T10:00:00Z",
+      archived_at: null,
     },
   ];
 
@@ -260,6 +300,15 @@ function initMockData() {
     updated_at: "2026-10-05T08:00:00Z",
   });
   accountSecretsMap.set(3, sec3);
+
+  // Secrets store for account 5
+  const sec5 = new Map<string, MockSecretEntry>();
+  sec5.set("account_password", {
+    secret_type: "account_password",
+    present: true,
+    updated_at: "2026-10-04T10:00:00Z",
+  });
+  accountSecretsMap.set(5, sec5);
 }
 
 async function installApi(page: Page) {
@@ -360,6 +409,10 @@ async function installApi(page: Page) {
         if (!rt) return json({ detail: "Runtime not found" }, 404);
         acc.runtime_id = rt.id;
         acc.device_id = rt.device_id;
+        acc.registration_ready =
+          acc.registration_state === "registered" &&
+          acc.status === "active" &&
+          acc.archived_at === null;
         acc.updated_at = now;
         return json(acc);
       }
@@ -367,9 +420,100 @@ async function installApi(page: Page) {
       if (method === "DELETE") {
         acc.runtime_id = null;
         acc.device_id = null;
+        acc.registration_ready = false;
         acc.updated_at = now;
         return json(acc);
       }
+    }
+
+    // Registration lifecycle endpoints
+    const regCompleteMatch = path.match(/^\/accounts\/(\d+)\/registration\/complete$/);
+    if (regCompleteMatch && method === "POST") {
+      const accountId = Number(regCompleteMatch[1]);
+      const acc = accountsList.find((a) => a.id === accountId);
+      if (!acc) return json({ detail: "Account not found" }, 404);
+      if (acc.archived_at || acc.status === "archived") {
+        return json({ detail: "Cannot register an archived account" }, 409);
+      }
+      if (acc.runtime_id === null) {
+        return json({ detail: "Cannot register without an assigned runtime" }, 409);
+      }
+      const body = (request.postDataJSON() || {}) as {
+        username?: string;
+        display_name?: string;
+        notes?: string;
+      };
+      if (body.username !== undefined) {
+        acc.username = body.username ? body.username.replace(/^@/, "").toLowerCase() : null;
+      }
+      if (body.display_name !== undefined && body.display_name.trim()) {
+        acc.display_name = body.display_name.trim();
+        acc.name = body.display_name.trim();
+      }
+      if (body.notes !== undefined) {
+        acc.notes = body.notes.trim() || null;
+      }
+      acc.registration_state = "registered";
+      acc.registration_ready =
+        acc.status === "active" && acc.archived_at === null && acc.runtime_id !== null;
+      acc.registration_completed_at = now;
+      acc.status_reason = null;
+      acc.updated_at = now;
+      return json(acc);
+    }
+
+    const regFailMatch = path.match(/^\/accounts\/(\d+)\/registration\/fail$/);
+    if (regFailMatch && method === "POST") {
+      const accountId = Number(regFailMatch[1]);
+      const acc = accountsList.find((a) => a.id === accountId);
+      if (!acc) return json({ detail: "Account not found" }, 404);
+      if (acc.archived_at || acc.status === "archived") {
+        return json({ detail: "Cannot fail registration for an archived account" }, 409);
+      }
+      const body = request.postDataJSON() as { reason?: string };
+      if (!body || !body.reason || !body.reason.trim()) {
+        return json({ detail: "Reason is required (1-500 chars)" }, 422);
+      }
+      if (body.reason.length > 500) {
+        return json({ detail: "Reason cannot exceed 500 characters" }, 422);
+      }
+      acc.registration_state = "failed";
+      acc.registration_ready = false;
+      acc.status_reason = body.reason.trim();
+      acc.updated_at = now;
+      return json(acc);
+    }
+
+    const regReopenMatch = path.match(/^\/accounts\/(\d+)\/registration\/reopen$/);
+    if (regReopenMatch && method === "POST") {
+      const accountId = Number(regReopenMatch[1]);
+      const acc = accountsList.find((a) => a.id === accountId);
+      if (!acc) return json({ detail: "Account not found" }, 404);
+      if (acc.archived_at || acc.status === "archived") {
+        return json({ detail: "Cannot reopen registration for an archived account" }, 409);
+      }
+      if (acc.registration_state !== "registered" && acc.registration_state !== "failed") {
+        return json({ detail: "Can only reopen registered or failed accounts" }, 409);
+      }
+      acc.registration_state = "pending";
+      acc.registration_ready = false;
+      acc.status_reason = null;
+      acc.updated_at = now;
+      return json(acc);
+    }
+
+    // Screen Viewer endpoint
+    const screenMatch = path.match(/^\/devices\/(\d+)\/screen\/open$/);
+    if (screenMatch && method === "POST") {
+      const devId = Number(screenMatch[1]);
+      return json({
+        device_id: devId,
+        adb_serial: "localhost:5555",
+        status: "active",
+        process_id: 12345,
+        window_title: `Screen Viewer - Device #${devId}`,
+        started_at: now,
+      });
     }
 
     // Single account CRUD
@@ -518,7 +662,7 @@ async function installApi(page: Page) {
           phone: body.phone ? String(body.phone) : null,
           platform: "tiktok",
           status: (body.status as string) || "active",
-          registration_state: (body.registration_state as string) || "registered",
+          registration_state: (body.registration_state as string) || "pending",
           health_status: (body.health_status as string) || "healthy",
           status_reason: (body.status_reason as string) || null,
           niche: (body.niche as string) || null,
@@ -531,6 +675,12 @@ async function installApi(page: Page) {
           likes_count: body.likes_count !== undefined ? Number(body.likes_count) : null,
           video_count: body.video_count !== undefined ? Number(body.video_count) : null,
           metrics_updated_at: null,
+          registration_ready:
+            ((body.registration_state as string) || "pending") === "registered" &&
+            ((body.status as string) || "active") === "active" &&
+            runtimeId !== null,
+          registration_completed_at:
+            ((body.registration_state as string) || "pending") === "registered" ? now : null,
           secret_present: false,
           secret_types: [],
           created_at: now,
@@ -872,5 +1022,244 @@ test.describe("TIK-025 Phase 2: Account Control Center", () => {
 
     // Table reloads successfully
     await expect(page.getByText("Dance Star Studio")).toBeVisible();
+  });
+
+  test("10. Operator manual registration workflow: assigns runtime, opens viewer, and completes registration", async ({
+    page,
+  }) => {
+    await page.goto("/accounts");
+
+    // Verify initial states
+    await expect(page.getByText("Dance Star Studio")).toBeVisible();
+    await expect(page.getByText("Registered").first()).toBeVisible();
+    await expect(page.getByText("Ready").first()).toBeVisible();
+
+    // Gaming Highlights starts as Pending and Not ready
+    const gamingRow = page.locator("tr", { hasText: "Gaming Highlights" });
+    await expect(gamingRow.getByText("Pending").first()).toBeVisible();
+    await expect(gamingRow.getByText("Not ready")).toBeVisible();
+
+    // Open Manual Registration Modal
+    await gamingRow
+      .getByRole("button", { name: /Manage registration for Gaming Highlights/i })
+      .click();
+
+    const regModal = page.getByRole("dialog");
+    await expect(regModal).toBeVisible();
+    await expect(
+      regModal.getByRole("heading", { name: "Manual Registration Workflow" })
+    ).toBeVisible();
+
+    // Operator Stepper is visible
+    await expect(regModal.getByText("Operator Registration Steps")).toBeVisible();
+    await expect(regModal.getByText("Step 2")).toBeVisible();
+    await expect(regModal.getByText("Screen & TikTok App")).toBeVisible();
+
+    // Warns that runtime is missing
+    await expect(
+      regModal.getByText(/No runtime assigned. Registration completion requires an active runtime./i)
+    ).toBeVisible();
+
+    // Complete action button is disabled without runtime
+    const completeBtn = regModal.getByRole("button", { name: "Mark as Registered" });
+    await expect(completeBtn).toBeDisabled();
+
+    // Click "Assign Runtime Now" inside modal
+    await regModal.getByRole("button", { name: "Assign Runtime Now" }).click();
+
+    // Quick Assign modal opens
+    const assignModal = page.getByRole("dialog");
+    await expect(
+      assignModal.getByRole("heading", { name: "Runtime & Device Assignment" })
+    ).toBeVisible();
+
+    // Select Redroid 01
+    await page.locator("#assignRuntimeSelect").selectOption("1");
+    await assignModal.getByRole("button", { name: "Assign Runtime" }).click();
+    await expect(assignModal).not.toBeVisible();
+
+    // Reopen registration modal for Gaming Highlights now that runtime is assigned
+    await gamingRow
+      .getByRole("button", { name: /Manage registration for Gaming Highlights/i })
+      .click();
+    await expect(regModal).toBeVisible();
+
+    // Now shows Redroid 01 details
+    await expect(regModal.getByText("Redroid 01").first()).toBeVisible();
+    await expect(regModal.getByText(/localhost:5555/i)).toBeVisible();
+
+    // Click "Open Screen Viewer"
+    const openScreenBtn = regModal.getByRole("button", { name: /Open Screen Viewer/i });
+    await expect(openScreenBtn).toBeVisible();
+    await openScreenBtn.click();
+
+    // Screen viewer success message
+    await expect(
+      regModal.getByText(/Screen viewer launched \(PID: 12345\) connected to localhost:5555/i)
+    ).toBeVisible();
+
+    // Fill registration completion details
+    await regModal.getByPlaceholder("creator_handle").fill("gaming_pro");
+    await regModal.getByPlaceholder("Display Name").fill("Gaming Pro Channel");
+    await regModal.getByPlaceholder(/Registered via phone SMS/i).fill("Registered on device via app");
+
+    // Complete registration
+    await expect(completeBtn).toBeEnabled();
+    await completeBtn.click();
+
+    // Modal closes and table reflects completed registration
+    await expect(regModal).not.toBeVisible();
+    const updatedRow = page.locator("tr", { hasText: "Gaming Pro Channel" });
+    await expect(updatedRow.getByText("@gaming_pro")).toBeVisible();
+    await expect(updatedRow.getByText("Registered")).toBeVisible();
+    await expect(updatedRow.getByText("Ready")).toBeVisible();
+  });
+
+  test("11. Reports registration failure with required reason", async ({ page }) => {
+    await page.goto("/accounts");
+
+    const row = page.locator("tr", { hasText: "Tech Reviews Daily" });
+    await row
+      .getByRole("button", { name: /Manage registration for Tech Reviews Daily/i })
+      .click();
+
+    const regModal = page.getByRole("dialog");
+    await expect(regModal).toBeVisible();
+
+    // Switch to failure tab
+    await regModal.getByRole("button", { name: "Report Registration Failure" }).click();
+
+    // Button disabled when empty
+    const failBtn = regModal.getByRole("button", { name: "Mark Registration Failed" });
+    await expect(failBtn).toBeDisabled();
+
+    // Fill failure reason
+    await regModal
+      .getByPlaceholder(/Phone number blocked by TikTok/i)
+      .fill("Phone carrier SMS verification blocked by TikTok");
+
+    await expect(failBtn).toBeEnabled();
+    await failBtn.click();
+
+    // Modal closes
+    await expect(regModal).not.toBeVisible();
+
+    // Row updates with failure state and recorded reason
+    const updatedRow = page.locator("tr", { hasText: "Tech Reviews Daily" });
+    await expect(updatedRow.getByText("Failed")).toBeVisible();
+    await expect(
+      updatedRow.getByText("Phone carrier SMS verification blocked by TikTok")
+    ).toBeVisible();
+    await expect(updatedRow.getByText("Not ready")).toBeVisible();
+  });
+
+  test("12. Reopens registration workflow for registered account", async ({ page }) => {
+    await page.goto("/accounts");
+
+    const row = page.locator("tr", { hasText: "Dance Star Studio" });
+    await row
+      .getByRole("button", { name: /Manage registration for Dance Star Studio/i })
+      .click();
+
+    const regModal = page.getByRole("dialog");
+    await expect(regModal).toBeVisible();
+
+    // Switch to Reopen tab
+    await regModal.getByRole("button", { name: "Reopen Registration" }).first().click();
+
+    // Click reopen action triggers inline confirmation
+    await regModal.getByRole("button", { name: "Reopen Registration" }).nth(1).click();
+    await expect(
+      regModal.getByText("Are you sure you want to reopen registration?")
+    ).toBeVisible();
+
+    // Confirm reopen
+    await regModal.getByRole("button", { name: "Yes, Reopen Registration" }).click();
+
+    // Modal closes and table shows reset state
+    await expect(regModal).not.toBeVisible();
+    const updatedRow = page.locator("tr", { hasText: "Dance Star Studio" });
+    await expect(updatedRow.getByText("Pending")).toBeVisible();
+    await expect(updatedRow.getByText("Not ready")).toBeVisible();
+  });
+
+  test("13. Displays readiness reasons tooltip and credentials presence without secret values", async ({
+    page,
+  }) => {
+    await page.goto("/accounts");
+
+    // Check Dance Star Studio credentials
+    const row1 = page.locator("tr", { hasText: "Dance Star Studio" });
+    await expect(row1.getByText("2 Secrets")).toBeVisible();
+
+    // Open credentials modal from table
+    await row1.getByTitle("Manage write-only credentials").click();
+    const secModal = page.getByRole("dialog");
+    await expect(secModal).toBeVisible();
+
+    // Encrypted guarantee text
+    await expect(
+      secModal
+        .getByText("Credentials are encrypted at rest and are never returned by the API.")
+        .first()
+    ).toBeVisible();
+
+    // Done
+    await secModal.getByRole("button", { name: "Done" }).click();
+    await expect(secModal).not.toBeVisible();
+  });
+
+  test("14. Visibly renders backend registration_ready in AccountTable and AccountRegistrationModal", async ({
+    page,
+  }) => {
+    await page.goto("/accounts");
+
+    // Case 1: pending account -> Not ready
+    const pendingRow = page.locator("tr", { hasText: "Gaming Highlights" });
+    await expect(pendingRow.getByText("Pending").first()).toBeVisible();
+    await expect(pendingRow.getByText("Not ready")).toBeVisible();
+
+    // Case 2: registered + active + valid runtime -> Ready
+    const readyRow = page.locator("tr", { hasText: "Dance Star Studio" });
+    await expect(readyRow.getByText("Registered")).toBeVisible();
+    await expect(readyRow.getByText("Ready")).toBeVisible();
+
+    // Case 3: registered but runtime missing -> Not ready
+    const missingRuntimeRow = page.locator("tr", { hasText: "Beauty Trends Weekly" });
+    await expect(missingRuntimeRow.getByText("Registered")).toBeVisible();
+    await expect(missingRuntimeRow.getByText("Unassigned")).toBeVisible();
+    await expect(missingRuntimeRow.getByText("Not ready")).toBeVisible();
+
+    // Open modal for registered but runtime missing account and verify prominent readiness display
+    await missingRuntimeRow
+      .getByRole("button", { name: /Manage registration for Beauty Trends Weekly/i })
+      .click();
+
+    const regModal = page.getByRole("dialog");
+    await expect(regModal).toBeVisible();
+    await expect(
+      regModal.getByRole("heading", { name: "Manual Registration Workflow" })
+    ).toBeVisible();
+
+    // Verify Not ready state is prominently visible in modal
+    await expect(
+      regModal.getByText("Account is Not ready for downstream automation")
+    ).toBeVisible();
+    await expect(regModal.getByText("Runtime missing")).toBeVisible();
+
+    await regModal.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(regModal).not.toBeVisible();
+
+    // Open modal for ready account (Dance Star Studio) and verify Ready state is prominently visible
+    await readyRow
+      .getByRole("button", { name: /Manage registration for Dance Star Studio/i })
+      .click();
+    await expect(regModal).toBeVisible();
+    await expect(
+      regModal.getByText("Account is Ready for downstream automation")
+    ).toBeVisible();
+    await expect(
+      regModal.getByText("Registration is verified and execution runtime is actively assigned.")
+    ).toBeVisible();
   });
 });

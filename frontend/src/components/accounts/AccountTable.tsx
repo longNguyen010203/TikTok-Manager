@@ -4,12 +4,14 @@ import React from "react";
 import {
   Account,
   formatMetricNumber,
+  getRegistrationUnreadyReasons,
 } from "@/types/account";
 import { Runtime } from "@/types/runtime";
 import { Device } from "@/types/device";
 import {
   AccountStatusBadge,
   RegistrationStateBadge,
+  RegistrationReadyBadge,
   AccountHealthBadge,
   AccountSecretPresenceBadge,
 } from "./AccountStatusBadge";
@@ -28,6 +30,7 @@ import {
   Smartphone,
   Heart,
   Users,
+  UserCheck,
 } from "lucide-react";
 
 interface AccountTableProps {
@@ -44,6 +47,7 @@ interface AccountTableProps {
   onDeleteAccount?: (account: Account) => void;
   onAssignRuntime?: (account: Account) => void;
   onManageSecrets?: (account: Account) => void;
+  onManageRegistration?: (account: Account) => void;
 }
 
 export function AccountTable({
@@ -60,6 +64,7 @@ export function AccountTable({
   onDeleteAccount,
   onAssignRuntime,
   onManageSecrets,
+  onManageRegistration,
 }: AccountTableProps) {
   // Format ISO date string
   const formatDate = (isoString?: string | null) => {
@@ -104,7 +109,7 @@ export function AccountTable({
               <th scope="col" className="py-3 px-3">
                 Status
               </th>
-              <th scope="col" className="py-3 px-3">
+              <th scope="col" className="py-3 px-4 min-w-[260px] whitespace-nowrap">
                 Reg / Health
               </th>
               <th scope="col" className="py-3 px-3">
@@ -208,15 +213,23 @@ export function AccountTable({
                   </td>
 
                   {/* Registration State & Health */}
-                  <td className="py-3.5 px-3">
-                    <div className="space-y-1">
-                      <div>
-                        <RegistrationStateBadge state={acc.registration_state} />
-                      </div>
-                      <div>
-                        <AccountHealthBadge status={acc.health_status} />
-                      </div>
+                  <td className="py-3.5 px-4 whitespace-nowrap">
+                    <div className="flex items-center gap-1.5 flex-nowrap">
+                      <RegistrationStateBadge state={acc.registration_state} compact />
+                      <RegistrationReadyBadge
+                        ready={Boolean(acc.registration_ready)}
+                        reasons={getRegistrationUnreadyReasons(acc)}
+                      />
+                      <AccountHealthBadge status={acc.health_status} variant="compact" />
                     </div>
+                    {acc.registration_state === "failed" && acc.status_reason && (
+                      <div
+                        className="text-[10px] text-rose-600 truncate max-w-[250px] font-mono mt-0.5"
+                        title={acc.status_reason}
+                      >
+                        {acc.status_reason}
+                      </div>
+                    )}
                   </td>
 
                   {/* Niche */}
@@ -304,6 +317,17 @@ export function AccountTable({
                   {/* Actions */}
                   <td className="py-3.5 px-4 text-right whitespace-nowrap">
                     <div className="flex items-center justify-end gap-1">
+                      {onManageRegistration && (
+                        <button
+                          type="button"
+                          onClick={() => onManageRegistration(acc)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 transition-colors"
+                          title="Manage manual registration workflow"
+                          aria-label={`Manage registration for ${acc.display_name}`}
+                        >
+                          <UserCheck className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       {onManageSecrets && (
                         <button
                           type="button"

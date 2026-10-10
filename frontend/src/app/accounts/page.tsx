@@ -20,6 +20,7 @@ import { AccountEditModal } from "@/components/accounts/AccountEditModal";
 import { AccountDeleteDialog } from "@/components/accounts/AccountDeleteDialog";
 import { AccountAssignModal } from "@/components/accounts/AccountAssignModal";
 import { AccountSecretsModal } from "@/components/accounts/AccountSecretsModal";
+import { AccountRegistrationModal } from "@/components/accounts/AccountRegistrationModal";
 import {
   Users,
   CheckCircle2,
@@ -58,6 +59,8 @@ export default function AccountsPage() {
   const [assigningAccount, setAssigningAccount] = useState<Account | null>(null);
   const [deletingAccount, setDeletingAccount] = useState<Account | null>(null);
   const [managingSecretsAccount, setManagingSecretsAccount] =
+    useState<Account | null>(null);
+  const [registeringAccount, setRegisteringAccount] =
     useState<Account | null>(null);
 
   // Banner notifications
@@ -487,6 +490,7 @@ export default function AccountsPage() {
           onDeleteAccount={(acc) => setDeletingAccount(acc)}
           onAssignRuntime={(acc) => setAssigningAccount(acc)}
           onManageSecrets={(acc) => setManagingSecretsAccount(acc)}
+          onManageRegistration={(acc) => setRegisteringAccount(acc)}
         />
 
         {/* Pagination UI */}
@@ -545,6 +549,24 @@ export default function AccountsPage() {
         isOpen={managingSecretsAccount !== null}
         onClose={() => setManagingSecretsAccount(null)}
         onAccountUpdated={handleRefresh}
+      />
+
+      {/* Operator Manual Registration Modal */}
+      <AccountRegistrationModal
+        account={registeringAccount}
+        runtimesMap={runtimesMap}
+        devicesMap={devicesMap}
+        isOpen={registeringAccount !== null}
+        onClose={() => setRegisteringAccount(null)}
+        onAccountUpdated={handleRefresh}
+        onOpenAssignRuntime={(acc) => {
+          setRegisteringAccount(null);
+          setAssigningAccount(acc);
+        }}
+        onOpenSecrets={(acc) => {
+          setRegisteringAccount(null);
+          setManagingSecretsAccount(acc);
+        }}
       />
     </div>
   );

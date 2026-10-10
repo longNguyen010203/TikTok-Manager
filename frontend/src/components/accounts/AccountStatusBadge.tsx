@@ -87,41 +87,145 @@ export function AccountStatusBadge({ status }: AccountStatusBadgeProps) {
   }
 }
 
-export function RegistrationStateBadge({ state }: { state: RegistrationState }) {
+export function RegistrationStateBadge({
+  state,
+  compact = false,
+}: {
+  state: RegistrationState;
+  compact?: boolean;
+}) {
   switch (state) {
     case "registered":
       return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+          <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
           <span>Registered</span>
         </span>
       );
     case "pending":
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
-          <Clock className="w-3 h-3 text-amber-600" />
-          <span>Reg Pending</span>
+          <Clock className="w-3 h-3 text-amber-600 shrink-0" />
+          <span>{compact ? "Pending" : "Pending registration"}</span>
         </span>
       );
     case "failed":
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-rose-50 text-rose-700 border border-rose-200">
-          <AlertCircle className="w-3 h-3 text-rose-600" />
-          <span>Reg Failed</span>
+          <AlertCircle className="w-3 h-3 text-rose-600 shrink-0" />
+          <span>{compact ? "Failed" : "Registration failed"}</span>
         </span>
       );
     case "unknown":
     default:
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-500 border border-slate-200">
-          <HelpCircle className="w-3 h-3 text-slate-400" />
+          <HelpCircle className="w-3 h-3 text-slate-400 shrink-0" />
           <span>Unknown</span>
         </span>
       );
   }
 }
 
-export function AccountHealthBadge({ status }: { status: AccountHealthStatus }) {
+export function RegistrationReadyBadge({
+  ready,
+  reasons = [],
+}: {
+  ready?: boolean;
+  reasons?: string[];
+}) {
+  if (ready) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"
+        title="Ready for automation"
+      >
+        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+        <span>Ready</span>
+      </span>
+    );
+  }
+
+  const tooltip =
+    reasons.length > 0
+      ? `Not ready: ${reasons.join(", ")}`
+      : "Not ready for automation";
+
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200"
+      title={tooltip}
+    >
+      <Clock className="w-3 h-3 text-slate-400" />
+      <span>Not ready</span>
+    </span>
+  );
+}
+
+export function AccountHealthSubtle({ status }: { status: AccountHealthStatus }) {
+  const dotColor =
+    {
+      healthy: "bg-emerald-500",
+      warning: "bg-amber-500",
+      unhealthy: "bg-rose-500",
+      unknown: "bg-slate-400",
+    }[status] || "bg-slate-400";
+
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 font-medium">
+      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotColor}`} />
+      <span className="capitalize">{status}</span>
+    </span>
+  );
+}
+
+export function AccountHealthBadge({
+  status,
+  variant = "badge",
+}: {
+  status: AccountHealthStatus;
+  variant?: "badge" | "subtle" | "compact";
+}) {
+  if (variant === "subtle") {
+    return <AccountHealthSubtle status={status} />;
+  }
+
+  if (variant === "compact") {
+    const dotColor =
+      {
+        healthy: "bg-emerald-500",
+        warning: "bg-amber-500",
+        unhealthy: "bg-rose-500",
+        unknown: "bg-slate-400",
+      }[status] || "bg-slate-400";
+
+    const textColor =
+      {
+        healthy: "text-emerald-700",
+        warning: "text-amber-700",
+        unhealthy: "text-rose-700",
+        unknown: "text-slate-600",
+      }[status] || "text-slate-600";
+
+    const label =
+      {
+        healthy: "Healthy",
+        warning: "Warning",
+        unhealthy: "Unhealthy",
+        unknown: "Unknown",
+      }[status] || "Unknown";
+
+    return (
+      <span
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-slate-50 border border-slate-200/90 ${textColor}`}
+        title={`Health: ${label}`}
+      >
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotColor}`} />
+        <span>{label}</span>
+      </span>
+    );
+  }
+
   switch (status) {
     case "healthy":
       return (
