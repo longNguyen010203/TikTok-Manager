@@ -104,13 +104,15 @@ Each endpoint should define:
   "platform": "tiktok",
   "status": "active",
   "registration_state": "registered",
+  "registration_ready": true,
+  "registration_completed_at": "2026-10-10T10:00:00",
   "health_status": "healthy",
   "status_reason": null,
   "niche": "travel",
   "notes": "Optional notes",
   "tags": ["priority"],
-  "runtime_id": null,
-  "device_id": null,
+  "runtime_id": 12,
+  "device_id": 4,
   "follower_count": null,
   "following_count": null,
   "likes_count": null,
@@ -130,6 +132,9 @@ Each endpoint should define:
 Runtime and is never independently assigned. Metrics are nullable non-negative
 integers. Secret values are never returned: only presence and allowlisted types
 (`account_password`, `email_password`, `recovery_credential`) are exposed.
+`registration_ready` is derived by the backend and is true only for a
+non-archived, `active`, `registered` Account whose assigned Runtime still
+exists. It does not require any secret type or a currently running Runtime.
 
 ## List accounts
 
@@ -190,7 +195,7 @@ Error cases:
   "niche": "travel",
   "tags": ["priority"],
   "notes": null,
-  "runtime_id": null
+  "runtime_id": 12
 }
 ```
 
@@ -262,6 +267,68 @@ with safe type/identifier metadata. Resume will trigger a new observation; it
 will not replay the previous UI mutation. Account secrets remain accessible
 only to the exact internal typed execution boundary and never appear in the
 Workflow API, events, steps, Jobs, or JobLogs.
+
+## Manual Account registration
+
+These typed MVP endpoints are independent of the deferred automated
+`account_registration:v1` Workflow architecture.
+
+### Complete manual registration
+
+- Method: `POST`
+- Path: `/accounts/{id}/registration/complete`
+- Request body:
+
+```json
+{
+  "username": "optional_discovered_handle",
+  "display_name": "Optional discovered name",
+  "notes": "Optional operator note"
+}
+```
+
+All fields are optional; omitted fields are unchanged. A supplied username is
+trimmed, lowercased, and stripped of one leading `@`. The operation requires a
+visible, non-archived Account and an existing assigned Runtime. It sets
+`registration_state=registered`, clears `status_reason`, records
+`registration_completed_at`, and returns the safe Account object.
+
+Passwords, secret values, OTPs, CAPTCHA data, selectors, coordinates, and
+arbitrary automation data are rejected. Secrets continue to use only the
+AccountSecret endpoints.
+
+Error cases:
+
+- `404 Not Found` for a missing/archived Account.
+- `409 Conflict` when no Runtime is assigned or its referenced row is missing.
+- `422 Unprocessable Entity` for invalid or extra fields.
+
+### Record manual registration failure
+
+- Method: `POST`
+- Path: `/accounts/{id}/registration/fail`
+- Request body: `{"reason": "bounded operator-safe note"}`
+- Success: `200 OK` with the safe Account object.
+
+This sets `registration_state=failed`, copies the bounded reason to
+`status_reason`, clears `registration_completed_at`, and does not alter secrets
+or Runtime assignment.
+
+### Reopen manual registration
+
+- Method: `POST`
+- Path: `/accounts/{id}/registration/reopen`
+- Request body: none.
+- Success: `200 OK` with the safe Account object.
+
+Only `registered` or `failed` registration can be reopened. The operation sets
+the state to `pending` and clears the prior reason and completion timestamp;
+other source states return `409 Conflict`.
+
+For backward compatibility, create/PATCH still accept `registration_state`.
+Any legacy write to `registered` now enforces the same archive and Runtime
+invariants as the typed completion operation. New clients should use the typed
+operations.
 
 ## Delete/archive account
 

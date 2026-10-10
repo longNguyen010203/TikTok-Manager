@@ -159,7 +159,7 @@ def test_registry_fields_search_filters_metrics_and_tags(api_client: TestClient)
 
     updated = api_client.patch(
         f"/accounts/{body['id']}",
-        json={"display_name": "Updated Creator", "registration_state": "registered"},
+        json={"display_name": "Updated Creator"},
     )
     assert updated.status_code == 200
     assert updated.json()["name"] == updated.json()["display_name"] == "Updated Creator"

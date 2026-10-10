@@ -301,3 +301,186 @@ def test_delete_runtime_preserves_and_unassigns_account(
     account_response = runtime_api.get(f"/accounts/{account['id']}")
     assert account_response.status_code == 200
     assert account_response.json()["runtime_id"] is None
+
+
+def test_manual_registration_pending_to_registered_is_ready(
+    runtime_api: TestClient,
+) -> None:
+    device = create_device(runtime_api)
+    runtime = create_runtime(runtime_api, device["id"])
+    account = runtime_api.post(
+        "/accounts",
+        json=account_payload()
+        | {"runtime_id": runtime["id"], "registration_state": "pending"},
+    ).json()
+
+    response = runtime_api.post(
+        f"/accounts/{account['id']}/registration/complete",
+        json={
+            "username": " @DiscoveredHandle ",
+            "display_name": "Discovered Name",
+            "notes": "Completed by operator",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["registration_state"] == "registered"
+    assert body["registration_ready"] is True
+    assert body["registration_completed_at"] is not None
+    assert body["username"] == "discoveredhandle"
+    assert body["display_name"] == body["name"] == "Discovered Name"
+    assert body["notes"] == "Completed by operator"
+    assert body["runtime_id"] == runtime["id"]
+    assert body["device_id"] == device["id"]
+    assert body["status_reason"] is None
+
+    detail = runtime_api.get(f"/accounts/{account['id']}").json()
+    assert detail["registration_ready"] is True
+    assert detail["registration_completed_at"] == body["registration_completed_at"]
+
+
+def test_manual_registration_requires_existing_runtime_assignment(
+    runtime_api: TestClient,
+) -> None:
+    account = runtime_api.post(
+        "/accounts",
+        json=account_payload() | {"registration_state": "pending"},
+    ).json()
+
+    response = runtime_api.post(
+        f"/accounts/{account['id']}/registration/complete", json={}
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Runtime assignment is required"}
+
+
+def test_archived_account_cannot_complete_registration(
+    runtime_api: TestClient,
+) -> None:
+    device = create_device(runtime_api)
+    runtime = create_runtime(runtime_api, device["id"])
+    account = runtime_api.post(
+        "/accounts",
+        json=account_payload()
+        | {"runtime_id": runtime["id"], "registration_state": "pending"},
+    ).json()
+    assert runtime_api.delete(f"/accounts/{account['id']}").status_code == 204
+
+    response = runtime_api.post(
+        f"/accounts/{account['id']}/registration/complete", json={}
+    )
+
+    # Archived rows remain hidden by the established Account API boundary.
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Account not found"}
+
+
+def test_manual_registration_failure_can_be_reopened(
+    runtime_api: TestClient,
+) -> None:
+    account = runtime_api.post(
+        "/accounts",
+        json=account_payload() | {"registration_state": "pending"},
+    ).json()
+
+    failed = runtime_api.post(
+        f"/accounts/{account['id']}/registration/fail",
+        json={"reason": "Operator could not finish verification"},
+    )
+
+    assert failed.status_code == 200
+    assert failed.json()["registration_state"] == "failed"
+    assert failed.json()["registration_ready"] is False
+    assert failed.json()["status_reason"] == "Operator could not finish verification"
+    assert failed.json()["registration_completed_at"] is None
+
+    reopened = runtime_api.post(
+        f"/accounts/{account['id']}/registration/reopen"
+    )
+    assert reopened.status_code == 200
+    assert reopened.json()["registration_state"] == "pending"
+    assert reopened.json()["registration_ready"] is False
+    assert reopened.json()["status_reason"] is None
+
+
+def test_registration_ready_tracks_runtime_and_account_lifecycle(
+    runtime_api: TestClient,
+) -> None:
+    device = create_device(runtime_api)
+    runtime = create_runtime(runtime_api, device["id"])
+    account = runtime_api.post(
+        "/accounts",
+        json=account_payload()
+        | {"runtime_id": runtime["id"], "registration_state": "pending"},
+    ).json()
+    completed = runtime_api.post(
+        f"/accounts/{account['id']}/registration/complete", json={}
+    ).json()
+    assert completed["registration_ready"] is True
+
+    inactive = runtime_api.patch(
+        f"/accounts/{account['id']}", json={"status": "inactive"}
+    )
+    assert inactive.status_code == 200
+    assert inactive.json()["registration_state"] == "registered"
+    assert inactive.json()["registration_ready"] is False
+
+    restored = runtime_api.patch(
+        f"/accounts/{account['id']}", json={"status": "active"}
+    )
+    assert restored.json()["registration_ready"] is True
+
+    assert runtime_api.delete(f"/runtimes/{runtime['id']}").status_code == 204
+    unassigned = runtime_api.get(f"/accounts/{account['id']}").json()
+    assert unassigned["registration_state"] == "registered"
+    assert unassigned["registration_ready"] is False
+    assert unassigned["runtime_id"] is None
+
+
+def test_registration_endpoints_reject_secret_and_automation_data_without_leak(
+    runtime_api: TestClient,
+) -> None:
+    account = runtime_api.post("/accounts", json=account_payload()).json()
+    plaintext = "must-never-appear-in-registration-response"
+
+    response = runtime_api.post(
+        f"/accounts/{account['id']}/registration/complete",
+        json={"password": plaintext, "otp": "123456", "captcha": "answer"},
+    )
+
+    assert response.status_code == 422
+    assert plaintext not in response.text
+
+
+def test_legacy_registration_patch_cannot_bypass_runtime_requirement(
+    runtime_api: TestClient,
+) -> None:
+    account = runtime_api.post("/accounts", json=account_payload()).json()
+
+    response = runtime_api.patch(
+        f"/accounts/{account['id']}", json={"registration_state": "registered"}
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Runtime assignment is required"}
+
+
+def test_legacy_registration_patch_remains_compatible_with_valid_runtime(
+    runtime_api: TestClient,
+) -> None:
+    device = create_device(runtime_api)
+    runtime = create_runtime(runtime_api, device["id"])
+    account = runtime_api.post(
+        "/accounts", json=account_payload() | {"runtime_id": runtime["id"]}
+    ).json()
+
+    response = runtime_api.patch(
+        f"/accounts/{account['id']}", json={"registration_state": "registered"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["registration_state"] == "registered"
+    assert response.json()["registration_ready"] is True
+    assert response.json()["registration_completed_at"] is not None

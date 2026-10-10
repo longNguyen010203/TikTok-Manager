@@ -986,7 +986,7 @@ Out of scope:
 
 ## TIK-025B — Manual Account Registration Support
 
-Status: IN PROGRESS
+Status: DONE
 
 Goal:
 Support operator-managed TikTok registration using the existing Account,
@@ -1017,4 +1017,19 @@ Out of scope:
 - OTP automation
 - CAPTCHA automation
 - identity verification automation
+<<<<<<< HEAD
 - automated email verification  
+=======
+- automated email verification
+
+Phase 1 backend completion:
+- Reuses `unknown`, `pending`, `registered`, and `failed`; no duplicate
+  attention state was added.
+- Adds typed complete/fail/reopen endpoints with safe bounded metadata only.
+- Exposes backend-derived `registration_ready` from registration, lifecycle,
+  archival, and existing Runtime assignment state; secrets are not required.
+- Adds nullable `registration_completed_at` through SQLite-compatible migration
+  `20261010_0048`; existing Account IDs and bindings are preserved.
+- Keeps the TIK-026 registration state machine/calibration implementation
+  intact and deferred.
+>>>>>>> codex/backend

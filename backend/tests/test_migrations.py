@@ -15,7 +15,7 @@ PRE_JOB_LOG_REVISION = "20260918_0003"
 PRE_REDROID_CONFIG_REVISION = "20260918_0004"
 PRE_UNIQUE_CONFIG_REVISION = "20261001_0005"
 PRE_PROVISIONING_REVISION = "20261001_0006"
-LATEST_REVISION = "20261007_0047"
+LATEST_REVISION = "20261010_0048"
 
 
 def test_upgrade_head_creates_accounts_table(
@@ -86,6 +86,7 @@ def test_upgrade_head_creates_accounts_table(
             "display_name", "email", "phone", "registration_state", "health_status",
             "status_reason", "niche", "archived_at", "follower_count",
             "following_count", "likes_count", "video_count", "metrics_updated_at",
+            "registration_completed_at",
         }.issubset(account_columns)
         runtime_app_uniques = {
             tuple(constraint["column_names"])
@@ -471,7 +472,7 @@ def test_upgrade_preserves_existing_accounts(
         with test_engine.connect() as connection:
             row = connection.execute(
                 text(
-                    "SELECT name, display_name, username, registration_state, health_status, runtime_id FROM accounts "
+                    "SELECT name, display_name, username, registration_state, health_status, runtime_id, registration_completed_at FROM accounts "
                     "WHERE username = 'existing'"
                 )
             ).one()
@@ -484,6 +485,7 @@ def test_upgrade_preserves_existing_accounts(
         assert row.registration_state == "unknown"
         assert row.health_status == "unknown"
         assert row.runtime_id is None
+        assert row.registration_completed_at is None
         assert current_revision == LATEST_REVISION
     finally:
         test_engine.dispose()

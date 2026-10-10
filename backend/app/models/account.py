@@ -59,6 +59,9 @@ class Account(Base):
         String(30), default="unknown", nullable=False
     )
     status_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    registration_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     niche: Mapped[str | None] = mapped_column(String(100), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     runtime_id: Mapped[int | None] = mapped_column(

@@ -82,6 +82,8 @@ Fields:
 - platform: required compatibility field (new API writes default to `tiktok`)
 - status: server-validated lifecycle status
 - registration_state: `unknown`, `pending`, `registered`, or `failed`
+- registration_completed_at: nullable UTC timestamp of the latest successful
+  manual completion; cleared when registration fails or is reopened
 - health_status: `unknown`, `healthy`, `warning`, or `unhealthy`
 - status_reason, niche: nullable bounded business metadata
 - notes: nullable text
@@ -105,6 +107,9 @@ Migration `20261007_0035` extends the existing canonical table rather than
 creating a parallel registry. It makes handles nullable, backfills
 `display_name = name`, defaults existing registration state to `unknown`, and
 preserves all Account IDs and Runtime/Job/Workflow/Publishing references.
+Migration `20261010_0048` adds nullable `registration_completed_at` without
+backfilling or changing existing registration state. `registration_ready` is
+derived at serialization time and therefore is not a database column.
 
 ## Device
 
