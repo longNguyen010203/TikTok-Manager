@@ -14,10 +14,11 @@ from app.services.tiktok_errors import TikTokActionError, tiktok_error
 from app.services.tiktok_action_service import normalize_caption
 from app.services.tiktok_jobs import (
     TikTokJobValidationError, create_select_media_job, create_prepare_publish_job,
+    create_set_registration_email_job, create_continue_registration_email_job,
     get_tiktok_job_definition, validate_tiktok_job_payload,
 )
 from app.services.tiktok_screen_resolver import TikTokScreen, TikTokScreenResolver, TikTokSelectorResolver
-from app.services.tiktok_ui_profiles import ScreenDefinition, StructuralConstraint, TikTokElementSelector, TikTokUiProfileDefinition, TikTokUiProfileRegistry, TRILL_44_4_3_HOME_V2, TRILL_44_4_3_TESTING
+from app.services.tiktok_ui_profiles import ScreenDefinition, StructuralConstraint, TikTokElementSelector, TikTokUiProfileDefinition, TikTokUiProfileRegistry, TRILL_44_4_3_HOME_V2, TRILL_44_4_3_INTERESTS_V13, TRILL_44_4_3_TERMS_V12, TRILL_44_4_3_TESTING
 
 
 def node(*, resource="", text="", desc="", klass="android.view.View", bounds="[0,0][100,100]", password="false", clickable="true", children="") -> str:
@@ -70,6 +71,194 @@ def test_open_caption_payload_is_ids_only_and_never_post_dispatch_retryable() ->
     assert definition is not None
     assert definition.allows_post_dispatch_retry is False
     assert definition.retryable_codes == frozenset()
+
+
+def test_skip_interests_payload_is_ids_only_and_never_post_dispatch_retryable() -> None:
+    payload = validate_tiktok_job_payload("tiktok.skip_interests", {
+        "runtime_id": 18, "managed_app_id": 1, "ui_profile_id": 14,
+    })
+    for unsafe in ("selector", "x", "y", "interest", "next", "adb"):
+        with pytest.raises(TikTokJobValidationError):
+            validate_tiktok_job_payload(
+                "tiktok.skip_interests", {**payload, unsafe: "caller-controlled"}
+            )
+    definition = get_tiktok_job_definition("tiktok.skip_interests")
+    assert definition is not None
+    assert definition.allows_post_dispatch_retry is False
+    assert definition.retryable_codes == frozenset()
+
+
+def test_open_profile_payload_is_ids_only_and_never_post_dispatch_retryable() -> None:
+    payload = validate_tiktok_job_payload("tiktok.open_profile", {
+        "runtime_id": 18, "managed_app_id": 1, "ui_profile_id": 15,
+    })
+    for unsafe in ("selector", "x", "y", "package", "profile", "adb"):
+        with pytest.raises(TikTokJobValidationError):
+            validate_tiktok_job_payload(
+                "tiktok.open_profile", {**payload, unsafe: "caller-controlled"}
+            )
+    definition = get_tiktok_job_definition("tiktok.open_profile")
+    assert definition is not None
+    assert definition.allows_post_dispatch_retry is False
+    assert definition.retryable_codes == frozenset()
+
+
+def test_open_profile_job_is_single_attempt(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import tiktok_jobs
+
+    captured = {}
+
+    def fake_create(session, **kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(tiktok_jobs, "_create_tiktok_job", fake_create)
+    tiktok_jobs.create_open_profile_job(
+        object(), runtime_id=17, managed_app_id=1,
+    )
+    assert captured["job_type"] == "tiktok.open_profile"
+    assert captured["runtime_id"] == 17
+    assert captured["managed_app_id"] == 1
+    assert captured["max_attempts"] == 1
+
+
+def test_choose_email_signup_is_ids_only_and_single_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import tiktok_jobs
+
+    payload = validate_tiktok_job_payload("tiktok.choose_email_signup", {
+        "runtime_id": 18, "managed_app_id": 1, "ui_profile_id": 18,
+    })
+    for unsafe in (
+        "selector", "x", "y", "email", "phone", "password", "login", "adb",
+    ):
+        with pytest.raises(TikTokJobValidationError):
+            validate_tiktok_job_payload(
+                "tiktok.choose_email_signup",
+                {**payload, unsafe: "caller-controlled"},
+            )
+    definition = get_tiktok_job_definition("tiktok.choose_email_signup")
+    assert definition is not None
+    assert definition.allows_post_dispatch_retry is False
+
+    captured = {}
+    monkeypatch.setattr(
+        tiktok_jobs, "_create_tiktok_job",
+        lambda session, **kwargs: captured.update(kwargs) or object(),
+    )
+    tiktok_jobs.create_choose_email_signup_job(
+        object(), runtime_id=18, managed_app_id=1,
+    )
+    assert captured == {
+        "job_type": "tiktok.choose_email_signup",
+        "runtime_id": 18,
+        "managed_app_id": 1,
+        "max_attempts": 1,
+    }
+
+
+def test_registration_email_job_contains_ids_only_and_is_account_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    email = "phase2e-secret-marker@example.com"
+    payload = validate_tiktok_job_payload("tiktok.set_registration_email", {
+        "runtime_id": 18, "managed_app_id": 1, "ui_profile_id": 21,
+        "account_id": 77,
+    })
+    assert email not in repr(payload)
+    for unsafe in (
+        "email", "text", "selector", "x", "y", "keyevent", "adb",
+    ):
+        with pytest.raises(TikTokJobValidationError):
+            validate_tiktok_job_payload(
+                "tiktok.set_registration_email",
+                {**payload, unsafe: email},
+            )
+    definition = get_tiktok_job_definition("tiktok.set_registration_email")
+    assert definition is not None
+    assert definition.allows_post_dispatch_retry is False
+
+    captured = {}
+    monkeypatch.setattr(
+        "app.services.tiktok_jobs._create_tiktok_job",
+        lambda session, **kwargs: captured.update(kwargs) or object(),
+    )
+
+    class AccountSession:
+        @staticmethod
+        def get(model, account_id):
+            return SimpleNamespace(
+                id=account_id, runtime_id=18, email=f"  {email.upper()}  ",
+            )
+
+    create_set_registration_email_job(
+        AccountSession(), runtime_id=18, managed_app_id=1, account_id=77,
+    )
+    assert captured == {
+        "job_type": "tiktok.set_registration_email",
+        "runtime_id": 18,
+        "managed_app_id": 1,
+        "account_id": 77,
+        "extra_payload": {"account_id": 77},
+        "max_attempts": 1,
+    }
+    assert email not in repr(captured)
+
+    payload = validate_tiktok_job_payload(
+        "tiktok.continue_registration_email",
+        {
+            "runtime_id": 18, "managed_app_id": 1,
+            "ui_profile_id": 22, "account_id": 77,
+        },
+    )
+    for unsafe in ("email", "password", "secret", "selector", "x", "y"):
+        with pytest.raises(TikTokJobValidationError):
+            validate_tiktok_job_payload(
+                "tiktok.continue_registration_email",
+                {**payload, unsafe: email},
+            )
+    definition = get_tiktok_job_definition(
+        "tiktok.continue_registration_email"
+    )
+    assert definition is not None
+    assert definition.allows_post_dispatch_retry is False
+
+    captured.clear()
+    create_continue_registration_email_job(
+        AccountSession(), runtime_id=18, managed_app_id=1, account_id=77,
+    )
+    assert captured == {
+        "job_type": "tiktok.continue_registration_email",
+        "runtime_id": 18,
+        "managed_app_id": 1,
+        "account_id": 77,
+        "extra_payload": {"account_id": 77},
+        "max_attempts": 1,
+    }
+    assert email not in repr(captured)
+
+
+@pytest.mark.parametrize(
+    ("account", "code"),
+    [
+        (SimpleNamespace(id=77, runtime_id=18, email=None), "TIKTOK_ACCOUNT_EMAIL_REQUIRED"),
+        (SimpleNamespace(id=77, runtime_id=19, email="safe@example.com"), "TIKTOK_ACCOUNT_RUNTIME_MISMATCH"),
+    ],
+)
+def test_registration_email_job_rejects_missing_email_or_wrong_runtime(
+    account, code: str,
+) -> None:
+    class AccountSession:
+        @staticmethod
+        def get(model, account_id):
+            return account
+
+    with pytest.raises(TikTokActionError) as caught:
+        create_set_registration_email_job(
+            AccountSession(), runtime_id=18, managed_app_id=1, account_id=77,
+        )
+    assert caught.value.code == code
 
 
 def test_set_caption_payload_is_typed_and_never_post_dispatch_retryable() -> None:
@@ -384,6 +573,201 @@ def test_sanitized_runtime17_home_fixture_classifies_and_create_is_unique() -> N
     assert resolved.method == "resource_id"
     assert resolved.bounds.center == (360, 1142)
     assert resolved.actionable is True
+
+
+def runtime18_terms_hierarchy(*, duplicate_agree: bool = False, include_title: bool = True):
+    agree = node(
+        resource="com.ss.android.ugc.trill:id/eac",
+        text="Agree and continue",
+        klass="android.widget.Button",
+        bounds="[32,1064][688,1160]",
+    )
+    content = node(
+        resource="com.ss.android.ugc.trill:id/wjh",
+        klass="android.view.ViewGroup",
+        clickable="false",
+        bounds="[40,48][680,1064]",
+        children="".join((
+            node(
+                resource="com.ss.android.ugc.trill:id/x37",
+                text="TikTok's Terms and Policies",
+                klass="android.widget.TextView",
+                clickable="false",
+                bounds="[40,136][680,192]",
+            ) if include_title else "",
+            node(
+                resource="com.ss.android.ugc.trill:id/eal",
+                text="Terms summary",
+                klass="android.widget.TextView",
+                clickable="false",
+                bounds="[40,232][680,376]",
+            ),
+            node(
+                resource="com.ss.android.ugc.trill:id/jet",
+                desc="center_icon",
+                klass="android.widget.ImageView",
+                clickable="false",
+                bounds="[66,416][654,658]",
+            ),
+        )),
+    )
+    return hierarchy(node(
+        resource="com.ss.android.ugc.trill:id/hyp",
+        klass="android.widget.FrameLayout",
+        clickable="false",
+        bounds="[0,0][720,1184]",
+        children=node(
+            klass="android.view.ViewGroup",
+            clickable="false",
+            bounds="[0,48][720,1184]",
+            children=content + agree + (agree if duplicate_agree else ""),
+        ),
+    ))
+
+
+def test_runtime18_terms_gate_classifies_from_multiple_observed_signals() -> None:
+    parsed = runtime18_terms_hierarchy()
+    assert TRILL_44_4_3_TERMS_V12.fingerprint == (
+        "6e27df0a7215a5a271b35baa0743bae0ccf577df74eb0baea99f4909dc09f6ea"
+    )
+    assert TikTokScreenResolver().classify(
+        parsed, TRILL_44_4_3_TERMS_V12, "com.ss.android.ugc.trill"
+    ) == TikTokScreen.TERMS_CONSENT
+
+    selector = next(
+        item for item in TRILL_44_4_3_TERMS_V12.selectors
+        if item.key == "terms_agree_control"
+    )
+    resolved = TikTokSelectorResolver().resolve(parsed, selector)
+    assert resolved.method == "resource_id"
+    assert resolved.bounds.center == (360, 1112)
+    assert resolved.actionable is False
+
+
+def test_runtime18_terms_gate_missing_core_signal_is_unknown_and_action_is_strict() -> None:
+    assert TikTokScreenResolver().classify(
+        runtime18_terms_hierarchy(include_title=False),
+        TRILL_44_4_3_TERMS_V12,
+        "com.ss.android.ugc.trill",
+    ) == TikTokScreen.UNKNOWN
+    selector = next(
+        item for item in TRILL_44_4_3_TERMS_V12.selectors
+        if item.key == "terms_agree_control"
+    )
+    with pytest.raises(TikTokActionError) as caught:
+        TikTokSelectorResolver().resolve(
+            runtime18_terms_hierarchy(duplicate_agree=True), selector
+        )
+    assert caught.value.code == "TIKTOK_ELEMENT_AMBIGUOUS"
+
+
+def runtime18_interests_hierarchy(
+    *, duplicate_skip: bool = False, include_title: bool = True,
+):
+    tile = node(
+        resource="com.ss.android.ugc.trill:id/kat",
+        klass="android.view.ViewGroup",
+        bounds="[64,448][352,655]",
+        children=node(
+            resource="com.ss.android.ugc.trill:id/kb2",
+            text="Entertainment Culture",
+            klass="android.widget.TextView",
+            clickable="false",
+            bounds="[80,563][336,639]",
+        ),
+    )
+    grid = node(
+        resource="com.ss.android.ugc.trill:id/sx0",
+        klass="android.widget.GridView",
+        clickable="false",
+        bounds="[56,48][664,1048]",
+        children="".join((
+            node(
+                resource="com.ss.android.ugc.trill:id/iz1",
+                text="Choose your interests",
+                klass="android.widget.TextView",
+                clickable="false",
+                bounds="[64,188][656,332]",
+            ) if include_title else "",
+            node(
+                resource="com.ss.android.ugc.trill:id/tk2",
+                text="Get better video recommendations",
+                klass="android.widget.TextView",
+                clickable="false",
+                bounds="[64,348][656,384]",
+            ),
+            tile,
+        )),
+    )
+    skip = node(
+        resource="com.ss.android.ugc.trill:id/chn",
+        text="Skip",
+        klass="android.widget.Button",
+        bounds="[64,1072][352,1160]",
+    )
+    actions = node(
+        resource="com.ss.android.ugc.trill:id/bzw",
+        klass="android.view.ViewGroup",
+        clickable="false",
+        bounds="[64,1048][656,1184]",
+        children=skip + (skip if duplicate_skip else ""),
+    )
+    return hierarchy(node(
+        resource="com.ss.android.ugc.trill:id/ss8",
+        klass="android.view.ViewGroup",
+        clickable="false",
+        bounds="[0,48][720,1184]",
+        children="".join((
+            node(
+                resource="com.ss.android.ugc.trill:id/k2m",
+                klass="android.view.ViewGroup",
+                clickable="false",
+                bounds="[0,48][720,1048]",
+                children=grid,
+            ),
+            actions,
+        )),
+    ))
+
+
+def test_runtime18_interests_screen_classifies_without_overlapping_terms() -> None:
+    parsed = runtime18_interests_hierarchy()
+    assert TRILL_44_4_3_INTERESTS_V13.fingerprint == (
+        "43b3844ba178b0d7be7eee089542c92ca1626e88f2cd7c5be7b11aa743768f25"
+    )
+    assert TikTokScreenResolver().classify(
+        parsed, TRILL_44_4_3_INTERESTS_V13, "com.ss.android.ugc.trill"
+    ) == TikTokScreen.ONBOARDING_INTERESTS
+    assert TikTokScreenResolver().classify(
+        runtime18_terms_hierarchy(), TRILL_44_4_3_INTERESTS_V13,
+        "com.ss.android.ugc.trill",
+    ) == TikTokScreen.TERMS_CONSENT
+
+    selector = next(
+        item for item in TRILL_44_4_3_INTERESTS_V13.selectors
+        if item.key == "interests_skip_control"
+    )
+    resolved = TikTokSelectorResolver().resolve(parsed, selector)
+    assert resolved.method == "resource_id"
+    assert resolved.bounds.center == (208, 1116)
+    assert resolved.actionable is False
+
+
+def test_runtime18_interests_missing_signal_is_unknown_and_skip_is_strict() -> None:
+    assert TikTokScreenResolver().classify(
+        runtime18_interests_hierarchy(include_title=False),
+        TRILL_44_4_3_INTERESTS_V13,
+        "com.ss.android.ugc.trill",
+    ) == TikTokScreen.UNKNOWN
+    selector = next(
+        item for item in TRILL_44_4_3_INTERESTS_V13.selectors
+        if item.key == "interests_skip_control"
+    )
+    with pytest.raises(TikTokActionError) as caught:
+        TikTokSelectorResolver().resolve(
+            runtime18_interests_hierarchy(duplicate_skip=True), selector
+        )
+    assert caught.value.code == "TIKTOK_ELEMENT_AMBIGUOUS"
 
 
 def test_runtime17_shop_home_variant_does_not_fall_through_to_ambiguous_class_match() -> None:

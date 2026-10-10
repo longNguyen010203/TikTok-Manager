@@ -195,6 +195,39 @@ Manager host lifecycle:
   uncalibrated rather than containing guessed selectors. Internal
   `tiktok.detect_screen` observes only and never launches or mutates the app.
   Initial Phase 3 calibration reached an unsupported login/signup activity.
+  TIK-026 fresh-install calibration later identified the preceding
+  `TERMS_CONSENT` gate from exact observed resource IDs in immutable testing
+  profile v12; its consent control remains non-actionable.
+  After operator acceptance, testing profile v13 recognizes the distinct
+  `ONBOARDING_INTERESTS` state. Testing profile v14 authorizes only its unique
+  Skip control for the one-attempt `tiktok.skip_interests` transition; interest
+  tiles and the disabled Next control remain non-actionable. Live Job 278
+  reached the already-calibrated HOME state without selecting an interest or
+  interacting with registration controls.
+  Testing profile v15 authorizes only the exact HOME Profile tab for the
+  one-attempt `tiktok.open_profile` transition. The name is retained for API
+  compatibility, but its semantic contract is "activate Profile tab": Runtime
+  17 reaches logged-in PROFILE, while a logged-out session reaches the
+  registration surface. Profile v16 distinguishes PROFILE from HOME using
+  observed profile roots, header, menu, and account containers. Profile v17
+  classifies Runtime 18's observed phone/email `SIGNUP_METHOD` surface and
+  makes either calibrated destination idempotent. Unknown destinations fail
+  closed. Profile v18 authorizes only the observed `Continue with Email`
+  semantic target for one-attempt `tiktok.choose_email_signup`; profile v20
+  classifies its resulting `EMAIL_ENTRY` state. The action is idempotent there
+  and never types or submits a credential. Profile v21 authorizes only the
+  structurally unique email EditText for `tiktok.set_registration_email`.
+  That one-attempt action resolves the canonical Account email at execution,
+  persists IDs plus safe length/hash metadata only, verifies exact field
+  equality, and never activates Continue. Phone, Login, Close, provider, and
+  account-switcher controls remain non-actionable.
+  Profile v22 authorizes only the observed enabled email Continue button for
+  `tiktok.continue_registration_email`. The action re-resolves the canonical
+  Account email at execution, requires exact field equality across two fresh
+  observations, and dispatches at most one tap. Runtime 18 then exposed the
+  profile-v23 `VERIFICATION_REQUIRED` checkpoint (`Check your email`, code
+  input, and Resend control). It is an operator boundary: automation neither
+  reads email credentials nor enters or resends a code.
   A later operator-prepared disposable Runtime exposed real HOME semantics, so
   testing profile v2 recognizes HOME from four required and four reinforcing
   observed signals. Profile v1 remains immutable for pinned Jobs; no

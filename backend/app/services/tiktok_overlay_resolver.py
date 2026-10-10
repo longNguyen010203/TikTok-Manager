@@ -55,6 +55,16 @@ class TikTokOverlayResolver:
         "com.android.permissioncontroller:id/permission_message",
         "com.google.android.permissioncontroller:id/permission_message",
     })
+    # Android's one-time immersive-mode education overlay was observed on the
+    # fresh TIK-026 Runtime before TikTok's own hierarchy became visible.  It
+    # is recognized only so state-driven actions stop safely; this service
+    # deliberately has no policy for activating its acknowledgement button.
+    _IMMERSIVE_CLING_REQUIRED_IDS = frozenset({
+        "android:id/immersive_cling_chevron",
+        "android:id/immersive_cling_title",
+        "android:id/immersive_cling_description",
+        "android:id/ok",
+    })
 
     def detect(
         self, foreground: AdbForegroundApp, hierarchy: UiHierarchy
@@ -74,6 +84,19 @@ class TikTokOverlayResolver:
             )
         if package in self._PERMISSION_PACKAGES:
             return OverlayObservation(TikTokOverlay.UNKNOWN_OVERLAY)
+        node_packages = {node.package for node in hierarchy.nodes if node.package}
+        if (
+            "android" in node_packages
+            and self._IMMERSIVE_CLING_REQUIRED_IDS.issubset(resource_ids)
+            and any(
+                node.resource_id == "android:id/ok"
+                and node.class_name == "android.widget.Button"
+                and node.enabled
+                and node.clickable
+                for node in hierarchy.nodes
+            )
+        ):
+            return OverlayObservation(TikTokOverlay.BLOCKING_MODAL)
         return OverlayObservation(TikTokOverlay.NONE)
 
     def _permission_kind(self, hierarchy: UiHierarchy) -> str | None:

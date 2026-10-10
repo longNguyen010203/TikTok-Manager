@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.config import load_application_config
 from app.models import (
-    ContentAssetVersion, ContentDelivery, Job, JobStatus, ManagedApp,
+    Account, ContentAssetVersion, ContentDelivery, Job, JobStatus, ManagedApp,
     RuntimeAppInstallation,
 )
 from app.models.timestamps import utc_now
@@ -20,9 +20,14 @@ from app.schemas.tiktok_action import (
     TikTokOpenCreateResult,
     TikTokOpenCaptionResult,
     TikTokOpenMediaPickerResult,
+    TikTokOpenProfileResult,
+    TikTokChooseEmailSignupResult,
+    TikTokSetRegistrationEmailResult,
+    TikTokContinueRegistrationEmailResult,
     TikTokSelectMediaResult,
     TikTokSetCaptionResult,
     TikTokSetPostOptionsResult,
+    TikTokSkipInterestsResult,
     TikTokPreparePublishResult,
 )
 from app.services.adb_executor import AdbExecutor, AdbExecutorError, AdbMediaRecord
@@ -42,6 +47,7 @@ from app.services.tiktok_action_service import (
 from app.services.tiktok_jobs import validate_tiktok_job_payload
 from app.services.tiktok_screen_resolver import TikTokScreenResolver
 from app.services.tiktok_ui_profiles import TikTokUiProfileRegistry
+from app.schemas.account import normalize_account_email
 
 
 class TikTokJobExecutionService:
@@ -57,6 +63,11 @@ class TikTokJobExecutionService:
             "tiktok.open_media_picker",
             "tiktok.select_media",
             "tiktok.open_caption",
+            "tiktok.skip_interests",
+            "tiktok.open_profile",
+            "tiktok.choose_email_signup",
+            "tiktok.set_registration_email",
+            "tiktok.continue_registration_email",
             "tiktok.set_caption",
             "tiktok.set_post_options",
             "tiktok.prepare_publish",
@@ -75,6 +86,22 @@ class TikTokJobExecutionService:
         if ((profile.min_version_code is not None and installation.observed_version_code < profile.min_version_code)
                 or (profile.max_version_code is not None and installation.observed_version_code > profile.max_version_code)):
             raise tiktok_error("TIKTOK_UI_PROFILE_MISMATCH")
+        registration_email: str | None = None
+        if job.job_type in {
+            "tiktok.set_registration_email",
+            "tiktok.continue_registration_email",
+        }:
+            account = self.session.get(Account, payload["account_id"])
+            if account is None or job.account_id != account.id:
+                raise tiktok_error("TIKTOK_ACCOUNT_NOT_FOUND")
+            if account.runtime_id != job.runtime_id:
+                raise tiktok_error("TIKTOK_ACCOUNT_RUNTIME_MISMATCH")
+            try:
+                registration_email = normalize_account_email(account.email)
+            except ValueError as error:
+                raise tiktok_error("TIKTOK_ACCOUNT_EMAIL_REQUIRED") from error
+            if registration_email is None:
+                raise tiktok_error("TIKTOK_ACCOUNT_EMAIL_REQUIRED")
         self._check_cancelled(job, claim_token, attempt)
         job.execution_started_at = job.execution_started_at or utc_now()
         job.execution_stage = "tiktok_action_started"
@@ -84,6 +111,11 @@ class TikTokJobExecutionService:
             "tiktok.open_media_picker": "open media picker",
             "tiktok.select_media": "select delivered media",
             "tiktok.open_caption": "open caption screen",
+            "tiktok.skip_interests": "skip interests onboarding",
+            "tiktok.open_profile": "activate Profile tab",
+            "tiktok.choose_email_signup": "choose email signup",
+            "tiktok.set_registration_email": "set registration email",
+            "tiktok.continue_registration_email": "continue registration email",
             "tiktok.set_caption": "set caption",
             "tiktok.set_post_options": "set post options",
             "tiktok.prepare_publish": "prepare publish verification",
@@ -102,6 +134,17 @@ class TikTokJobExecutionService:
                 "caption_length": len(caption),
                 "caption_sha256": caption_fingerprint(caption),
                 "expected_privacy": payload["expected_privacy"],
+            }
+        elif job.job_type in {
+            "tiktok.set_registration_email",
+            "tiktok.continue_registration_email",
+        }:
+            assert registration_email is not None
+            start_metadata = {
+                "account_id": payload["account_id"],
+                "email_present": True,
+                "email_length": len(registration_email),
+                "email_sha256": caption_fingerprint(registration_email),
             }
         append_job_log(self.session, job, level="info", event_type="tiktok_action_started", message=f"TikTok {action_label} started", metadata=start_metadata)
         append_job_log(self.session, job, level="info", event_type="ui_profile_selected", message="TikTok UI profile selected",
@@ -247,6 +290,134 @@ class TikTokJobExecutionService:
                         node_count=outcome.node_count,
                         hierarchy_fingerprint=outcome.hierarchy_fingerprint,
                     ).model_dump(mode="json")
+                elif job.job_type == "tiktok.skip_interests":
+                    action_service = TikTokActionService()
+                    outcome = action_service.skip_interests(
+                        action,
+                        definition,
+                        expected_package=app.android_package_name,
+                        cancelled=cancelled,
+                        on_tap_dispatched=record_tap_dispatched,
+                    )
+                    result = TikTokSkipInterestsResult(
+                        screen_before=outcome.screen_before.value,
+                        screen_after=outcome.screen_after.value,
+                        foreground_package=outcome.foreground_package,
+                        foreground_activity=outcome.foreground_activity,
+                        profile_id=profile.id,
+                        profile_version=profile.version,
+                        profile_fingerprint=profile.profile_fingerprint,
+                        selector_key=outcome.selector_key,
+                        resolution_method=outcome.resolution_method,
+                        changed=outcome.changed,
+                        tap_dispatched=outcome.tap_dispatched,
+                        calibration_required=outcome.calibration_required,
+                        node_count=outcome.node_count,
+                        hierarchy_fingerprint=outcome.hierarchy_fingerprint,
+                    ).model_dump(mode="json")
+                elif job.job_type == "tiktok.open_profile":
+                    action_service = TikTokActionService()
+                    outcome = action_service.open_profile(
+                        action,
+                        definition,
+                        expected_package=app.android_package_name,
+                        cancelled=cancelled,
+                        on_tap_dispatched=record_tap_dispatched,
+                    )
+                    result = TikTokOpenProfileResult(
+                        screen_before=outcome.screen_before.value,
+                        screen_after=outcome.screen_after.value,
+                        foreground_package=outcome.foreground_package,
+                        foreground_activity=outcome.foreground_activity,
+                        profile_id=profile.id,
+                        profile_version=profile.version,
+                        profile_fingerprint=profile.profile_fingerprint,
+                        selector_key=outcome.selector_key,
+                        resolution_method=outcome.resolution_method,
+                        changed=outcome.changed,
+                        tap_dispatched=outcome.tap_dispatched,
+                        calibration_required=outcome.calibration_required,
+                        node_count=outcome.node_count,
+                        hierarchy_fingerprint=outcome.hierarchy_fingerprint,
+                    ).model_dump(mode="json")
+                elif job.job_type == "tiktok.choose_email_signup":
+                    action_service = TikTokActionService()
+                    outcome = action_service.choose_email_signup(
+                        action,
+                        definition,
+                        expected_package=app.android_package_name,
+                        cancelled=cancelled,
+                        on_tap_dispatched=record_tap_dispatched,
+                    )
+                    result = TikTokChooseEmailSignupResult(
+                        screen_before=outcome.screen_before.value,
+                        screen_after=outcome.screen_after.value,
+                        foreground_package=outcome.foreground_package,
+                        foreground_activity=outcome.foreground_activity,
+                        profile_id=profile.id,
+                        profile_version=profile.version,
+                        profile_fingerprint=profile.profile_fingerprint,
+                        selector_key=outcome.selector_key,
+                        resolution_method=outcome.resolution_method,
+                        changed=outcome.changed,
+                        tap_dispatched=outcome.tap_dispatched,
+                        calibration_required=outcome.calibration_required,
+                        node_count=outcome.node_count,
+                        hierarchy_fingerprint=outcome.hierarchy_fingerprint,
+                    ).model_dump(mode="json")
+                elif job.job_type == "tiktok.set_registration_email":
+                    assert registration_email is not None
+                    action_service = TikTokActionService()
+                    outcome = action_service.set_registration_email(
+                        action,
+                        definition,
+                        expected_package=app.android_package_name,
+                        email=registration_email,
+                        cancelled=cancelled,
+                        on_focus_dispatched=record_tap_dispatched,
+                    )
+                    result = TikTokSetRegistrationEmailResult(
+                        account_id=payload["account_id"],
+                        screen_before=outcome.screen_before.value,
+                        screen_after=outcome.screen_after.value,
+                        foreground_package=outcome.foreground_package,
+                        profile_id=profile.id,
+                        profile_version=profile.version,
+                        profile_fingerprint=profile.profile_fingerprint,
+                        changed=outcome.changed,
+                        verification=outcome.verification,
+                        email_length=outcome.email_length,
+                        continue_enabled=outcome.continue_enabled,
+                        hierarchy_fingerprint=outcome.hierarchy_fingerprint,
+                    ).model_dump(mode="json")
+                elif job.job_type == "tiktok.continue_registration_email":
+                    assert registration_email is not None
+                    action_service = TikTokActionService()
+                    outcome = action_service.continue_registration_email(
+                        action,
+                        definition,
+                        expected_package=app.android_package_name,
+                        email=registration_email,
+                        cancelled=cancelled,
+                        on_tap_dispatched=record_tap_dispatched,
+                    )
+                    result = TikTokContinueRegistrationEmailResult(
+                        account_id=payload["account_id"],
+                        screen_before=outcome.screen_before.value,
+                        screen_after=outcome.screen_after.value,
+                        foreground_package=outcome.foreground_package,
+                        foreground_activity=outcome.foreground_activity,
+                        profile_id=profile.id,
+                        profile_version=profile.version,
+                        profile_fingerprint=profile.profile_fingerprint,
+                        selector_key=outcome.selector_key,
+                        resolution_method=outcome.resolution_method,
+                        changed=outcome.changed,
+                        tap_dispatched=outcome.tap_dispatched,
+                        calibration_required=outcome.calibration_required,
+                        node_count=outcome.node_count,
+                        hierarchy_fingerprint=outcome.hierarchy_fingerprint,
+                    ).model_dump(mode="json")
                 elif job.job_type == "tiktok.set_caption":
                     action_service = TikTokActionService()
                     outcome = action_service.set_caption(
@@ -332,6 +503,11 @@ class TikTokJobExecutionService:
                 "tiktok.open_create", "tiktok.open_media_picker"
                 , "tiktok.select_media"
                 , "tiktok.open_caption"
+                , "tiktok.skip_interests"
+                , "tiktok.open_profile"
+                , "tiktok.choose_email_signup"
+                , "tiktok.set_registration_email"
+                , "tiktok.continue_registration_email"
                 , "tiktok.set_caption"
                 , "tiktok.set_post_options"
             }:

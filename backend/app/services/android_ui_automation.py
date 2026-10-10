@@ -35,7 +35,7 @@ class TextEntryProvider:
 
 
 class AsciiTextEntryProvider(TextEntryProvider):
-    _SAFE = re.compile(r"^[A-Za-z0-9 .,!?@_+\-]{1,256}$")
+    _SAFE = re.compile(r"^[A-Za-z0-9 .,!?@_+\-]{1,320}$")
 
     def validate(self, value: str) -> None:
         if value and not self._SAFE.fullmatch(value):

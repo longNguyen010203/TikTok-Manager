@@ -13,7 +13,12 @@ from app.schemas.tiktok_action import (
     TikTokOpenCreateRequest,
     TikTokOpenCaptionRequest,
     TikTokOpenMediaPickerRequest,
+    TikTokOpenProfileRequest,
+    TikTokChooseEmailSignupRequest,
+    TikTokSetRegistrationEmailRequest,
+    TikTokContinueRegistrationEmailRequest,
     TikTokSelectMediaRequest,
+    TikTokSkipInterestsRequest,
     TikTokSetCaptionRequest,
     TikTokSetPostOptionsRequest,
     TikTokPreparePublishRequest,
@@ -24,7 +29,12 @@ from app.services.tiktok_jobs import (
     create_open_create_job,
     create_open_caption_job,
     create_open_media_picker_job,
+    create_open_profile_job,
+    create_choose_email_signup_job,
+    create_set_registration_email_job,
+    create_continue_registration_email_job,
     create_select_media_job,
+    create_skip_interests_job,
     create_set_caption_job,
     create_set_post_options_job,
     create_prepare_publish_job,
@@ -146,6 +156,142 @@ def open_caption(
     except TikTokActionError as error:
         session.rollback()
         code = 404 if error.code == "TIKTOK_UI_PROFILE_NOT_FOUND" else 409
+        raise HTTPException(status_code=code, detail={
+            "code": error.code,
+            "message": error.safe_message,
+            "retryable": error.retryable,
+        }) from error
+
+
+@router.post(
+    "/{runtime_id}/tiktok/skip-interests",
+    response_model=JobRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def skip_interests(
+    runtime_id: RuntimeId,
+    payload: TikTokSkipInterestsRequest,
+    session: DatabaseSession,
+) -> Job:
+    """Create a one-attempt, profile-owned onboarding Skip Job."""
+    try:
+        return create_skip_interests_job(
+            session, runtime_id=runtime_id,
+            managed_app_id=payload.managed_app_id,
+        )
+    except TikTokActionError as error:
+        session.rollback()
+        code = 404 if error.code == "TIKTOK_UI_PROFILE_NOT_FOUND" else 409
+        raise HTTPException(status_code=code, detail={
+            "code": error.code,
+            "message": error.safe_message,
+            "retryable": error.retryable,
+        }) from error
+
+
+@router.post(
+    "/{runtime_id}/tiktok/open-profile",
+    response_model=JobRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def open_profile(
+    runtime_id: RuntimeId,
+    payload: TikTokOpenProfileRequest,
+    session: DatabaseSession,
+) -> Job:
+    """Create a one-attempt Job that activates the state-dependent Profile tab."""
+    try:
+        return create_open_profile_job(
+            session, runtime_id=runtime_id,
+            managed_app_id=payload.managed_app_id,
+        )
+    except TikTokActionError as error:
+        session.rollback()
+        code = 404 if error.code == "TIKTOK_UI_PROFILE_NOT_FOUND" else 409
+        raise HTTPException(status_code=code, detail={
+            "code": error.code,
+            "message": error.safe_message,
+            "retryable": error.retryable,
+        }) from error
+
+
+@router.post(
+    "/{runtime_id}/tiktok/choose-email-signup",
+    response_model=JobRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def choose_email_signup(
+    runtime_id: RuntimeId,
+    payload: TikTokChooseEmailSignupRequest,
+    session: DatabaseSession,
+) -> Job:
+    """Create a one-attempt Job for the calibrated email signup method."""
+    try:
+        return create_choose_email_signup_job(
+            session, runtime_id=runtime_id,
+            managed_app_id=payload.managed_app_id,
+        )
+    except TikTokActionError as error:
+        session.rollback()
+        code = 404 if error.code == "TIKTOK_UI_PROFILE_NOT_FOUND" else 409
+        raise HTTPException(status_code=code, detail={
+            "code": error.code,
+            "message": error.safe_message,
+            "retryable": error.retryable,
+        }) from error
+
+
+@router.post(
+    "/{runtime_id}/tiktok/set-registration-email",
+    response_model=JobRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def set_registration_email(
+    runtime_id: RuntimeId,
+    payload: TikTokSetRegistrationEmailRequest,
+    session: DatabaseSession,
+) -> Job:
+    """Create a one-attempt Account-bound registration email Job."""
+    try:
+        return create_set_registration_email_job(
+            session, runtime_id=runtime_id,
+            managed_app_id=payload.managed_app_id,
+            account_id=payload.account_id,
+        )
+    except TikTokActionError as error:
+        session.rollback()
+        code = 404 if error.code in {
+            "TIKTOK_UI_PROFILE_NOT_FOUND", "TIKTOK_ACCOUNT_NOT_FOUND",
+        } else 409
+        raise HTTPException(status_code=code, detail={
+            "code": error.code,
+            "message": error.safe_message,
+            "retryable": error.retryable,
+        }) from error
+
+
+@router.post(
+    "/{runtime_id}/tiktok/continue-registration-email",
+    response_model=JobRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def continue_registration_email(
+    runtime_id: RuntimeId,
+    payload: TikTokContinueRegistrationEmailRequest,
+    session: DatabaseSession,
+) -> Job:
+    """Create a one-attempt Account-bound registration Continue Job."""
+    try:
+        return create_continue_registration_email_job(
+            session, runtime_id=runtime_id,
+            managed_app_id=payload.managed_app_id,
+            account_id=payload.account_id,
+        )
+    except TikTokActionError as error:
+        session.rollback()
+        code = 404 if error.code in {
+            "TIKTOK_UI_PROFILE_NOT_FOUND", "TIKTOK_ACCOUNT_NOT_FOUND",
+        } else 409
         raise HTTPException(status_code=code, detail={
             "code": error.code,
             "message": error.safe_message,

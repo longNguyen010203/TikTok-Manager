@@ -730,6 +730,585 @@ TRILL_44_4_3_PRIVACY_AUTOCLOSE_V11 = replace(
 )
 
 
+# Runtime 18 fresh-install calibration. The first TikTok-owned UI is a terms
+# consent gate, not a signup-method chooser. The consent control remains
+# observational/non-actionable until a separately approved mutation phase.
+_TERMS_CONSENT_SELECTORS = (
+    TikTokElementSelector(
+        key="terms_scene_root",
+        resource_ids=("com.ss.android.ugc.trill:id/hyp",),
+        class_names=("android.widget.FrameLayout",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="terms_content",
+        resource_ids=("com.ss.android.ugc.trill:id/wjh",),
+        class_names=("android.view.ViewGroup",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="terms_title",
+        resource_ids=("com.ss.android.ugc.trill:id/x37",),
+        normalized_text=("TikTok's Terms and Policies",),
+        class_names=("android.widget.TextView",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="terms_body",
+        resource_ids=("com.ss.android.ugc.trill:id/eal",),
+        class_names=("android.widget.TextView",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="terms_illustration",
+        resource_ids=("com.ss.android.ugc.trill:id/jet",),
+        content_descriptions=("center_icon",),
+        class_names=("android.widget.ImageView",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="terms_agree_control",
+        resource_ids=("com.ss.android.ugc.trill:id/eac",),
+        normalized_text=("Agree and continue",),
+        class_names=("android.widget.Button",),
+        structure=StructuralConstraint(
+            ancestor_class_names=("android.view.ViewGroup",),
+        ),
+        require_clickable=True,
+    ),
+)
+
+TRILL_44_4_3_TERMS_V12 = replace(
+    TRILL_44_4_3_PRIVACY_AUTOCLOSE_V11,
+    resource_key="trill-44.4.3-terms-v12",
+    selectors=(
+        TRILL_44_4_3_PRIVACY_AUTOCLOSE_V11.selectors
+        + _TERMS_CONSENT_SELECTORS
+    ),
+    screens=TRILL_44_4_3_PRIVACY_AUTOCLOSE_V11.screens + (
+        ScreenDefinition(
+            key="TERMS_CONSENT",
+            required_selectors=(
+                "terms_scene_root", "terms_content", "terms_title",
+                "terms_agree_control",
+            ),
+            reinforcing_selectors=("terms_body", "terms_illustration"),
+            forbidden_selectors=("bottom_navigation", "picker_root"),
+            minimum_score=8,
+        ),
+    ),
+)
+
+
+# Runtime 18 post-terms calibration. The screen asks the operator to choose
+# recommendation interests and is not a login/signup or signup-method screen.
+# Skip and interest tiles remain observational/non-actionable in this phase.
+_ONBOARDING_INTEREST_SELECTORS = (
+    TikTokElementSelector(
+        key="interests_scene_root",
+        resource_ids=("com.ss.android.ugc.trill:id/ss8",),
+        class_names=("android.view.ViewGroup",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="interests_content",
+        resource_ids=("com.ss.android.ugc.trill:id/k2m",),
+        class_names=("android.view.ViewGroup",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="interests_grid",
+        resource_ids=("com.ss.android.ugc.trill:id/sx0",),
+        class_names=("android.widget.GridView",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="interests_title",
+        resource_ids=("com.ss.android.ugc.trill:id/iz1",),
+        normalized_text=("Choose your interests",),
+        class_names=("android.widget.TextView",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="interests_subtitle",
+        resource_ids=("com.ss.android.ugc.trill:id/tk2",),
+        normalized_text=("Get better video recommendations",),
+        class_names=("android.widget.TextView",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="interest_tile",
+        resource_ids=("com.ss.android.ugc.trill:id/kat",),
+        class_names=("android.view.ViewGroup",),
+        structure=StructuralConstraint(
+            ancestor_class_names=("android.widget.GridView",),
+            descendant_class_names=("android.widget.TextView",),
+        ),
+        require_clickable=True,
+    ),
+    TikTokElementSelector(
+        key="interests_bottom_actions",
+        resource_ids=("com.ss.android.ugc.trill:id/bzw",),
+        class_names=("android.view.ViewGroup",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="interests_skip_control",
+        resource_ids=("com.ss.android.ugc.trill:id/chn",),
+        normalized_text=("Skip",),
+        class_names=("android.widget.Button",),
+        structure=StructuralConstraint(
+            ancestor_class_names=("android.view.ViewGroup",),
+        ),
+        require_clickable=True,
+    ),
+    TikTokElementSelector(
+        key="interests_next_control",
+        resource_ids=("com.ss.android.ugc.trill:id/ceq",),
+        normalized_text=("Next (0)",),
+        class_names=("android.widget.Button",),
+        require_enabled=False,
+        require_clickable=True,
+    ),
+)
+
+TRILL_44_4_3_INTERESTS_V13 = replace(
+    TRILL_44_4_3_TERMS_V12,
+    resource_key="trill-44.4.3-interests-v13",
+    selectors=TRILL_44_4_3_TERMS_V12.selectors + _ONBOARDING_INTEREST_SELECTORS,
+    screens=TRILL_44_4_3_TERMS_V12.screens + (
+        ScreenDefinition(
+            key="ONBOARDING_INTERESTS",
+            required_selectors=(
+                "interests_scene_root", "interests_content",
+                "interests_grid", "interests_title",
+                "interests_bottom_actions", "interests_skip_control",
+            ),
+            reinforcing_selectors=(
+                "interests_subtitle", "interest_tile", "interests_next_control",
+            ),
+            forbidden_selectors=("terms_content", "terms_title"),
+            minimum_score=12,
+        ),
+    ),
+)
+
+
+# Action-authorized generation for the already observed unique Skip target.
+# Interest tiles and the disabled Next control remain non-actionable.
+TRILL_44_4_3_INTERESTS_ACTION_V14 = replace(
+    TRILL_44_4_3_INTERESTS_V13,
+    resource_key="trill-44.4.3-interests-action-v14",
+    selectors=tuple(
+        replace(selector, actionable=True)
+        if selector.key == "interests_skip_control"
+        else selector
+        for selector in TRILL_44_4_3_INTERESTS_V13.selectors
+    ),
+)
+
+
+# Runtime 18 HOME-to-Profile action authorization. HOME classification and all
+# other action permissions remain unchanged; only the exact bottom Profile tab
+# may be dispatched by the typed one-attempt action.
+TRILL_44_4_3_PROFILE_ACTION_V15 = replace(
+    TRILL_44_4_3_INTERESTS_ACTION_V14,
+    resource_key="trill-44.4.3-profile-action-v15",
+    selectors=tuple(
+        replace(selector, actionable=True)
+        if selector.key == "profile_tab"
+        else selector
+        for selector in TRILL_44_4_3_INTERESTS_ACTION_V14.selectors
+    ),
+)
+
+
+# Runtime 17 logged-in Profile calibration. Account text and metrics are not
+# classification requirements; only stable observed containers and semantic
+# controls distinguish Profile from HOME's otherwise shared bottom navigation.
+_PROFILE_SELECTORS = (
+    TikTokElementSelector(
+        key="profile_scene_root",
+        resource_ids=("com.ss.android.ugc.trill:id/r5r",),
+        class_names=("android.widget.RelativeLayout",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="profile_content",
+        resource_ids=("com.ss.android.ugc.trill:id/t4f",),
+        class_names=("android.widget.LinearLayout",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="profile_header",
+        resource_ids=("com.ss.android.ugc.trill:id/o6f",),
+        class_names=("android.view.ViewGroup",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="profile_menu",
+        content_descriptions=("Profile menu",),
+        class_names=("android.widget.Button",),
+        require_clickable=True,
+    ),
+    TikTokElementSelector(
+        key="profile_display_name",
+        resource_ids=("com.ss.android.ugc.trill:id/r5d",),
+        class_names=("android.widget.Button",),
+        require_clickable=True,
+    ),
+    TikTokElementSelector(
+        key="profile_handle",
+        resource_ids=("com.ss.android.ugc.trill:id/r7b",),
+        class_names=("android.widget.Button",),
+        require_clickable=True,
+    ),
+    TikTokElementSelector(
+        key="profile_media_tabs",
+        resource_ids=("com.ss.android.ugc.trill:id/wpc",),
+        class_names=("android.widget.HorizontalScrollView",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="profile_add_person_signal",
+        content_descriptions=("Add person",),
+        class_names=("android.widget.ImageView",),
+        require_clickable=False,
+    ),
+)
+
+TRILL_44_4_3_PROFILE_V16 = replace(
+    TRILL_44_4_3_PROFILE_ACTION_V15,
+    resource_key="trill-44.4.3-profile-v16",
+    selectors=TRILL_44_4_3_PROFILE_ACTION_V15.selectors + _PROFILE_SELECTORS,
+    screens=tuple(
+        replace(
+            screen,
+            forbidden_selectors=screen.forbidden_selectors + ("profile_scene_root",),
+        )
+        if screen.key == "HOME"
+        else screen
+        for screen in TRILL_44_4_3_PROFILE_ACTION_V15.screens
+    ) + (
+        ScreenDefinition(
+            key="PROFILE",
+            required_selectors=(
+                "bottom_navigation", "profile_scene_root", "profile_content",
+                "profile_header", "profile_menu",
+            ),
+            reinforcing_selectors=(
+                "profile_display_name", "profile_handle", "profile_media_tabs",
+                "profile_add_person_signal",
+            ),
+            minimum_score=10,
+        ),
+    ),
+)
+
+
+# Runtime 18 logged-out signup destination. The screen offers phone entry,
+# Continue with Email, and Log in; no provider or data-entry action is
+# authorized. Values below are observed structure, not guessed selectors.
+_SIGNUP_METHOD_SELECTORS = (
+    TikTokElementSelector(
+        key="signup_scene_root",
+        resource_ids=("com.ss.android.ugc.trill:id/ss8",),
+        class_names=("android.widget.LinearLayout",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="signup_content",
+        resource_ids=("com.ss.android.ugc.trill:id/uee",),
+        class_names=("android.widget.FrameLayout",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="signup_phone_container",
+        resource_ids=("com.ss.android.ugc.trill:id/pgc",),
+        class_names=("android.widget.FrameLayout",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="signup_title",
+        normalized_text=("Sign up for TikTok",),
+        class_names=("android.widget.TextView",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="signup_phone_input",
+        normalized_text=("Phone number",),
+        class_names=("android.widget.EditText",),
+        require_clickable=True,
+    ),
+    TikTokElementSelector(
+        key="signup_email_method",
+        content_descriptions=("Continue with Email",),
+        class_names=("android.view.View",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="signup_continue",
+        normalized_text=("Continue",),
+        class_names=("android.widget.TextView",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="signup_login_entry",
+        normalized_text=("Already have an account? Log in",),
+        class_names=("android.widget.Button",),
+        require_clickable=True,
+    ),
+    TikTokElementSelector(
+        key="signup_close",
+        resource_ids=("com.ss.android.ugc.trill:id/xc7",),
+        content_descriptions=("Close",),
+        class_names=("android.widget.ImageView",),
+        require_clickable=True,
+    ),
+)
+
+TRILL_44_4_3_SIGNUP_METHOD_V17 = replace(
+    TRILL_44_4_3_PROFILE_V16,
+    resource_key="trill-44.4.3-signup-method-v17",
+    selectors=TRILL_44_4_3_PROFILE_V16.selectors + _SIGNUP_METHOD_SELECTORS,
+    screens=TRILL_44_4_3_PROFILE_V16.screens + (
+        ScreenDefinition(
+            key="SIGNUP_METHOD",
+            required_selectors=(
+                "signup_scene_root", "signup_content",
+                "signup_phone_container", "signup_title",
+                "signup_phone_input", "signup_email_method",
+            ),
+            reinforcing_selectors=(
+                "signup_continue", "signup_login_entry", "signup_close",
+            ),
+            forbidden_selectors=("bottom_navigation", "profile_scene_root"),
+            minimum_score=12,
+        ),
+    ),
+)
+
+
+# Runtime 18's exact semantic email-method child is non-clickable but occupies
+# the upper area of its unique clickable parent. Authorizing only this observed
+# child keeps phone, Continue, Log in, Close, and Report non-actionable.
+TRILL_44_4_3_EMAIL_ACTION_V18 = replace(
+    TRILL_44_4_3_SIGNUP_METHOD_V17,
+    resource_key="trill-44.4.3-email-action-v18",
+    selectors=tuple(
+        replace(selector, actionable=True)
+        if selector.key == "signup_email_method" else selector
+        for selector in TRILL_44_4_3_SIGNUP_METHOD_V17.selectors
+    ),
+)
+
+
+_EMAIL_ENTRY_SELECTORS = (
+    TikTokElementSelector(
+        key="email_entry_root",
+        resource_ids=("com.ss.android.ugc.trill:id/hyp",),
+        class_names=("android.widget.FrameLayout",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="email_entry_scene",
+        resource_ids=("com.ss.android.ugc.trill:id/mvq",),
+        class_names=("android.widget.LinearLayout",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="email_entry_header",
+        resource_ids=("com.ss.android.ugc.trill:id/bii",),
+        class_names=("android.widget.FrameLayout",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="email_entry_title",
+        resource_ids=("com.ss.android.ugc.trill:id/ehn",),
+        normalized_text=("Enter email address",),
+        class_names=("android.widget.TextView",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="email_entry_form",
+        resource_ids=("com.ss.android.ugc.trill:id/efn",),
+        class_names=("android.widget.LinearLayout",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="email_input",
+        content_descriptions=("Email address",),
+        class_names=("android.widget.EditText",),
+        require_clickable=True,
+    ),
+    TikTokElementSelector(
+        key="email_save_login_row",
+        resource_ids=("com.ss.android.ugc.trill:id/gfk",),
+        class_names=("android.view.ViewGroup",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="email_continue",
+        resource_ids=("com.ss.android.ugc.trill:id/evj",),
+        normalized_text=("Continue",),
+        class_names=("android.widget.Button",),
+        require_enabled=False,
+        require_clickable=True,
+    ),
+    TikTokElementSelector(
+        key="email_domain_suggestions",
+        resource_ids=("com.ss.android.ugc.trill:id/ld_",),
+        class_names=("androidx.recyclerview.widget.RecyclerView",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="email_back",
+        content_descriptions=("Back to previous screen",),
+        class_names=("android.widget.Button",),
+        require_clickable=True,
+    ),
+)
+
+TRILL_44_4_3_EMAIL_ENTRY_V19 = replace(
+    TRILL_44_4_3_EMAIL_ACTION_V18,
+    resource_key="trill-44.4.3-email-entry-v19",
+    selectors=TRILL_44_4_3_EMAIL_ACTION_V18.selectors + _EMAIL_ENTRY_SELECTORS,
+    screens=TRILL_44_4_3_EMAIL_ACTION_V18.screens + (
+        ScreenDefinition(
+            key="EMAIL_ENTRY",
+            required_selectors=(
+                "email_entry_root", "email_entry_scene", "email_entry_header",
+                "email_entry_title", "email_entry_form", "email_input",
+            ),
+            reinforcing_selectors=(
+                "email_save_login_row", "email_continue",
+                "email_domain_suggestions", "email_back",
+            ),
+            forbidden_selectors=("signup_scene_root", "bottom_navigation"),
+            minimum_score=12,
+        ),
+    ),
+)
+
+
+# The first live v19 detect proved UIAutomator reports ``Email address`` in
+# text, not content-desc. Preserve v19 and correct only that observed field in
+# a new immutable generation.
+TRILL_44_4_3_EMAIL_ENTRY_V20 = replace(
+    TRILL_44_4_3_EMAIL_ENTRY_V19,
+    resource_key="trill-44.4.3-email-entry-v20",
+    selectors=tuple(
+        replace(
+            selector,
+            content_descriptions=(),
+            normalized_text=("Email address",),
+        )
+        if selector.key == "email_input" else selector
+        for selector in TRILL_44_4_3_EMAIL_ENTRY_V19.selectors
+    ),
+)
+
+
+# Filled email text is dynamic, so the mutation profile resolves the single
+# observed EditText by its calibrated class/ancestor structure rather than by
+# the empty-field label. Uniqueness is still mandatory immediately before use.
+TRILL_44_4_3_EMAIL_INPUT_V21 = replace(
+    TRILL_44_4_3_EMAIL_ENTRY_V20,
+    resource_key="trill-44.4.3-email-input-v21",
+    selectors=tuple(
+        replace(
+            selector,
+            normalized_text=(),
+            structure=StructuralConstraint(
+                ancestor_class_names=(
+                    "android.widget.FrameLayout",
+                    "android.widget.LinearLayout",
+                    "android.view.ViewGroup",
+                ),
+            ),
+            require_focusable=True,
+            actionable=True,
+        )
+        if selector.key == "email_input" else selector
+        for selector in TRILL_44_4_3_EMAIL_ENTRY_V20.selectors
+    ),
+)
+
+
+TRILL_44_4_3_EMAIL_CONTINUE_V22 = replace(
+    TRILL_44_4_3_EMAIL_INPUT_V21,
+    resource_key="trill-44.4.3-email-continue-v22",
+    selectors=tuple(
+        replace(selector, actionable=True)
+        if selector.key == "email_continue" else selector
+        for selector in TRILL_44_4_3_EMAIL_INPUT_V21.selectors
+    ),
+)
+
+
+# Runtime 18 post-Continue calibration. TikTok requires an operator to use the
+# emailed link/code. Dynamic destination text may contain account PII, so the
+# classifier uses stable resource IDs/classes and only the fixed title/action.
+_EMAIL_VERIFICATION_SELECTORS = (
+    TikTokElementSelector(
+        key="email_verification_content",
+        resource_ids=("com.ss.android.ugc.trill:id/bik",),
+        class_names=("android.view.ViewGroup",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="email_verification_title",
+        resource_ids=("com.ss.android.ugc.trill:id/ehn",),
+        normalized_text=("Check your email",),
+        class_names=("android.widget.TextView",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="email_verification_message",
+        resource_ids=("com.ss.android.ugc.trill:id/eft",),
+        class_names=("android.widget.TextView",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="email_verification_code_container",
+        resource_ids=("com.ss.android.ugc.trill:id/k59",),
+        class_names=("android.view.ViewGroup",),
+        require_clickable=False,
+    ),
+    TikTokElementSelector(
+        key="email_verification_resend",
+        resource_ids=("com.ss.android.ugc.trill:id/k58",),
+        normalized_text=("Resend code",),
+        class_names=("android.widget.Button",),
+        require_clickable=True,
+    ),
+)
+
+TRILL_44_4_3_EMAIL_VERIFICATION_V23 = replace(
+    TRILL_44_4_3_EMAIL_CONTINUE_V22,
+    resource_key="trill-44.4.3-email-verification-v23",
+    selectors=(
+        TRILL_44_4_3_EMAIL_CONTINUE_V22.selectors
+        + _EMAIL_VERIFICATION_SELECTORS
+    ),
+    screens=TRILL_44_4_3_EMAIL_CONTINUE_V22.screens + (
+        ScreenDefinition(
+            key="VERIFICATION_REQUIRED",
+            required_selectors=(
+                "email_entry_root", "email_entry_scene", "email_entry_header",
+                "email_verification_content", "email_verification_title",
+                "email_verification_message", "email_verification_code_container",
+            ),
+            reinforcing_selectors=(
+                "email_entry_form", "email_verification_resend", "email_back",
+            ),
+            forbidden_selectors=("signup_scene_root", "bottom_navigation"),
+            minimum_score=14,
+        ),
+    ),
+)
+
+
 class TikTokUiProfileRegistry:
     def __init__(self, definitions: tuple[TikTokUiProfileDefinition, ...] | None = None) -> None:
         values = definitions or (
@@ -744,6 +1323,18 @@ class TikTokUiProfileRegistry:
             TRILL_44_4_3_PRIVACY_ENTRY_V9,
             TRILL_44_4_3_PRIVACY_MODAL_V10,
             TRILL_44_4_3_PRIVACY_AUTOCLOSE_V11,
+            TRILL_44_4_3_TERMS_V12,
+            TRILL_44_4_3_INTERESTS_V13,
+            TRILL_44_4_3_INTERESTS_ACTION_V14,
+            TRILL_44_4_3_PROFILE_ACTION_V15,
+            TRILL_44_4_3_PROFILE_V16,
+            TRILL_44_4_3_SIGNUP_METHOD_V17,
+            TRILL_44_4_3_EMAIL_ACTION_V18,
+            TRILL_44_4_3_EMAIL_ENTRY_V19,
+            TRILL_44_4_3_EMAIL_ENTRY_V20,
+            TRILL_44_4_3_EMAIL_INPUT_V21,
+            TRILL_44_4_3_EMAIL_CONTINUE_V22,
+            TRILL_44_4_3_EMAIL_VERIFICATION_V23,
         )
         self._definitions = {item.resource_key: item for item in values}
 

@@ -15,7 +15,7 @@ PRE_JOB_LOG_REVISION = "20260918_0003"
 PRE_REDROID_CONFIG_REVISION = "20260918_0004"
 PRE_UNIQUE_CONFIG_REVISION = "20261001_0005"
 PRE_PROVISIONING_REVISION = "20261001_0006"
-LATEST_REVISION = "20261007_0035"
+LATEST_REVISION = "20261007_0047"
 
 
 def test_upgrade_head_creates_accounts_table(
@@ -133,9 +133,21 @@ def test_upgrade_head_creates_accounts_table(
                     (7, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
                     (8, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
                     (9, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
-                    (10, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
-                    (11, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
-                ]
+                        (10, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                        (11, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                        (12, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                        (13, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                        (14, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                        (15, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                        (16, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                        (17, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                        (18, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                        (19, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                        (20, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                        (21, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                        (22, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                        (23, "com.ss.android.ugc.trill", 440403, 440403, "testing"),
+                    ]
         assert "alembic_version" in inspector.get_table_names()
         assert {
             "runtime_network_configs",

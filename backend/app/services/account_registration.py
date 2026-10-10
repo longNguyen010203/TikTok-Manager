@@ -18,6 +18,8 @@ from typing import Mapping
 
 class RegistrationUiState(str, Enum):
     UNKNOWN = "UNKNOWN"
+    TERMS_CONSENT = "TERMS_CONSENT"
+    ONBOARDING_INTERESTS = "ONBOARDING_INTERESTS"
     HOME = "HOME"
     PROFILE = "PROFILE"
     REGISTRATION_ENTRY = "REGISTRATION_ENTRY"
@@ -108,8 +110,30 @@ ACCOUNT_REGISTRATION_V1 = RegistrationTemplateBlueprint(
 _DEFAULT_CALIBRATIONS = {
     state: RegistrationScreenCalibration(
         state=state,
-        calibrated=state == RegistrationUiState.HOME,
-        source=("TIK-024 Trill 44.4.3 HOME profile" if state == RegistrationUiState.HOME else "awaiting live calibration"),
+        calibrated=state in {
+            RegistrationUiState.HOME, RegistrationUiState.TERMS_CONSENT,
+            RegistrationUiState.ONBOARDING_INTERESTS, RegistrationUiState.PROFILE,
+            RegistrationUiState.SIGNUP_METHOD,
+            RegistrationUiState.EMAIL_ENTRY,
+            RegistrationUiState.VERIFICATION_REQUIRED,
+        },
+        source=(
+            "TIK-024 Trill 44.4.3 HOME profile"
+            if state == RegistrationUiState.HOME
+            else "TIK-026 Runtime 18 fresh-install terms calibration"
+            if state == RegistrationUiState.TERMS_CONSENT
+            else "TIK-026 Runtime 18 post-terms interests calibration"
+            if state == RegistrationUiState.ONBOARDING_INTERESTS
+            else "TIK-026 Runtime 17 logged-in Profile calibration"
+            if state == RegistrationUiState.PROFILE
+            else "TIK-026 Runtime 18 logged-out signup-method calibration"
+            if state == RegistrationUiState.SIGNUP_METHOD
+            else "TIK-026 Runtime 18 email-entry calibration"
+            if state == RegistrationUiState.EMAIL_ENTRY
+            else "TIK-026 Runtime 18 email verification checkpoint"
+            if state == RegistrationUiState.VERIFICATION_REQUIRED
+            else "awaiting live calibration"
+        ),
     )
     for state in RegistrationUiState
 }
@@ -120,6 +144,28 @@ DEFAULT_REGISTRATION_CALIBRATIONS: Mapping[
 
 REGISTRATION_ACTION_BOUNDARIES: tuple[RegistrationActionBoundary, ...] = (
     RegistrationActionBoundary(
+        "registration.skip_interests",
+        (RegistrationUiState.ONBOARDING_INTERESTS,),
+        (
+            RegistrationUiState.HOME,
+            RegistrationUiState.REGISTRATION_ENTRY,
+            RegistrationUiState.LOGIN_OR_SIGNUP,
+            RegistrationUiState.SIGNUP_METHOD,
+        ),
+        mutates_ui=True,
+        calibrated=True,
+    ),
+    RegistrationActionBoundary(
+        "registration.accept_terms",
+        (RegistrationUiState.TERMS_CONSENT,),
+        (
+            RegistrationUiState.REGISTRATION_ENTRY,
+            RegistrationUiState.LOGIN_OR_SIGNUP,
+            RegistrationUiState.SIGNUP_METHOD,
+        ),
+        mutates_ui=True,
+    ),
+    RegistrationActionBoundary(
         "registration.detect_entry",
         tuple(RegistrationUiState),
         tuple(RegistrationUiState),
@@ -128,14 +174,22 @@ REGISTRATION_ACTION_BOUNDARIES: tuple[RegistrationActionBoundary, ...] = (
     RegistrationActionBoundary(
         "registration.open_profile",
         (RegistrationUiState.HOME,),
-        (RegistrationUiState.PROFILE,),
+        (RegistrationUiState.PROFILE, RegistrationUiState.SIGNUP_METHOD),
         mutates_ui=True,
+        calibrated=True,
     ),
     RegistrationActionBoundary(
         "registration.open_add_account",
         (RegistrationUiState.PROFILE,),
         (RegistrationUiState.REGISTRATION_ENTRY, RegistrationUiState.LOGIN_OR_SIGNUP),
         mutates_ui=True,
+    ),
+    RegistrationActionBoundary(
+        "registration.choose_email_signup",
+        (RegistrationUiState.SIGNUP_METHOD,),
+        (RegistrationUiState.EMAIL_ENTRY,),
+        mutates_ui=True,
+        calibrated=True,
     ),
     RegistrationActionBoundary(
         "registration.choose_signup",
@@ -154,6 +208,13 @@ REGISTRATION_ACTION_BOUNDARIES: tuple[RegistrationActionBoundary, ...] = (
         (RegistrationUiState.EMAIL_OR_PHONE,),
         (RegistrationUiState.EMAIL_ENTRY,),
         mutates_ui=True,
+    ),
+    RegistrationActionBoundary(
+        "registration.set_email",
+        (RegistrationUiState.EMAIL_ENTRY,),
+        (RegistrationUiState.EMAIL_ENTRY,),
+        mutates_ui=True,
+        calibrated=True,
     ),
     RegistrationActionBoundary(
         "registration.enter_email",
@@ -184,6 +245,8 @@ REGISTRATION_ACTION_BOUNDARIES: tuple[RegistrationActionBoundary, ...] = (
 
 CANONICAL_CONVERGENCE_STATE = RegistrationUiState.SIGNUP_METHOD
 _FRESH_ENTRY_STATES = {
+    RegistrationUiState.TERMS_CONSENT,
+    RegistrationUiState.ONBOARDING_INTERESTS,
     RegistrationUiState.REGISTRATION_ENTRY,
     RegistrationUiState.LOGIN_OR_SIGNUP,
     RegistrationUiState.SIGNUP_METHOD,
@@ -321,7 +384,15 @@ class RegistrationEntryRouter:
                 metadata,
             )
         if observation.state in _FRESH_ENTRY_STATES:
-            action_key = None if observation.state == CANONICAL_CONVERGENCE_STATE else "registration.choose_signup"
+            action_key = (
+                "registration.choose_email_signup"
+                if observation.state == CANONICAL_CONVERGENCE_STATE
+                else "registration.accept_terms"
+                if observation.state == RegistrationUiState.TERMS_CONSENT
+                else "registration.skip_interests"
+                if observation.state == RegistrationUiState.ONBOARDING_INTERESTS
+                else "registration.choose_signup"
+            )
             return self._action_decision(
                 observation,
                 RegistrationWorkflowPhase.ENTERING_CANONICAL_FLOW,

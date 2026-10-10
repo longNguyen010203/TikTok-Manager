@@ -7,7 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import ContentDelivery, Job, ManagedApp, Runtime, RuntimeAppInstallation
+from app.models import Account, ContentDelivery, Job, ManagedApp, Runtime, RuntimeAppInstallation
+from app.schemas.account import normalize_account_email
 from app.services.tiktok_errors import tiktok_error
 from app.services.tiktok_action_service import normalize_caption
 from app.services.tiktok_ui_profiles import TikTokUiProfileRegistry
@@ -26,6 +27,10 @@ class TikTokSelectMediaPayload(TikTokDetectScreenPayload):
 
 class TikTokSetCaptionPayload(TikTokDetectScreenPayload):
     caption: str = Field(max_length=150)
+
+
+class TikTokRegistrationEmailPayload(TikTokDetectScreenPayload):
+    account_id: int = Field(gt=0)
 
 
 class TikTokSetPostOptionsPayload(TikTokDetectScreenPayload):
@@ -70,6 +75,21 @@ _DEFINITIONS["tiktok.select_media"] = TikTokJobDefinition(
 _DEFINITIONS["tiktok.open_caption"] = TikTokJobDefinition(
     "tiktok.open_caption", frozenset(), idempotency="uncertain",
 )
+_DEFINITIONS["tiktok.skip_interests"] = TikTokJobDefinition(
+    "tiktok.skip_interests", frozenset(), idempotency="uncertain",
+)
+_DEFINITIONS["tiktok.open_profile"] = TikTokJobDefinition(
+    "tiktok.open_profile", frozenset(), idempotency="uncertain",
+)
+_DEFINITIONS["tiktok.choose_email_signup"] = TikTokJobDefinition(
+    "tiktok.choose_email_signup", frozenset(), idempotency="uncertain",
+)
+_DEFINITIONS["tiktok.set_registration_email"] = TikTokJobDefinition(
+    "tiktok.set_registration_email", frozenset(), idempotency="uncertain",
+)
+_DEFINITIONS["tiktok.continue_registration_email"] = TikTokJobDefinition(
+    "tiktok.continue_registration_email", frozenset(), idempotency="uncertain",
+)
 _DEFINITIONS["tiktok.set_caption"] = TikTokJobDefinition(
     "tiktok.set_caption", frozenset(), idempotency="uncertain",
 )
@@ -103,6 +123,11 @@ def validate_tiktok_job_payload(job_type: str, payload: Any) -> dict[str, Any]:
         schema = (
             TikTokSelectMediaPayload
             if job_type == "tiktok.select_media"
+            else TikTokRegistrationEmailPayload
+            if job_type in {
+                "tiktok.set_registration_email",
+                "tiktok.continue_registration_email",
+            }
             else TikTokSetCaptionPayload
             if job_type == "tiktok.set_caption"
             else TikTokSetPostOptionsPayload
@@ -119,6 +144,7 @@ def validate_tiktok_job_payload(job_type: str, payload: Any) -> dict[str, Any]:
 def _create_tiktok_job(
     session: Session, *, job_type: str, runtime_id: int, managed_app_id: int,
     extra_payload: dict[str, Any] | None = None, max_attempts: int = 3,
+    account_id: int | None = None,
 ) -> Job:
     runtime = session.get(Runtime, runtime_id)
     app = session.get(ManagedApp, managed_app_id)
@@ -142,6 +168,7 @@ def _create_tiktok_job(
     payload.update(extra_payload or {})
     job = Job(
         job_type=job_type, status="pending", runtime_id=runtime_id,
+        account_id=account_id,
         payload=payload,
         max_attempts=max_attempts,
     )
@@ -205,6 +232,77 @@ def create_open_caption_job(
     return _create_tiktok_job(
         session, job_type="tiktok.open_caption", runtime_id=runtime_id,
         managed_app_id=managed_app_id, max_attempts=1,
+    )
+
+
+def create_skip_interests_job(
+    session: Session, *, runtime_id: int, managed_app_id: int,
+) -> Job:
+    return _create_tiktok_job(
+        session, job_type="tiktok.skip_interests", runtime_id=runtime_id,
+        managed_app_id=managed_app_id, max_attempts=1,
+    )
+
+
+def create_open_profile_job(
+    session: Session, *, runtime_id: int, managed_app_id: int,
+) -> Job:
+    return _create_tiktok_job(
+        session, job_type="tiktok.open_profile", runtime_id=runtime_id,
+        managed_app_id=managed_app_id, max_attempts=1,
+    )
+
+
+def create_choose_email_signup_job(
+    session: Session, *, runtime_id: int, managed_app_id: int,
+) -> Job:
+    return _create_tiktok_job(
+        session, job_type="tiktok.choose_email_signup", runtime_id=runtime_id,
+        managed_app_id=managed_app_id, max_attempts=1,
+    )
+
+
+def create_set_registration_email_job(
+    session: Session, *, runtime_id: int, managed_app_id: int, account_id: int,
+) -> Job:
+    account = session.get(Account, account_id)
+    if account is None:
+        raise tiktok_error("TIKTOK_ACCOUNT_NOT_FOUND")
+    if account.runtime_id != runtime_id:
+        raise tiktok_error("TIKTOK_ACCOUNT_RUNTIME_MISMATCH")
+    try:
+        email = normalize_account_email(account.email)
+    except ValueError as error:
+        raise tiktok_error("TIKTOK_ACCOUNT_EMAIL_REQUIRED") from error
+    if email is None:
+        raise tiktok_error("TIKTOK_ACCOUNT_EMAIL_REQUIRED")
+    return _create_tiktok_job(
+        session, job_type="tiktok.set_registration_email",
+        runtime_id=runtime_id, managed_app_id=managed_app_id,
+        account_id=account_id, extra_payload={"account_id": account_id},
+        max_attempts=1,
+    )
+
+
+def create_continue_registration_email_job(
+    session: Session, *, runtime_id: int, managed_app_id: int, account_id: int,
+) -> Job:
+    account = session.get(Account, account_id)
+    if account is None:
+        raise tiktok_error("TIKTOK_ACCOUNT_NOT_FOUND")
+    if account.runtime_id != runtime_id:
+        raise tiktok_error("TIKTOK_ACCOUNT_RUNTIME_MISMATCH")
+    try:
+        email = normalize_account_email(account.email)
+    except ValueError as error:
+        raise tiktok_error("TIKTOK_ACCOUNT_EMAIL_REQUIRED") from error
+    if email is None:
+        raise tiktok_error("TIKTOK_ACCOUNT_EMAIL_REQUIRED")
+    return _create_tiktok_job(
+        session, job_type="tiktok.continue_registration_email",
+        runtime_id=runtime_id, managed_app_id=managed_app_id,
+        account_id=account_id, extra_payload={"account_id": account_id},
+        max_attempts=1,
     )
 
 

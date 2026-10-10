@@ -25,6 +25,33 @@ class TikTokOpenCaptionRequest(BaseModel):
     managed_app_id: int = Field(gt=0)
 
 
+class TikTokSkipInterestsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    managed_app_id: int = Field(gt=0)
+
+
+class TikTokOpenProfileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    managed_app_id: int = Field(gt=0)
+
+
+class TikTokChooseEmailSignupRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    managed_app_id: int = Field(gt=0)
+
+
+class TikTokSetRegistrationEmailRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    managed_app_id: int = Field(gt=0)
+    account_id: int = Field(gt=0)
+
+
+class TikTokContinueRegistrationEmailRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    managed_app_id: int = Field(gt=0)
+    account_id: int = Field(gt=0)
+
+
 class TikTokSetCaptionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     managed_app_id: int = Field(gt=0)
@@ -114,6 +141,38 @@ class TikTokOpenCaptionResult(BaseModel):
     calibration_required: bool
     node_count: int = Field(ge=0)
     hierarchy_fingerprint: str = Field(min_length=64, max_length=64)
+
+
+class TikTokSkipInterestsResult(TikTokOpenCaptionResult):
+    pass
+
+
+class TikTokOpenProfileResult(TikTokOpenCaptionResult):
+    pass
+
+
+class TikTokChooseEmailSignupResult(TikTokOpenCaptionResult):
+    pass
+
+
+class TikTokSetRegistrationEmailResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    account_id: int = Field(gt=0)
+    screen_before: str
+    screen_after: str
+    foreground_package: str
+    profile_id: int = Field(gt=0)
+    profile_version: int = Field(gt=0)
+    profile_fingerprint: str = Field(min_length=64, max_length=64)
+    changed: bool
+    verification: bool
+    email_length: int = Field(gt=0, le=320)
+    continue_enabled: bool
+    hierarchy_fingerprint: str = Field(min_length=64, max_length=64)
+
+
+class TikTokContinueRegistrationEmailResult(TikTokOpenCaptionResult):
+    account_id: int = Field(gt=0)
 
 
 class TikTokSetCaptionResult(BaseModel):

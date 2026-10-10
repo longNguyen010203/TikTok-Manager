@@ -20,6 +20,16 @@ from app.services.tiktok_ui_profiles import (
     TRILL_44_4_3_PRIVACY_ENTRY_V9,
     TRILL_44_4_3_PRIVACY_MODAL_V10,
     TRILL_44_4_3_PRIVACY_AUTOCLOSE_V11,
+    TRILL_44_4_3_INTERESTS_ACTION_V14,
+    TRILL_44_4_3_PROFILE_ACTION_V15,
+    TRILL_44_4_3_PROFILE_V16,
+    TRILL_44_4_3_SIGNUP_METHOD_V17,
+    TRILL_44_4_3_EMAIL_ACTION_V18,
+    TRILL_44_4_3_EMAIL_ENTRY_V19,
+    TRILL_44_4_3_EMAIL_ENTRY_V20,
+    TRILL_44_4_3_EMAIL_INPUT_V21,
+    TRILL_44_4_3_EMAIL_CONTINUE_V22,
+    TRILL_44_4_3_EMAIL_VERIFICATION_V23,
     TRILL_44_4_3_MEDIA_PICKER_V4,
 )
 
@@ -28,11 +38,12 @@ def node(
     *, resource: str = "", desc: str = "", klass: str = "android.view.View",
     bounds: str = "[0,0][100,100]", clickable: str = "true", children: str = "",
     package: str = "com.ss.android.ugc.trill", text: str = "",
+    enabled: str = "true", focusable: str = "true", focused: str = "false",
 ) -> str:
     return (
         f'<node resource-id="{resource}" text="{text}" content-desc="{desc}" class="{klass}" '
-        f'package="{package}" bounds="{bounds}" enabled="true" '
-        f'clickable="{clickable}" focusable="true" focused="false" selected="false" '
+        f'package="{package}" bounds="{bounds}" enabled="{enabled}" '
+        f'clickable="{clickable}" focusable="{focusable}" focused="{focused}" selected="false" '
         f'checked="false" password="false">{children}</node>'
     )
 
@@ -43,7 +54,10 @@ def parsed(*nodes: str):
     )
 
 
-def home_hierarchy(*, duplicate_create: bool = False):
+def home_hierarchy(
+    *, duplicate_create: bool = False, duplicate_profile: bool = False,
+    variant: int = 0,
+):
     create = node(
         resource="com.ss.android.ugc.trill:id/n0x", desc="Create",
         klass="android.widget.Button", bounds="[288,1100][432,1184]",
@@ -58,6 +72,8 @@ def home_hierarchy(*, duplicate_create: bool = False):
             create if duplicate_create else "",
             node(resource="com.ss.android.ugc.trill:id/n11", desc="Inbox", klass="android.widget.FrameLayout", bounds="[432,1100][576,1184]"),
             node(resource="com.ss.android.ugc.trill:id/n12", desc="Profile", klass="android.widget.FrameLayout", bounds="[576,1100][720,1184]"),
+            node(resource="com.ss.android.ugc.trill:id/n12", desc="Profile", klass="android.widget.FrameLayout", bounds="[576,1100][720,1184]") if duplicate_profile else "",
+            node(resource=f"home-dynamic-{variant}", clickable="false") if variant else "",
         )),
     ))
 
@@ -172,6 +188,291 @@ def camera_hierarchy(*, duplicate_gallery: bool = False):
                 clickable="false", children=gallery + (gallery if duplicate_gallery else ""),
             ),
         )),
+    ))
+
+
+def interests_hierarchy(*, duplicate_skip: bool = False, variant: int = 0):
+    skip = node(
+        resource="com.ss.android.ugc.trill:id/chn", text="Skip",
+        klass="android.widget.Button", bounds="[64,1072][352,1160]",
+    )
+    tile = node(
+        resource="com.ss.android.ugc.trill:id/kat",
+        klass="android.view.ViewGroup", bounds="[64,448][352,655]",
+        children=node(
+            resource="com.ss.android.ugc.trill:id/kb2",
+            text="Entertainment Culture", klass="android.widget.TextView",
+            clickable="false", bounds="[80,563][336,639]",
+        ),
+    )
+    return parsed(node(
+        resource="com.ss.android.ugc.trill:id/ss8",
+        klass="android.view.ViewGroup", clickable="false",
+        bounds="[0,48][720,1184]",
+        children="".join((
+            node(
+                resource="com.ss.android.ugc.trill:id/k2m",
+                klass="android.view.ViewGroup", clickable="false",
+                bounds="[0,48][720,1048]",
+                children=node(
+                    resource="com.ss.android.ugc.trill:id/sx0",
+                    klass="android.widget.GridView", clickable="false",
+                    bounds="[56,48][664,1048]",
+                    children="".join((
+                        node(
+                            resource="com.ss.android.ugc.trill:id/iz1",
+                            text="Choose your interests",
+                            klass="android.widget.TextView", clickable="false",
+                            bounds="[64,188][656,332]",
+                        ),
+                        node(
+                            resource="com.ss.android.ugc.trill:id/tk2",
+                            text="Get better video recommendations",
+                            klass="android.widget.TextView", clickable="false",
+                            bounds="[64,348][656,384]",
+                        ),
+                        tile,
+                        node(
+                            resource=f"dynamic-{variant}", clickable="false",
+                            bounds="[0,0][0,0]",
+                        ) if variant else "",
+                    )),
+                ),
+            ),
+            node(
+                resource="com.ss.android.ugc.trill:id/bzw",
+                klass="android.view.ViewGroup", clickable="false",
+                bounds="[64,1048][656,1184]",
+                children=skip + (skip if duplicate_skip else ""),
+            ),
+        )),
+    ))
+
+
+def profile_hierarchy(*, include_menu: bool = True, account_variant: int = 0):
+    bottom = node(
+        resource="com.ss.android.ugc.trill:id/n18",
+        klass="android.widget.LinearLayout", clickable="false",
+        bounds="[0,1100][720,1184]",
+        children="".join((
+            node(resource="com.ss.android.ugc.trill:id/n10", desc="Home", klass="android.widget.FrameLayout", bounds="[0,1100][144,1184]"),
+            node(resource="com.ss.android.ugc.trill:id/n0x", desc="Create", klass="android.widget.Button", bounds="[288,1100][432,1184]"),
+            node(resource="com.ss.android.ugc.trill:id/n11", desc="Inbox", klass="android.widget.FrameLayout", bounds="[432,1100][576,1184]"),
+            node(resource="com.ss.android.ugc.trill:id/n12", desc="Profile", klass="android.widget.FrameLayout", bounds="[576,1100][720,1184]"),
+        )),
+    )
+    profile = node(
+        resource="com.ss.android.ugc.trill:id/r5r",
+        klass="android.widget.RelativeLayout", clickable="false",
+        children="".join((
+            node(
+                resource="com.ss.android.ugc.trill:id/t4f",
+                klass="android.widget.LinearLayout", clickable="false",
+                children="".join((
+                    node(resource="com.ss.android.ugc.trill:id/r5d", text=f"Display {account_variant}", klass="android.widget.Button"),
+                    node(resource="com.ss.android.ugc.trill:id/r7b", text=f"@handle{account_variant}", klass="android.widget.Button"),
+                    node(resource="com.ss.android.ugc.trill:id/wpc", klass="android.widget.HorizontalScrollView", clickable="false"),
+                )),
+            ),
+            node(
+                resource="com.ss.android.ugc.trill:id/o6f",
+                klass="android.view.ViewGroup", clickable="false",
+                children="".join((
+                    node(desc="Add person", klass="android.widget.ImageView", clickable="false"),
+                    node(desc="Profile menu", klass="android.widget.Button") if include_menu else "",
+                )),
+            ),
+            bottom,
+        )),
+    )
+    return parsed(profile)
+
+
+def signup_method_hierarchy(
+    *, include_email: bool = True, duplicate_email: bool = False,
+    variant: int = 0,
+):
+    """Sanitized Runtime 18 logged-out destination; no private input values."""
+    package = "com.ss.android.ugc.trill"
+    email = node(
+        desc="Continue with Email", klass="android.view.View",
+        clickable="false", bounds="[56,830][664,868]",
+    ) if include_email else ""
+    return parsed(node(
+        resource=f"{package}:id/ss8", klass="android.widget.LinearLayout",
+        clickable="false", bounds="[0,108][720,1184]",
+        children="".join((
+            node(
+                resource=f"{package}:id/xc7", desc="Close",
+                klass="android.widget.ImageView", bounds="[616,112][712,208]",
+            ),
+            node(
+                resource=f"{package}:id/uee", klass="android.widget.FrameLayout",
+                clickable="false", bounds="[0,208][720,1064]",
+                children="".join((
+                    node(
+                        text="Sign up for TikTok", klass="android.widget.TextView",
+                        clickable="false", bounds="[64,256][656,316]",
+                    ),
+                    node(
+                        resource=f"{package}:id/pgc",
+                        klass="android.widget.FrameLayout", clickable="false",
+                        bounds="[64,392][656,488]",
+                        children=node(
+                            text="Phone number", klass="android.widget.EditText",
+                            bounds="[168,392][656,488]",
+                        ),
+                    ),
+                    node(
+                        klass="android.view.View", bounds="[82,596][638,684]",
+                        children=node(
+                            text="Continue", klass="android.widget.TextView",
+                            clickable="false", bounds="[310,620][410,660]",
+                        ),
+                    ),
+                    node(
+                        klass="android.view.View", bounds="[56,830][664,916]",
+                        children=email + (email if duplicate_email else ""),
+                    ),
+                    node(
+                        resource=f"signup-dynamic-{variant}", clickable="false",
+                        bounds="[0,0][0,0]",
+                    ) if variant else "",
+                )),
+            ),
+            node(
+                text="Already have an account? Log in",
+                klass="android.widget.Button", bounds="[176,1080][544,1160]",
+            ),
+        )),
+    ))
+
+
+def email_entry_hierarchy(
+    *, include_input: bool = True, duplicate_input: bool = False,
+    include_continue: bool = True, duplicate_continue: bool = False,
+    field_text: str = "Email address", continue_enabled: bool = False,
+    variant: int = 0,
+):
+    package = "com.ss.android.ugc.trill"
+    return parsed(node(
+        resource=f"{package}:id/hyp", klass="android.widget.FrameLayout",
+        clickable="false", bounds="[0,0][720,1184]",
+        children=node(
+            resource=f"{package}:id/mvq", klass="android.widget.LinearLayout",
+            clickable="false", bounds="[0,48][720,658]",
+            children="".join((
+                node(
+                    resource=f"{package}:id/bii",
+                    klass="android.widget.FrameLayout", clickable="false",
+                    bounds="[0,48][720,152]",
+                    children=node(
+                        desc="Back to previous screen",
+                        klass="android.widget.Button", bounds="[16,56][96,144]",
+                    ),
+                ),
+                node(
+                    resource=f"{package}:id/ehn", text="Enter email address",
+                    klass="android.widget.TextView", clickable="false",
+                    bounds="[64,224][656,300]",
+                ),
+                node(
+                    resource=f"{package}:id/efn",
+                    klass="android.widget.LinearLayout", clickable="false",
+                    bounds="[0,300][720,450]",
+                    children=node(
+                        resource=f"{package}:id/gfg",
+                        klass="android.view.ViewGroup", clickable="false",
+                        bounds="[0,300][720,450]",
+                        children=((node(
+                            text=field_text, klass="android.widget.EditText",
+                            bounds="[92,376][628,416]", focused="true",
+                        ) * (2 if duplicate_input else 1)) if include_input else "") + node(
+                            resource=f"{package}:id/gfk",
+                            klass="android.view.ViewGroup", clickable="false",
+                            bounds="[64,370][656,430]",
+                        ),
+                    ),
+                ),
+                (node(
+                    resource=f"{package}:id/evj", text="Continue",
+                    klass="android.widget.Button", bounds="[64,450][656,554]",
+                    enabled="true" if continue_enabled else "false",
+                ) * (2 if duplicate_continue else 1)) if include_continue else "",
+                node(
+                    resource=f"{package}:id/ld_",
+                    klass="androidx.recyclerview.widget.RecyclerView",
+                    clickable="false", bounds="[0,578][720,658]",
+                ),
+                node(
+                    resource=f"email-dynamic-{variant}", clickable="false",
+                    bounds="[0,0][0,0]",
+                ) if variant else "",
+            )),
+        ),
+    ))
+
+
+def email_verification_hierarchy(*, include_resend: bool = True, variant: int = 0):
+    package = "com.ss.android.ugc.trill"
+    return parsed(node(
+        resource=f"{package}:id/hyp", klass="android.widget.FrameLayout",
+        clickable="false", bounds="[0,0][720,1184]",
+        children=node(
+            resource=f"{package}:id/mvq", klass="android.widget.LinearLayout",
+            clickable="false", bounds="[0,48][720,658]",
+            children="".join((
+                node(
+                    resource=f"{package}:id/bii",
+                    klass="android.widget.FrameLayout", clickable="false",
+                    bounds="[0,48][720,152]",
+                    children=node(
+                        desc="Back to previous screen",
+                        klass="android.widget.Button", bounds="[16,56][96,144]",
+                    ),
+                ),
+                node(
+                    resource=f"{package}:id/bik",
+                    klass="android.view.ViewGroup", clickable="false",
+                    bounds="[0,152][720,388]", children="".join((
+                        node(
+                            resource=f"{package}:id/ehn", text="Check your email",
+                            klass="android.widget.TextView", clickable="false",
+                            bounds="[64,224][656,300]",
+                        ),
+                        node(
+                            resource=f"{package}:id/eft",
+                            text="Use the link or code sent to redacted destination",
+                            klass="android.widget.TextView", clickable="false",
+                            bounds="[64,316][656,388]",
+                        ),
+                    )),
+                ),
+                node(
+                    resource=f"{package}:id/efn",
+                    klass="android.widget.LinearLayout", clickable="false",
+                    bounds="[0,388][720,658]", children=node(
+                        resource=f"{package}:id/k59",
+                        klass="android.view.ViewGroup", clickable="false",
+                        bounds="[0,388][720,658]", children="".join((
+                            node(
+                                klass="android.widget.EditText",
+                                bounds="[64,436][656,540]", focused="true",
+                            ),
+                            node(
+                                resource=f"{package}:id/k58", text="Resend code",
+                                klass="android.widget.Button",
+                                bounds="[64,568][265,646]",
+                            ) if include_resend else "",
+                        )),
+                    ),
+                ),
+                node(
+                    resource=f"verification-dynamic-{variant}", clickable="false",
+                    bounds="[0,0][0,0]",
+                ) if variant else "",
+            )),
+        ),
     ))
 
 
@@ -836,6 +1137,59 @@ def test_media_permission_overlay_after_gallery_tap_is_operator_required() -> No
     assert retry.taps == []
 
 
+def test_fresh_runtime_immersive_cling_is_a_blocking_overlay() -> None:
+    """Runtime 18's real system overlay must not be mistaken for TikTok UI."""
+    hierarchy = parsed(node(
+        klass="android.widget.RelativeLayout",
+        package="android",
+        clickable="false",
+        bounds="[0,0][720,497]",
+        children="".join((
+            node(
+                resource="android:id/immersive_cling_chevron",
+                klass="android.widget.FrameLayout",
+                package="android",
+                clickable="false",
+                bounds="[284,0][436,104]",
+            ),
+            node(
+                resource="android:id/immersive_cling_title",
+                text="Viewing full screen",
+                klass="android.widget.TextView",
+                package="android",
+                clickable="false",
+                bounds="[0,104][720,249]",
+            ),
+            node(
+                resource="android:id/immersive_cling_description",
+                text="To exit, swipe down from the top.",
+                klass="android.widget.TextView",
+                package="android",
+                clickable="false",
+                bounds="[0,249][720,317]",
+            ),
+            node(
+                resource="android:id/ok",
+                text="GOT IT",
+                klass="android.widget.Button",
+                package="android",
+                bounds="[464,353][640,449]",
+            ),
+        )),
+    ))
+
+    observation = TikTokOverlayResolver().detect(
+        AdbForegroundApp(
+            "com.ss.android.ugc.trill",
+            "com.ss.android.ugc.aweme.journey.NewUserJourneyActivity",
+        ),
+        hierarchy,
+    )
+
+    assert observation.overlay == TikTokOverlay.BLOCKING_MODAL
+    assert observation.permission_kind is None
+
+
 def test_unknown_permission_controller_overlay_remains_uncertain() -> None:
     controller = "com.android.permissioncontroller"
     unknown = parsed(node(package=controller, resource="android:id/content"))
@@ -989,6 +1343,579 @@ def test_open_caption_dispatches_one_next_tap_and_reports_calibration() -> None:
     assert result.selector_key == "editor_next_action"
     assert result.resolution_method == "resource_id"
     assert len(session.taps) == len(dispatched) == 1
+
+
+def test_skip_interests_dispatches_only_skip_once_and_reports_calibration() -> None:
+    before = interests_hierarchy()
+    unknown = parsed(node(resource="successor-root", clickable="false"))
+    session = FakeSession([before, before, unknown])
+    dispatched = []
+    result = action().skip_interests(
+        session, TRILL_44_4_3_INTERESTS_ACTION_V14,
+        expected_package=TRILL_44_4_3_INTERESTS_ACTION_V14.package_name,
+        on_tap_dispatched=dispatched.append,
+    )
+    assert result.screen_before == TikTokScreen.ONBOARDING_INTERESTS
+    assert result.screen_after == TikTokScreen.UNKNOWN
+    assert result.changed is True and result.tap_dispatched is True
+    assert result.calibration_required is True
+    assert result.selector_key == "interests_skip_control"
+    assert result.resolution_method == "resource_id"
+    assert len(session.taps) == len(dispatched) == 1
+    assert session.taps[0].selector_key == "interests_skip_control"
+
+
+def test_skip_interests_rejects_ambiguity_stale_state_and_overlay_without_tap() -> None:
+    ambiguous = FakeSession([interests_hierarchy(duplicate_skip=True)])
+    with pytest.raises(TikTokActionError) as caught:
+        action().skip_interests(
+            ambiguous, TRILL_44_4_3_INTERESTS_ACTION_V14,
+            expected_package=TRILL_44_4_3_INTERESTS_ACTION_V14.package_name,
+        )
+    assert caught.value.code == "TIKTOK_ELEMENT_AMBIGUOUS"
+    assert ambiguous.taps == []
+
+    stale = FakeSession([interests_hierarchy(), interests_hierarchy(variant=1)])
+    with pytest.raises(TikTokActionError) as caught:
+        action().skip_interests(
+            stale, TRILL_44_4_3_INTERESTS_ACTION_V14,
+            expected_package=TRILL_44_4_3_INTERESTS_ACTION_V14.package_name,
+        )
+    assert caught.value.code == "TIKTOK_UI_STATE_UNCERTAIN"
+    assert stale.taps == []
+
+    blocking = parsed(node(
+        package="android", klass="android.widget.FrameLayout",
+        clickable="false", children="".join((
+            node(resource="android:id/immersive_cling_chevron", package="android", clickable="false"),
+            node(resource="android:id/immersive_cling_title", package="android", klass="android.widget.TextView", clickable="false"),
+            node(resource="android:id/immersive_cling_description", package="android", klass="android.widget.TextView", clickable="false"),
+            node(resource="android:id/ok", package="android", klass="android.widget.Button"),
+        )),
+    ))
+    overlaid = FakeSession([blocking])
+    with pytest.raises(TikTokActionError) as caught:
+        action().skip_interests(
+            overlaid, TRILL_44_4_3_INTERESTS_ACTION_V14,
+            expected_package=TRILL_44_4_3_INTERESTS_ACTION_V14.package_name,
+        )
+    assert caught.value.code == "TIKTOK_UI_STATE_UNCERTAIN"
+    assert overlaid.taps == []
+
+
+def test_skip_interests_is_idempotent_at_calibrated_home() -> None:
+    session = FakeSession([home_hierarchy()])
+    result = action().skip_interests(
+        session, TRILL_44_4_3_INTERESTS_ACTION_V14,
+        expected_package=TRILL_44_4_3_INTERESTS_ACTION_V14.package_name,
+    )
+    assert result.screen_before == result.screen_after == TikTokScreen.HOME
+    assert result.changed is False and result.tap_dispatched is False
+    assert result.resolution_method == "calibrated_postcondition"
+    assert session.taps == []
+
+
+def test_open_profile_unknown_destination_fails_closed_after_one_tap() -> None:
+    before = home_hierarchy()
+    unknown = parsed(node(resource="profile-successor-root", clickable="false"))
+    session = FakeSession([before, before, unknown])
+    dispatched = []
+    with pytest.raises(TikTokActionError) as caught:
+        action().open_profile(
+            session, TRILL_44_4_3_PROFILE_ACTION_V15,
+            expected_package=TRILL_44_4_3_PROFILE_ACTION_V15.package_name,
+            on_tap_dispatched=dispatched.append,
+        )
+    assert caught.value.code == "TIKTOK_UI_STATE_UNCERTAIN"
+    assert len(session.taps) == len(dispatched) == 1
+
+
+def test_open_profile_rejects_ambiguity_stale_state_and_overlay_without_tap() -> None:
+    ambiguous = FakeSession([home_hierarchy(duplicate_profile=True)])
+    with pytest.raises(TikTokActionError) as caught:
+        action().open_profile(
+            ambiguous, TRILL_44_4_3_PROFILE_ACTION_V15,
+            expected_package=TRILL_44_4_3_PROFILE_ACTION_V15.package_name,
+        )
+    assert caught.value.code == "TIKTOK_ELEMENT_AMBIGUOUS"
+    assert ambiguous.taps == []
+
+    stale = FakeSession([home_hierarchy(), home_hierarchy(variant=1)])
+    with pytest.raises(TikTokActionError) as caught:
+        action().open_profile(
+            stale, TRILL_44_4_3_PROFILE_ACTION_V15,
+            expected_package=TRILL_44_4_3_PROFILE_ACTION_V15.package_name,
+        )
+    assert caught.value.code == "TIKTOK_UI_STATE_UNCERTAIN"
+    assert stale.taps == []
+
+    blocking = parsed(node(
+        package="android", klass="android.widget.FrameLayout",
+        clickable="false", children="".join((
+            node(resource="android:id/immersive_cling_chevron", package="android", clickable="false"),
+            node(resource="android:id/immersive_cling_title", package="android", klass="android.widget.TextView", clickable="false"),
+            node(resource="android:id/immersive_cling_description", package="android", klass="android.widget.TextView", clickable="false"),
+            node(resource="android:id/ok", package="android", klass="android.widget.Button"),
+        )),
+    ))
+    overlaid = FakeSession([blocking])
+    with pytest.raises(TikTokActionError) as caught:
+        action().open_profile(
+            overlaid, TRILL_44_4_3_PROFILE_ACTION_V15,
+            expected_package=TRILL_44_4_3_PROFILE_ACTION_V15.package_name,
+        )
+    assert caught.value.code == "TIKTOK_UI_STATE_UNCERTAIN"
+    assert overlaid.taps == []
+
+
+def test_logged_in_profile_classifies_and_open_profile_is_idempotent() -> None:
+    hierarchy = profile_hierarchy()
+    assert TikTokScreenResolver().classify(
+        hierarchy, TRILL_44_4_3_PROFILE_V16,
+        TRILL_44_4_3_PROFILE_V16.package_name,
+    ) == TikTokScreen.PROFILE
+    session = FakeSession([hierarchy])
+    result = action().open_profile(
+        session, TRILL_44_4_3_PROFILE_V16,
+        expected_package=TRILL_44_4_3_PROFILE_V16.package_name,
+    )
+    assert result.screen_before == result.screen_after == TikTokScreen.PROFILE
+    assert result.changed is False and result.tap_dispatched is False
+    assert session.taps == []
+
+
+def test_profile_tab_destination_is_state_dependent_and_single_tap() -> None:
+    home = home_hierarchy()
+    logged_in = FakeSession([home, home, profile_hierarchy()])
+    result = action().open_profile(
+        logged_in, TRILL_44_4_3_SIGNUP_METHOD_V17,
+        expected_package=TRILL_44_4_3_SIGNUP_METHOD_V17.package_name,
+    )
+    assert result.screen_before == TikTokScreen.HOME
+    assert result.screen_after == TikTokScreen.PROFILE
+    assert result.changed is True and result.tap_dispatched is True
+    assert len(logged_in.taps) == 1
+
+    logged_out = FakeSession([home, home, signup_method_hierarchy()])
+    result = action().open_profile(
+        logged_out, TRILL_44_4_3_SIGNUP_METHOD_V17,
+        expected_package=TRILL_44_4_3_SIGNUP_METHOD_V17.package_name,
+    )
+    assert result.screen_before == TikTokScreen.HOME
+    assert result.screen_after == TikTokScreen.SIGNUP_METHOD
+    assert result.changed is True and result.tap_dispatched is True
+    assert len(logged_out.taps) == 1
+
+
+def test_signup_method_classifies_and_open_profile_is_idempotent() -> None:
+    resolver = TikTokScreenResolver()
+    hierarchy = signup_method_hierarchy()
+    assert resolver.classify(
+        hierarchy, TRILL_44_4_3_SIGNUP_METHOD_V17,
+        TRILL_44_4_3_SIGNUP_METHOD_V17.package_name,
+    ) == TikTokScreen.SIGNUP_METHOD
+    assert resolver.classify(
+        signup_method_hierarchy(include_email=False),
+        TRILL_44_4_3_SIGNUP_METHOD_V17,
+        TRILL_44_4_3_SIGNUP_METHOD_V17.package_name,
+    ) == TikTokScreen.UNKNOWN
+
+    session = FakeSession([hierarchy])
+    result = action().open_profile(
+        session, TRILL_44_4_3_SIGNUP_METHOD_V17,
+        expected_package=TRILL_44_4_3_SIGNUP_METHOD_V17.package_name,
+    )
+    assert result.screen_before == result.screen_after == TikTokScreen.SIGNUP_METHOD
+    assert result.changed is False and result.tap_dispatched is False
+    assert result.resolution_method == "calibrated_postcondition"
+    assert session.taps == []
+
+
+def test_choose_email_signup_dispatches_exact_semantic_target_once() -> None:
+    before = signup_method_hierarchy()
+    successor = parsed(node(resource="email-successor", clickable="false"))
+    session = FakeSession([before, before, successor])
+    dispatched = []
+    result = action().choose_email_signup(
+        session, TRILL_44_4_3_EMAIL_ACTION_V18,
+        expected_package=TRILL_44_4_3_EMAIL_ACTION_V18.package_name,
+        on_tap_dispatched=dispatched.append,
+    )
+    assert result.screen_before == TikTokScreen.SIGNUP_METHOD
+    assert result.screen_after == TikTokScreen.UNKNOWN
+    assert result.changed is True and result.tap_dispatched is True
+    assert result.calibration_required is True
+    assert result.selector_key == "signup_email_method"
+    assert result.resolution_method == "content_description"
+    assert len(session.taps) == len(dispatched) == 1
+    assert session.taps[0].bounds.left == 56
+    assert session.taps[0].bounds.top == 830
+
+
+def test_choose_email_signup_fails_closed_before_dispatch() -> None:
+    ambiguous = FakeSession([signup_method_hierarchy(duplicate_email=True)])
+    with pytest.raises(TikTokActionError) as caught:
+        action().choose_email_signup(
+            ambiguous, TRILL_44_4_3_EMAIL_ACTION_V18,
+            expected_package=TRILL_44_4_3_EMAIL_ACTION_V18.package_name,
+        )
+    assert caught.value.code == "TIKTOK_ELEMENT_AMBIGUOUS"
+    assert ambiguous.taps == []
+
+    stale = FakeSession([
+        signup_method_hierarchy(), signup_method_hierarchy(variant=1),
+    ])
+    with pytest.raises(TikTokActionError) as caught:
+        action().choose_email_signup(
+            stale, TRILL_44_4_3_EMAIL_ACTION_V18,
+            expected_package=TRILL_44_4_3_EMAIL_ACTION_V18.package_name,
+        )
+    assert caught.value.code == "TIKTOK_UI_STATE_UNCERTAIN"
+    assert stale.taps == []
+
+    blocking = parsed(node(
+        package="android", klass="android.widget.FrameLayout",
+        clickable="false", children="".join((
+            node(resource="android:id/immersive_cling_chevron", package="android", clickable="false"),
+            node(resource="android:id/immersive_cling_title", package="android", klass="android.widget.TextView", clickable="false"),
+            node(resource="android:id/immersive_cling_description", package="android", klass="android.widget.TextView", clickable="false"),
+            node(resource="android:id/ok", package="android", klass="android.widget.Button"),
+        )),
+    ))
+    overlaid = FakeSession([blocking])
+    with pytest.raises(TikTokActionError) as caught:
+        action().choose_email_signup(
+            overlaid, TRILL_44_4_3_EMAIL_ACTION_V18,
+            expected_package=TRILL_44_4_3_EMAIL_ACTION_V18.package_name,
+        )
+    assert caught.value.code == "TIKTOK_UI_STATE_UNCERTAIN"
+    assert overlaid.taps == []
+
+
+def test_email_entry_classifies_and_choose_email_is_idempotent() -> None:
+    resolver = TikTokScreenResolver()
+    hierarchy = email_entry_hierarchy()
+    assert resolver.classify(
+        hierarchy, TRILL_44_4_3_EMAIL_ENTRY_V20,
+        TRILL_44_4_3_EMAIL_ENTRY_V20.package_name,
+    ) == TikTokScreen.EMAIL_ENTRY
+    assert resolver.classify(
+        email_entry_hierarchy(include_input=False),
+        TRILL_44_4_3_EMAIL_ENTRY_V20,
+        TRILL_44_4_3_EMAIL_ENTRY_V20.package_name,
+    ) == TikTokScreen.UNKNOWN
+
+    transition = FakeSession([
+        signup_method_hierarchy(), signup_method_hierarchy(), hierarchy,
+    ])
+    result = action().choose_email_signup(
+        transition, TRILL_44_4_3_EMAIL_ENTRY_V20,
+        expected_package=TRILL_44_4_3_EMAIL_ENTRY_V20.package_name,
+    )
+    assert result.screen_before == TikTokScreen.SIGNUP_METHOD
+    assert result.screen_after == TikTokScreen.EMAIL_ENTRY
+    assert result.changed is True and result.tap_dispatched is True
+    assert result.calibration_required is False
+    assert len(transition.taps) == 1
+
+    already = FakeSession([hierarchy])
+    result = action().choose_email_signup(
+        already, TRILL_44_4_3_EMAIL_ENTRY_V20,
+        expected_package=TRILL_44_4_3_EMAIL_ENTRY_V20.package_name,
+    )
+    assert result.screen_before == result.screen_after == TikTokScreen.EMAIL_ENTRY
+    assert result.changed is False and result.tap_dispatched is False
+    assert already.taps == []
+
+    actionable = {
+        selector.key for selector in TRILL_44_4_3_EMAIL_ENTRY_V20.selectors
+        if selector.actionable
+    }
+    assert "signup_email_method" in actionable
+    assert not {"signup_phone_input", "signup_continue", "signup_login_entry"} & actionable
+
+
+def test_set_registration_email_replaces_and_verifies_without_continue() -> None:
+    requested = "phase2e@example.com"
+    before = email_entry_hierarchy()
+    after = email_entry_hierarchy(
+        field_text=requested, continue_enabled=True,
+    )
+    session = FakeSession([before, before, after], keyboards=[True])
+    result = action().set_registration_email(
+        session, TRILL_44_4_3_EMAIL_INPUT_V21,
+        expected_package=TRILL_44_4_3_EMAIL_INPUT_V21.package_name,
+        email=requested,
+    )
+    assert result.screen_before == result.screen_after == TikTokScreen.EMAIL_ENTRY
+    assert result.changed is True and result.verification is True
+    assert result.email_length == len(requested)
+    assert result.continue_enabled is True
+    assert requested not in repr(result)
+    assert len(session.focuses) == 1
+    assert session.replacements == [(len("Email address"), requested)]
+    assert session.taps == [] and session.back_count == 0
+
+
+def test_set_registration_email_is_idempotent_without_input_dispatch() -> None:
+    requested = "phase2e@example.com"
+    hierarchy = email_entry_hierarchy(
+        field_text=requested, continue_enabled=True,
+    )
+    session = FakeSession([hierarchy])
+    result = action().set_registration_email(
+        session, TRILL_44_4_3_EMAIL_INPUT_V21,
+        expected_package=TRILL_44_4_3_EMAIL_INPUT_V21.package_name,
+        email=requested,
+    )
+    assert result.changed is False and result.verification is True
+    assert result.continue_enabled is True
+    assert session.focuses == [] and session.replacements == []
+    assert session.taps == []
+
+
+def test_set_registration_email_fails_closed_on_field_or_state_change() -> None:
+    missing = FakeSession([email_entry_hierarchy(include_input=False)])
+    with pytest.raises(TikTokActionError) as caught:
+        action().set_registration_email(
+            missing, TRILL_44_4_3_EMAIL_INPUT_V21,
+            expected_package=TRILL_44_4_3_EMAIL_INPUT_V21.package_name,
+            email="phase2e@example.com",
+        )
+    assert caught.value.code == "TIKTOK_UNKNOWN_SCREEN"
+    assert missing.focuses == [] and missing.replacements == []
+
+    ambiguous = FakeSession([email_entry_hierarchy(duplicate_input=True)])
+    with pytest.raises(TikTokActionError) as caught:
+        action().set_registration_email(
+            ambiguous, TRILL_44_4_3_EMAIL_INPUT_V21,
+            expected_package=TRILL_44_4_3_EMAIL_INPUT_V21.package_name,
+            email="phase2e@example.com",
+        )
+    assert caught.value.code == "TIKTOK_ELEMENT_AMBIGUOUS"
+    assert ambiguous.focuses == [] and ambiguous.replacements == []
+
+    stale = FakeSession([
+        email_entry_hierarchy(), email_entry_hierarchy(variant=1),
+    ])
+    with pytest.raises(TikTokActionError) as caught:
+        action().set_registration_email(
+            stale, TRILL_44_4_3_EMAIL_INPUT_V21,
+            expected_package=TRILL_44_4_3_EMAIL_INPUT_V21.package_name,
+            email="phase2e@example.com",
+        )
+    assert caught.value.code == "TIKTOK_UI_STATE_UNCERTAIN"
+    assert stale.focuses == [] and stale.replacements == []
+
+    blocking = parsed(node(
+        package="android", klass="android.widget.FrameLayout",
+        clickable="false", children="".join((
+            node(resource="android:id/immersive_cling_chevron", package="android", clickable="false"),
+            node(resource="android:id/immersive_cling_title", package="android", klass="android.widget.TextView", clickable="false"),
+            node(resource="android:id/immersive_cling_description", package="android", klass="android.widget.TextView", clickable="false"),
+            node(resource="android:id/ok", package="android", klass="android.widget.Button"),
+        )),
+    ))
+    overlaid = FakeSession([blocking])
+    with pytest.raises(TikTokActionError) as caught:
+        action().set_registration_email(
+            overlaid, TRILL_44_4_3_EMAIL_INPUT_V21,
+            expected_package=TRILL_44_4_3_EMAIL_INPUT_V21.package_name,
+            email="phase2e@example.com",
+        )
+    assert caught.value.code == "TIKTOK_UI_STATE_UNCERTAIN"
+    assert overlaid.focuses == [] and overlaid.replacements == []
+
+
+def test_set_registration_email_verification_mismatch_is_terminal() -> None:
+    before = email_entry_hierarchy()
+    mismatch = email_entry_hierarchy(field_text="wrong@example.com")
+    session = FakeSession([before, before, mismatch], keyboards=[True])
+    with pytest.raises(TikTokActionError) as caught:
+        action(
+            timeout_seconds=0.1,
+            monotonic=iter((0.0, 1.0)).__next__,
+        ).set_registration_email(
+            session, TRILL_44_4_3_EMAIL_INPUT_V21,
+            expected_package=TRILL_44_4_3_EMAIL_INPUT_V21.package_name,
+            email="phase2e@example.com",
+        )
+    assert caught.value.code == "TIKTOK_EMAIL_VERIFICATION_FAILED"
+    assert len(session.focuses) == 1 and len(session.replacements) == 1
+    assert session.taps == []
+
+
+def test_continue_registration_email_verifies_then_taps_exactly_once() -> None:
+    requested = "phase2f@example.com"
+    ready = email_entry_hierarchy(
+        field_text=requested, continue_enabled=True,
+    )
+    successor = parsed(node(
+        resource="com.ss.android.ugc.trill:id/unknown-successor",
+        klass="android.widget.FrameLayout", clickable="false",
+        bounds="[0,0][720,1184]",
+    ))
+    session = FakeSession([ready, ready, successor])
+    result = action().continue_registration_email(
+        session, TRILL_44_4_3_EMAIL_CONTINUE_V22,
+        expected_package=TRILL_44_4_3_EMAIL_CONTINUE_V22.package_name,
+        email=requested,
+    )
+    assert result.screen_before == TikTokScreen.EMAIL_ENTRY
+    assert result.screen_after == TikTokScreen.UNKNOWN
+    assert result.changed is True and result.tap_dispatched is True
+    assert result.calibration_required is True
+    assert result.selector_key == "email_continue"
+    assert result.resolution_method == "resource_id"
+    assert len(session.taps) == 1
+
+
+def test_email_verification_is_calibrated_and_continue_is_idempotent() -> None:
+    hierarchy = email_verification_hierarchy()
+    assert TikTokScreenResolver().classify(
+        hierarchy, TRILL_44_4_3_EMAIL_VERIFICATION_V23,
+        TRILL_44_4_3_EMAIL_VERIFICATION_V23.package_name,
+    ) == TikTokScreen.VERIFICATION_REQUIRED
+    assert TikTokScreenResolver().classify(
+        email_verification_hierarchy(include_resend=False),
+        TRILL_44_4_3_EMAIL_VERIFICATION_V23,
+        TRILL_44_4_3_EMAIL_VERIFICATION_V23.package_name,
+    ) == TikTokScreen.VERIFICATION_REQUIRED
+
+    ready = email_entry_hierarchy(
+        field_text="phase2f@example.com", continue_enabled=True,
+    )
+    transition = FakeSession([ready, ready, hierarchy])
+    result = action().continue_registration_email(
+        transition, TRILL_44_4_3_EMAIL_VERIFICATION_V23,
+        expected_package=TRILL_44_4_3_EMAIL_VERIFICATION_V23.package_name,
+        email="phase2f@example.com",
+    )
+    assert result.screen_after == TikTokScreen.VERIFICATION_REQUIRED
+    assert result.changed is True and result.tap_dispatched is True
+    assert result.calibration_required is False
+    assert len(transition.taps) == 1
+
+    already = FakeSession([hierarchy])
+    result = action().continue_registration_email(
+        already, TRILL_44_4_3_EMAIL_VERIFICATION_V23,
+        expected_package=TRILL_44_4_3_EMAIL_VERIFICATION_V23.package_name,
+        email="phase2f@example.com",
+    )
+    assert result.screen_before == result.screen_after == TikTokScreen.VERIFICATION_REQUIRED
+    assert result.changed is False and result.tap_dispatched is False
+    assert already.taps == []
+
+
+def test_email_verification_requires_multiple_stable_signals() -> None:
+    package = "com.ss.android.ugc.trill"
+    title_only = parsed(node(
+        resource=f"{package}:id/ehn", text="Check your email",
+        klass="android.widget.TextView", clickable="false",
+    ))
+    assert TikTokScreenResolver().classify(
+        title_only, TRILL_44_4_3_EMAIL_VERIFICATION_V23,
+        TRILL_44_4_3_EMAIL_VERIFICATION_V23.package_name,
+    ) == TikTokScreen.UNKNOWN
+
+
+@pytest.mark.parametrize(
+    ("hierarchy", "expected_code"),
+    [
+        (
+            email_entry_hierarchy(
+                field_text="wrong@example.com", continue_enabled=True,
+            ),
+            "TIKTOK_REGISTRATION_EMAIL_MISMATCH",
+        ),
+        (
+            email_entry_hierarchy(
+                field_text="phase2f@example.com", continue_enabled=False,
+            ),
+            "TIKTOK_REGISTRATION_CONTINUE_DISABLED",
+        ),
+        (
+            email_entry_hierarchy(
+                field_text="phase2f@example.com", continue_enabled=True,
+                duplicate_continue=True,
+            ),
+            "TIKTOK_ELEMENT_AMBIGUOUS",
+        ),
+    ],
+)
+def test_continue_registration_email_fails_closed_before_dispatch(
+    hierarchy, expected_code: str,
+) -> None:
+    session = FakeSession([hierarchy])
+    with pytest.raises(TikTokActionError) as caught:
+        action().continue_registration_email(
+            session, TRILL_44_4_3_EMAIL_CONTINUE_V22,
+            expected_package=TRILL_44_4_3_EMAIL_CONTINUE_V22.package_name,
+            email="phase2f@example.com",
+        )
+    assert caught.value.code == expected_code
+    assert session.taps == []
+
+
+def test_continue_registration_email_rejects_missing_stale_and_overlay_state() -> None:
+    requested = "phase2f@example.com"
+    missing = FakeSession([email_entry_hierarchy(
+        field_text=requested, continue_enabled=True, include_continue=False,
+    )])
+    with pytest.raises(TikTokActionError) as caught:
+        action().continue_registration_email(
+            missing, TRILL_44_4_3_EMAIL_CONTINUE_V22,
+            expected_package=TRILL_44_4_3_EMAIL_CONTINUE_V22.package_name,
+            email=requested,
+        )
+    assert caught.value.code == "TIKTOK_ELEMENT_NOT_FOUND"
+    assert missing.taps == []
+
+    stale = FakeSession([
+        email_entry_hierarchy(field_text=requested, continue_enabled=True),
+        email_entry_hierarchy(
+            field_text=requested, continue_enabled=True, variant=1,
+        ),
+    ])
+    with pytest.raises(TikTokActionError) as caught:
+        action().continue_registration_email(
+            stale, TRILL_44_4_3_EMAIL_CONTINUE_V22,
+            expected_package=TRILL_44_4_3_EMAIL_CONTINUE_V22.package_name,
+            email=requested,
+        )
+    assert caught.value.code == "TIKTOK_UI_STATE_UNCERTAIN"
+    assert stale.taps == []
+
+    blocking = parsed(node(
+        package="android", klass="android.widget.FrameLayout",
+        clickable="false", children="".join((
+            node(resource="android:id/immersive_cling_chevron", package="android", clickable="false"),
+            node(resource="android:id/immersive_cling_title", package="android", klass="android.widget.TextView", clickable="false"),
+            node(resource="android:id/immersive_cling_description", package="android", klass="android.widget.TextView", clickable="false"),
+            node(resource="android:id/ok", package="android", klass="android.widget.Button"),
+        )),
+    ))
+    overlaid = FakeSession([blocking])
+    with pytest.raises(TikTokActionError) as caught:
+        action().continue_registration_email(
+            overlaid, TRILL_44_4_3_EMAIL_CONTINUE_V22,
+            expected_package=TRILL_44_4_3_EMAIL_CONTINUE_V22.package_name,
+            email=requested,
+        )
+    assert caught.value.code == "TIKTOK_UI_STATE_UNCERTAIN"
+    assert overlaid.taps == []
+
+
+def test_profile_classifier_tolerates_account_content_but_requires_core_signals() -> None:
+    resolver = TikTokScreenResolver()
+    assert resolver.classify(
+        profile_hierarchy(account_variant=7), TRILL_44_4_3_PROFILE_V16,
+        TRILL_44_4_3_PROFILE_V16.package_name,
+    ) == TikTokScreen.PROFILE
+    assert resolver.classify(
+        profile_hierarchy(include_menu=False), TRILL_44_4_3_PROFILE_V16,
+        TRILL_44_4_3_PROFILE_V16.package_name,
+    ) == TikTokScreen.UNKNOWN
 
 
 def test_open_caption_fails_closed_when_snapshot_changes_before_tap() -> None:

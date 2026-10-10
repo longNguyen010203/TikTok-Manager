@@ -71,12 +71,81 @@ def test_fresh_device_entry_routes_directly_only_after_calibration() -> None:
     assert routed.mutation_allowed is False  # Action itself is not calibrated yet.
 
 
+def test_fresh_terms_gate_is_calibrated_but_consent_mutation_remains_disabled() -> None:
+    routed = RegistrationEntryRouter().route(
+        observation(RegistrationUiState.TERMS_CONSENT)
+    )
+    assert routed.entry_path == RegistrationEntryPath.FRESH_DIRECT
+    assert routed.phase == RegistrationWorkflowPhase.ENTERING_CANONICAL_FLOW
+    assert routed.next_action_key == "registration.accept_terms"
+    assert routed.mutation_allowed is False
+    assert routed.waiting_reason == "action_calibration_required"
+
+
+def test_post_terms_interests_routes_to_live_calibrated_skip_mutation() -> None:
+    routed = RegistrationEntryRouter().route(
+        observation(RegistrationUiState.ONBOARDING_INTERESTS)
+    )
+    assert routed.entry_path == RegistrationEntryPath.FRESH_DIRECT
+    assert routed.phase == RegistrationWorkflowPhase.ENTERING_CANONICAL_FLOW
+    assert routed.next_action_key == "registration.skip_interests"
+    assert routed.mutation_allowed is True
+    assert routed.waiting_reason is None
+    assert RegistrationEntryRouter().can_schedule_mutation(
+        routed, RegistrationMutationState()
+    ) is True
+
+
 def test_existing_account_home_uses_distinct_entry_path() -> None:
     routed = RegistrationEntryRouter().route(observation(RegistrationUiState.HOME))
     assert routed.entry_path == RegistrationEntryPath.EXISTING_SESSION
     assert routed.next_action_key == "registration.open_profile"
+    assert routed.mutation_allowed is True
+    assert routed.waiting_reason is None
+    assert RegistrationEntryRouter().can_schedule_mutation(
+        routed, RegistrationMutationState()
+    ) is True
+
+
+def test_logged_out_profile_tab_destination_is_canonical_convergence() -> None:
+    routed = RegistrationEntryRouter().route(
+        observation(RegistrationUiState.SIGNUP_METHOD)
+    )
+    assert routed.entry_path == RegistrationEntryPath.FRESH_DIRECT
+    assert routed.phase == RegistrationWorkflowPhase.ENTERING_CANONICAL_FLOW
+    assert routed.next_action_key == "registration.choose_email_signup"
+    assert routed.mutation_allowed is True
+    profile_action = next(
+        item for item in REGISTRATION_ACTION_BOUNDARIES
+        if item.key == "registration.open_profile"
+    )
+    assert profile_action.target_states == (
+        RegistrationUiState.PROFILE, RegistrationUiState.SIGNUP_METHOD,
+    )
+
+
+def test_email_entry_is_calibrated_resume_without_credential_mutation() -> None:
+    routed = RegistrationEntryRouter().route(
+        observation(RegistrationUiState.EMAIL_ENTRY)
+    )
+    assert routed.entry_path == RegistrationEntryPath.RESUME_INTERMEDIATE
+    assert routed.phase == RegistrationWorkflowPhase.IN_CANONICAL_FLOW
+    assert routed.next_action_key is None
     assert routed.mutation_allowed is False
-    assert routed.waiting_reason == "action_calibration_required"
+    email_action = next(
+        item for item in REGISTRATION_ACTION_BOUNDARIES
+        if item.key == "registration.choose_email_signup"
+    )
+    assert email_action.source_states == (RegistrationUiState.SIGNUP_METHOD,)
+    assert email_action.target_states == (RegistrationUiState.EMAIL_ENTRY,)
+    set_email = next(
+        item for item in REGISTRATION_ACTION_BOUNDARIES
+        if item.key == "registration.set_email"
+    )
+    assert set_email.source_states == set_email.target_states == (
+        RegistrationUiState.EMAIL_ENTRY,
+    )
+    assert set_email.required_secret_type is None
 
 
 def test_resume_from_calibrated_intermediate_state_never_replays_entry() -> None:

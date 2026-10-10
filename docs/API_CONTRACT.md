@@ -1190,9 +1190,75 @@ The safe result contains only screen, foreground package, profile identity and
 fingerprint, node count, display category, and `changed=false`. Raw XML, node
 text, screenshots, ADB output, selectors, and paths are never returned. There
 is no public endpoint for raw UI primitives or caller-defined selectors.
-Login/signup/challenge activities are intentionally returned as `UNKNOWN`;
-they do not authorize navigation or account automation. Unsupported screens
-remain non-actionable.
+Uncalibrated login/signup/challenge activities are returned as `UNKNOWN` and
+do not authorize navigation or account automation. Testing profile v12
+recognizes the observed fresh-install `TERMS_CONSENT` screen, but its
+`Agree and continue` control is observational only and no mutation endpoint is
+exposed. Unsupported screens remain non-actionable.
+
+Testing profile v13 additionally recognizes the observed post-terms
+`ONBOARDING_INTERESTS` screen. Testing profile v14 preserves that classifier
+and authorizes only the observed unique `Skip` control; interest tiles and the
+disabled `Next (0)` control remain non-actionable.
+
+`POST /runtimes/{runtime_id}/tiktok/skip-interests` accepts only
+`{"managed_app_id": N}` and creates the server-owned, one-attempt
+`tiktok.skip_interests` Job. The action requires two matching fresh semantic
+observations, an overlay-free `ONBOARDING_INTERESTS` state, and the unique
+profile-owned Skip selector while holding the exact Runtime lock. It never
+selects an interest or activates Next. HOME is the calibrated idempotent
+successor: invoking the action there returns `changed=false` without a tap.
+After dispatch, an unrecognized successor is reported as calibration-required
+and is never replayed automatically.
+
+`POST /runtimes/{runtime_id}/tiktok/open-profile` accepts only
+`{"managed_app_id": N}` and creates the server-owned, one-attempt
+`tiktok.open_profile` Job. It requires overlay-free HOME, two matching fresh
+semantic observations, and the unique profile-owned bottom Profile tab. It
+accepts no selector, coordinate, package, or navigation command. The calibrated
+destination is session-dependent: a logged-in session reaches `PROFILE`, while
+a logged-out session reaches `SIGNUP_METHOD`. The endpoint name is retained for
+compatibility and means activate Profile tab, not guarantee a PROFILE screen.
+Invoking it while already at either calibrated destination returns
+`changed=false` and `tap_dispatched=false`; an unknown destination fails closed
+as `TIKTOK_UI_STATE_UNCERTAIN` and is never replayed automatically.
+
+Testing profile v17 recognizes the observed logged-out `SIGNUP_METHOD` surface
+from distinct scene/content/phone roots plus title, phone-input, and email-method
+signals. Continue, Log in, and Close are reinforcing observations only. No
+registration method or field mutation is exposed by this contract.
+
+`POST /runtimes/{runtime_id}/tiktok/choose-email-signup` accepts only
+`{"managed_app_id": N}` and creates a one-attempt server-owned Job. From
+`SIGNUP_METHOD`, it resolves only the unique observed `Continue with Email`
+semantic child, requires two matching observations under the exact Runtime
+lock, and dispatches one tap. It accepts no email, password, phone value,
+provider, selector, coordinate, package, key event, or ADB command. The only
+calibrated successor is `EMAIL_ENTRY`; invoking it there is a zero-tap
+idempotent success. It never enters or submits credentials.
+
+`POST /runtimes/{runtime_id}/tiktok/set-registration-email` accepts only
+`{"managed_app_id": N, "account_id": N}`. The Account must exist, be assigned
+to the exact Runtime, and contain a canonically normalized email. The Job
+payload persists IDs only; execution resolves the email from the Account row
+inside the typed boundary. Results expose account ID, email length,
+verification, and Continue-enabled state but never the email value. Job logs
+may contain length and SHA-256 only. The action focuses the single profile-owned
+EditText, replaces and verifies it, and does not activate Continue, phone,
+Login, save-login, or any other control.
+
+`POST /runtimes/{runtime_id}/tiktok/continue-registration-email` accepts only
+`{"managed_app_id": N, "account_id": N}`. The Account and Runtime binding
+rules are identical to email entry. The one-attempt Job resolves the canonical
+email server-side, verifies exact equality in the calibrated field, requires
+the unique profile-owned Continue button to be enabled across two identical
+fresh observations, and dispatches exactly one tap. It accepts and persists no
+email, password, secret, selector, coordinate, or input command. A resulting
+email-link/code screen is returned as `VERIFICATION_REQUIRED`; invoking the
+action there is a zero-tap idempotent result. The operator must complete that
+checkpoint manually. Stable pre-dispatch failures include
+`TIKTOK_REGISTRATION_EMAIL_MISMATCH` and
+`TIKTOK_REGISTRATION_CONTINUE_DISABLED`.
 
 Testing profile v2 recognizes the calibrated English-locale HOME screen for
 `com.ss.android.ugc.trill` 44.4.3 from multiple observed navigation signals.

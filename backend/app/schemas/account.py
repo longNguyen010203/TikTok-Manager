@@ -38,6 +38,24 @@ def _normalize_username(value: str | None) -> str | None:
     return normalized
 
 
+def normalize_account_email(value: str | None) -> str | None:
+    """Canonical Account email normalization shared by API and typed actions."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("email is invalid")
+    normalized = value.strip().lower()
+    if (
+        not normalized
+        or len(normalized) > 320
+        or normalized.count("@") != 1
+        or normalized.startswith("@")
+        or normalized.endswith("@")
+    ):
+        raise ValueError("email is invalid")
+    return normalized
+
+
 def _normalize_tags(values: list[str]) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
@@ -88,16 +106,7 @@ class AccountCreate(BaseModel):
     @field_validator("email", mode="before")
     @classmethod
     def normalize_email(cls, value: Any) -> Any:
-        if not isinstance(value, str):
-            return value
-        normalized = value.strip().lower()
-        if (
-            normalized.count("@") != 1
-            or normalized.startswith("@")
-            or normalized.endswith("@")
-        ):
-            raise ValueError("email is invalid")
-        return normalized
+        return normalize_account_email(value)
 
     @field_validator("tags")
     @classmethod
@@ -150,18 +159,7 @@ class AccountUpdate(BaseModel):
     @field_validator("email", mode="before")
     @classmethod
     def normalize_email(cls, value: Any) -> Any:
-        if value is None:
-            return None
-        if not isinstance(value, str):
-            return value
-        normalized = value.strip().lower()
-        if (
-            normalized.count("@") != 1
-            or normalized.startswith("@")
-            or normalized.endswith("@")
-        ):
-            raise ValueError("email is invalid")
-        return normalized
+        return normalize_account_email(value)
 
     @field_validator("tags")
     @classmethod

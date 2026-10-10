@@ -488,6 +488,63 @@ repository definition and fingerprint; stable scene, bottom-action, Next, and
 tool-list structure is calibrated while dynamic preview nodes remain excluded.
 Earlier Jobs retain their exact previously pinned profile generation.
 
+Migration `20261007_0036` appends testing profile version 12 for the observed
+fresh-install `TERMS_CONSENT` hierarchy on Runtime 18. The profile recognizes
+the terms scene, content, title, and consent control from exact resource IDs;
+the consent control remains non-actionable. Profiles v1-v11 remain immutable.
+
+Migration `20261007_0037` appends testing profile version 13 for Runtime 18's
+observed post-terms `ONBOARDING_INTERESTS` screen. It pins exact scene, grid,
+title, action-region, Skip, and reinforcing interest-tile definitions. Skip
+remains non-actionable and profile v12 remains available to pinned Jobs.
+
+Migration `20261007_0038` appends testing profile version 14. It preserves the
+v13 screen definition and authorizes only the exact observed Skip control for
+the typed `tiktok.skip_interests` transition. Interest tiles and Next remain
+non-actionable; older profile generations remain immutable for pinned Jobs.
+
+Migration `20261007_0039` appends testing profile version 15 and authorizes
+only the exact observed HOME Profile tab for `tiktok.open_profile`.
+
+Migration `20261007_0040` appends testing profile version 16 for Runtime 17's
+logged-in PROFILE hierarchy. Stable scene/content/header/menu signals classify
+PROFILE independently from HOME; display name, handle, and metrics remain
+reinforcing or dynamic rather than immutable identity data.
+
+Migration `20261007_0041` appends testing profile version 17 for Runtime 18's
+observed logged-out `SIGNUP_METHOD` hierarchy. Stable scene/content/phone
+containers, title, phone input, and email-method signals classify the state;
+Continue, Log in, and Close remain non-actionable reinforcing observations.
+The profile retains v15's exact Profile-tab selector, so one typed action may
+truthfully converge to either PROFILE or SIGNUP_METHOD without changing older
+pinned profile generations.
+
+Migration `20261007_0042` appends testing profile version 18 and authorizes
+only the observed `Continue with Email` semantic child for the typed,
+one-attempt email-method transition. Phone, generic Continue, Log in, Close,
+and Report controls remain non-actionable.
+
+Migration `20261007_0043` preserves the first immutable EMAIL_ENTRY
+calibration. Its initial live check exposed that UIAutomator reports the empty
+email label as node text rather than content-description. Migration
+`20261007_0044` therefore appends corrected testing profile version 20 instead
+of rewriting v19. Version 20 classifies EMAIL_ENTRY using exact root, scene,
+header, title, form, and email-input signals.
+
+Migration `20261007_0045` appends testing profile version 21. It authorizes the
+single observed email EditText by calibrated class/ancestor structure so the
+screen remains resolvable after its dynamic text changes. No schema or Account
+data changes are made; Account email remains canonical source data while
+registration Jobs store only Account/Runtime/profile identifiers.
+
+Migration `20261007_0046` appends testing profile version 22 and authorizes
+only the observed `email_continue` button for the typed, one-attempt Continue
+boundary. Migration `20261007_0047` appends testing profile version 23 for the
+observed email-link/code checkpoint. The classifier uses stable container,
+title, message-node, code-container, and Resend identities; dynamic text that
+contains the Account email is neither stored in the profile nor exposed by
+the action result. Both migrations add profile metadata only.
+
 Migration `20261007_0029` appends testing profile version 6. It preserves v5
 and changes only the observed editor Next selector to action-authorized for the
 one-attempt `tiktok.open_caption` boundary.
