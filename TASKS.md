@@ -1001,7 +1001,7 @@ Create Account record
 → Save/update credentials
 → Mark Account as Registered
 → Account becomes eligible for downstream automation
-
+ 
 Scope:
 - explicit manual-registration lifecycle
 - registration readiness/status in Account Control Center
@@ -1017,4 +1017,4 @@ Out of scope:
 - OTP automation
 - CAPTCHA automation
 - identity verification automation
-- automated email verification
+- automated email verification  

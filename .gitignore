@@ -2,3 +2,5 @@
 # Python cache
 __pycache__/
 *.py[cod]
+.venv
+tiktok_manager_worker.egg-info
