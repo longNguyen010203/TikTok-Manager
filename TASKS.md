@@ -1017,7 +1017,6 @@ Out of scope:
 - OTP automation
 - CAPTCHA automation
 - identity verification automation
-<<<<<<< HEAD
 - automated email verification
 
 Phase 1 backend completion:
@@ -1030,15 +1029,14 @@ Phase 1 backend completion:
   `20261010_0048`; existing Account IDs and bindings are preserved.
 - Keeps the TIK-026 registration state machine/calibration implementation
   intact and deferred.
-=======
-- automated email verification  
->>>>>>> main
 
 ---
 
 ## TIK-025C — System Topology Dashboard
 
 Status: IN PROGRESS
+
+Phase 1 backend status: DONE
 
 Goal:
 Replace the placeholder Dashboard with an interactive topology map that gives
@@ -1075,3 +1073,13 @@ Out of scope for MVP:
 - Publishing sessions as nodes
 - workflow editing on canvas
 - arbitrary graph mutations
+
+Phase 1 backend completion:
+- Adds read-only `GET /dashboard/topology` over canonical Device, Runtime, and
+  non-archived Account rows.
+- Returns normalized namespaced nodes, canonical relationship edges, summary
+  counters, and disconnected nodes for unassigned entities.
+- Uses the canonical Account registration readiness projection and exposes only
+  secret presence, never secret types, ciphertext, or values.
+- Uses deterministic ordering and four bounded queries without pagination,
+  caching, or graph persistence.

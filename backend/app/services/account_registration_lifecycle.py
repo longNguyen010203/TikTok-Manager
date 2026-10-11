@@ -10,12 +10,16 @@ from app.schemas.account import AccountRegistrationComplete
 USABLE_ACCOUNT_STATUSES = frozenset({"active"})
 
 
-def registration_ready(account: Account) -> bool:
+def registration_ready(
+    account: Account, *, runtime_exists: bool | None = None
+) -> bool:
     """Return whether an Account is safe to select for downstream automation."""
+    if runtime_exists is None:
+        runtime_exists = account.runtime is not None
     return (
         account.registration_state == "registered"
         and account.runtime_id is not None
-        and account.runtime is not None
+        and runtime_exists
         and account.archived_at is None
         and account.status in USABLE_ACCOUNT_STATUSES
     )

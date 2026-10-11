@@ -170,6 +170,14 @@ Manager host lifecycle:
   Account lifecycle, and non-archival. It intentionally does not require a
   password, health state, or running Runtime, and does not change historical
   Job/Workflow/Publishing bindings.
+- The TIK-025C Dashboard topology is a fresh read-only projection over the
+  canonical Device, Runtime, and visible Account tables. It emits normalized
+  namespaced nodes and relationship-derived `hosts`/`assigned` edges without
+  introducing graph persistence. Devices and Runtimes are always included;
+  Accounts follow the registry's soft-archive visibility rule. Unassigned
+  entities remain as disconnected nodes. Registration readiness uses the same
+  backend policy as Account responses, and secret metadata is reduced to a
+  presence boolean queried without loading encrypted values.
 - Account registration is designed as a state-driven Workflow controller above
   typed Jobs, not a fixed tap sequence. A fresh login/signup entry and an
   existing-session HOME/PROFILE entry converge only after each screen/action is

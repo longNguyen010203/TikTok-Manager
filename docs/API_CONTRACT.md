@@ -330,6 +330,109 @@ Any legacy write to `registered` now enforces the same archive and Runtime
 invariants as the typed completion operation. New clients should use the typed
 operations.
 
+## Dashboard system topology
+
+- Method: `GET`
+- Path: `/dashboard/topology`
+- Request body: none
+- Query parameters: none; this endpoint is not paginated
+- Success: `200 OK`
+
+```json
+{
+  "generated_at": "2026-10-11T10:00:00Z",
+  "summary": {
+    "devices": 1,
+    "runtimes": 1,
+    "accounts": 1,
+    "ready_accounts": 1,
+    "not_ready_accounts": 0,
+    "attention_accounts": 0
+  },
+  "nodes": [
+    {
+      "id": "device:7",
+      "type": "device",
+      "entity_id": 7,
+      "label": "Redroid Device 07",
+      "status": "online",
+      "metadata": {
+        "name": "Redroid Device 07",
+        "status": "online",
+        "platform": "android",
+        "device_type": "virtual",
+        "os_version": "15",
+        "runtime_count": 1
+      }
+    },
+    {
+      "id": "runtime:31",
+      "type": "runtime",
+      "entity_id": 31,
+      "label": "redroid-runtime-31",
+      "status": "running",
+      "metadata": {
+        "name": "redroid-runtime-31",
+        "status": "running",
+        "runtime_type": "redroid",
+        "device_id": 7,
+        "assigned_account_count": 1,
+        "last_seen_at": null
+      }
+    },
+    {
+      "id": "account:9",
+      "type": "account",
+      "entity_id": 9,
+      "label": "Manual Test 01",
+      "status": "active",
+      "metadata": {
+        "display_name": "Manual Test 01",
+        "status": "active",
+        "registration_state": "registered",
+        "registration_ready": true,
+        "registration_completed_at": "2026-10-11T09:30:00Z",
+        "health_status": "healthy",
+        "username": "manualtest01",
+        "runtime_id": 31,
+        "device_id": 7,
+        "secret_present": true
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "device:7->runtime:31",
+      "source": "device:7",
+      "target": "runtime:31",
+      "type": "hosts"
+    },
+    {
+      "id": "runtime:31->account:9",
+      "source": "runtime:31",
+      "target": "account:9",
+      "type": "assigned"
+    }
+  ]
+}
+```
+
+All Devices and Runtimes appear, including those without children. Non-archived
+Accounts appear even when unassigned; an unassigned Account has null Runtime and
+Device metadata and no `assigned` edge. Soft-archived Accounts follow the
+existing Account visibility boundary and are omitted.
+
+Nodes are ordered by type (`device`, `runtime`, `account`) and then ascending
+entity ID. `hosts` edges are ordered by Runtime ID, followed by `assigned` edges
+ordered by Account ID. IDs are namespaced and stable.
+
+`ready_accounts` uses the canonical Account registration readiness projection.
+`not_ready_accounts` is its complement across visible Accounts.
+`attention_accounts` is conservative: registration `failed`, health
+`warning`/`unhealthy`, or lifecycle `restricted`/`suspended`/`disabled`/
+`archived`. Secret exposure is limited to `secret_present`; the endpoint never
+returns secret types, ciphertext, or values.
+
 ## Delete/archive account
 
 - Method: `DELETE`
