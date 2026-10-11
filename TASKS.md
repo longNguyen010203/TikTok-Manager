@@ -1095,3 +1095,34 @@ Manual validation:
 - drag position preserved across polling
 - polling refresh updates nodes/edges
 - backend error/retry verified
+
+---
+
+## TIK-027R — Stable Production / Development Isolation
+
+Status: IN PROGRESS
+
+Goal:
+Keep the current stable release running independently while future development
+continues in isolated development environments.
+
+Production:
+- immutable/tagged release worktree
+- release: v0.1.0-mvp
+- production backend/worker/frontend
+- production database and runtime state
+
+Development:
+- develop integration branch
+- Codex backend worktree
+- Antigravity frontend worktree
+- isolated development database/state
+- separate development ports
+
+Requirements:
+- Production services must not execute from agent worktrees.
+- Development must never mutate production DB/state.
+- Dev workers must not claim production jobs.
+- Release deployment must be tag-based.
+- Production DB backup is required before migrations.
+- Rollback procedure must be documented and tested.
