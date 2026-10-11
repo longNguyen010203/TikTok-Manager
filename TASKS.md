@@ -1034,7 +1034,7 @@ Phase 1 backend completion:
 
 ## TIK-025C — System Topology Dashboard
 
-Status: IN PROGRESS
+Status: DONE
 
 Phase 1 backend status: DONE
 
@@ -1083,3 +1083,15 @@ Phase 1 backend completion:
   secret presence, never secret types, ciphertext, or values.
 - Uses deterministic ordering and four bounded queries without pagination,
   caching, or graph persistence.
+
+Manual validation:
+- topology summary matches live backend
+- Device → Runtime → Account relationships verified
+- multiple Accounts per Runtime verified
+- unassigned Accounts displayed
+- search/focus verified
+- filters verified
+- details drawer verified
+- drag position preserved across polling
+- polling refresh updates nodes/edges
+- backend error/retry verified
