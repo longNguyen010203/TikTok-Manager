@@ -1033,3 +1033,45 @@ Phase 1 backend completion:
 =======
 - automated email verification  
 >>>>>>> main
+
+---
+
+## TIK-025C — System Topology Dashboard
+
+Status: IN PROGRESS
+
+Goal:
+Replace the placeholder Dashboard with an interactive topology map that gives
+the operator a real-time visual overview of the TikTok Manager system.
+
+MVP topology:
+
+Device
+→ Runtime
+→ Account
+
+Core UX:
+- zoom / pan
+- fit view
+- draggable nodes
+- auto layout
+- search / focus
+- status visualization
+- click node for details
+- auto refresh when Devices, Runtimes, Accounts, or assignments change
+
+Initial scope:
+- Device nodes
+- Runtime nodes
+- Account nodes
+- relationship edges
+- summary counters
+- status / readiness badges
+- read-only topology visualization
+
+Out of scope for MVP:
+- Jobs as nodes
+- Content as nodes
+- Publishing sessions as nodes
+- workflow editing on canvas
+- arbitrary graph mutations
