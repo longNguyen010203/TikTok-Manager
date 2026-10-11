@@ -10,9 +10,11 @@
     "test:e2e": "playwright test",
     "test:e2e:workflows": "playwright test e2e/workflows.spec.ts",
     "test:e2e:publishing": "playwright test e2e/publishing.spec.ts",
-    "test:e2e:accounts": "playwright test e2e/accounts.spec.ts"
+    "test:e2e:accounts": "playwright test e2e/accounts.spec.ts",
+    "test:e2e:dashboard": "playwright test e2e/dashboard-topology.spec.ts"
   },
   "dependencies": {
+    "@xyflow/react": "^12.12.0",
     "lucide-react": "^1.47.0",
     "next": "16.3.5",
     "react": "19.2.8",
