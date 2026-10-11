@@ -4,7 +4,7 @@ set -euo pipefail
 # Installation always targets the authoritative local database, even if this
 # shell was previously used for an isolated development database.
 unset DATABASE_URL
-export TIKTOK_MANAGER_RUNTIME_MODE=production
+export TIKTOK_MANAGER_ENV=production
 
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 backend_dir="${project_root}/backend"
@@ -82,15 +82,10 @@ for apk_tool in "${configured_aapt2}" "${configured_apksigner}"; do
 done
 
 if [[ -f "${database_path}" ]]; then
-  backup_dir="${data_dir}/backups"
-  mkdir -p "${backup_dir}"
-  chmod 700 "${backup_dir}"
-  timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-  cp --preserve=mode,timestamps "${database_path}" \
-    "${backup_dir}/tiktok_manager.pre-install-${timestamp}.db"
-  "${venv_dir}/bin/python" -c \
-    'import sqlite3,sys; value=sqlite3.connect(sys.argv[1]).execute("PRAGMA integrity_check").fetchone()[0]; print("integrity="+value); raise SystemExit(value != "ok")' \
-    "${database_path}"
+  (
+    cd "${backend_dir}"
+    "${venv_dir}/bin/python" -m app.production_backup
+  )
 fi
 
 (

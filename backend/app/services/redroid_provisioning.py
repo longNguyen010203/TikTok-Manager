@@ -263,7 +263,7 @@ class RedroidProvisioningService:
             suffix = f"{number:02d}"
             port = self.settings.base_adb_port + number
             attempt.device_number = number
-            attempt.container_name = f"redroid-device-{suffix}"
+            attempt.container_name = f"{self.settings.network_prefix}-{suffix}"
             attempt.adb_host_port = port
             attempt.adb_serial = f"localhost:{port}"
             attempt.data_path = str(
@@ -565,7 +565,7 @@ class RedroidProvisioningService:
             if number in reserved_numbers:
                 continue
             suffix = f"{number:02d}"
-            container = f"redroid-device-{suffix}"
+            container = f"{self.settings.network_prefix}-{suffix}"
             port = self.settings.base_adb_port + number
             adb = f"localhost:{port}"
             data_path = self.settings.data_root.resolve() / f"device-{suffix}-data"

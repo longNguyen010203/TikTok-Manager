@@ -9,6 +9,13 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.environment import (
+    EnvironmentConfigurationError,
+    ManagerEnvironment,
+    resolve_environment_settings,
+    validate_environment_path,
+)
+
 
 VERIFIED_REDROID_IMAGE = (
     "redroid/redroid@sha256:"
@@ -21,13 +28,11 @@ class ApplicationConfigurationError(ValueError):
 
 
 def default_config_directory() -> Path:
-    root = os.getenv("XDG_CONFIG_HOME")
-    return (Path(root) if root else Path.home() / ".config") / "tiktok-manager"
+    return resolve_environment_settings().config_root
 
 
 def default_data_directory() -> Path:
-    root = os.getenv("XDG_DATA_HOME")
-    return (Path(root) if root else Path.home() / ".local" / "share") / "tiktok-manager"
+    return resolve_environment_settings().data_root
 
 
 def configured_config_path() -> Path:
@@ -154,23 +159,31 @@ class ApplicationConfig:
 
 
 def default_application_config(path: Path | None = None) -> ApplicationConfig:
+    environment = resolve_environment_settings()
     config_path = _absolute_without_following_symlinks(path or configured_config_path())
-    data_directory = default_data_directory()
+    data_directory = environment.data_root
+    isolated = environment.environment is not ManagerEnvironment.PRODUCTION
     return ApplicationConfig(
         config_path=config_path,
         database_path=data_directory / "tiktok_manager.db",
         credential_key_path=config_path.parent / "credentials.key",
         installation_id="tiktok-manager-longnguyen-host-01",
         redroid_image=VERIFIED_REDROID_IMAGE,
-        redroid_data_root=Path.home() / "redroid-test",
-        redroid_base_adb_port=5554,
+        redroid_data_root=(
+            data_directory / "redroid" if isolated else Path.home() / "redroid-test"
+        ),
+        redroid_base_adb_port=6554 if isolated else 5554,
         redroid_profile="android-12-redroid",
-        redroid_network_prefix="redroid-device",
-        bridge_port_start=8800,
-        bridge_port_end=8899,
+        redroid_network_prefix=(
+            f"redroid-{environment.environment.value}-device"
+            if isolated
+            else "redroid-device"
+        ),
+        bridge_port_start=9800 if isolated else 8800,
+        bridge_port_end=9899 if isolated else 8899,
         bridge_device_port=8888,
-        bridge_state_directory=Path(f"/run/user/{os.getuid()}/tiktok-manager-network"),
-        bridge_lock_directory=Path("/tmp/tiktok-manager-network-locks"),
+        bridge_state_directory=environment.runtime_root / "network",
+        bridge_lock_directory=environment.temporary_root / "network-locks",
         bridge_systemd_scope="user",
         artifact_root=data_directory / "artifacts",
         artifact_max_size_bytes=100 * 1024 * 1024,
@@ -191,7 +204,7 @@ def default_application_config(path: Path | None = None) -> ApplicationConfig:
         content_max_image_dimension=32768,
         content_max_image_pixels=100_000_000,
         content_max_image_frames=500,
-        content_inspection_lock_directory=Path("/tmp/tiktok-manager-content-locks"),
+        content_inspection_lock_directory=environment.temporary_root / "content-locks",
         managed_app_max_apk_bytes=500 * 1024 * 1024,
         managed_app_aapt2_path=Path("/usr/bin/aapt2"),
         managed_app_apksigner_path=Path("/usr/bin/apksigner"),
@@ -201,7 +214,7 @@ def default_application_config(path: Path | None = None) -> ApplicationConfig:
         managed_app_zip_max_entries=20_000,
         managed_app_zip_max_expanded_bytes=2 * 1024 * 1024 * 1024,
         managed_app_zip_max_compression_ratio=200,
-        workflow_lock_directory=Path("/tmp/tiktok-manager-workflow-locks"),
+        workflow_lock_directory=environment.temporary_root / "workflow-locks",
         workflow_poll_interval_seconds=2.0,
         workflow_reconcile_batch_size=100,
         android_ui_max_xml_bytes=2 * 1024 * 1024,
@@ -383,7 +396,7 @@ def load_application_config(
 def _with_environment_overrides(config: ApplicationConfig) -> ApplicationConfig:
     """Keep explicit legacy/dev overrides without requiring them in production."""
     try:
-        return ApplicationConfig(
+        result = ApplicationConfig(
             config_path=config.config_path,
             database_path=config.database_path,
             credential_key_path=Path(
@@ -576,8 +589,45 @@ def _with_environment_overrides(config: ApplicationConfig) -> ApplicationConfig:
                 config.stop_managed_devices_on_shutdown,
             ),
         )
-    except ValueError as error:
+        return _validate_environment_isolation(result)
+    except (EnvironmentConfigurationError, ValueError) as error:
         raise ApplicationConfigurationError("Application environment override is invalid") from error
+
+
+def _validate_environment_isolation(config: ApplicationConfig) -> ApplicationConfig:
+    settings = resolve_environment_settings()
+    mutable_paths = {
+        "application config": config.config_path,
+        "database": config.database_path,
+        "credential key": config.credential_key_path,
+        "Redroid data": config.redroid_data_root,
+        "network bridge state": config.bridge_state_directory,
+        "network lock": config.bridge_lock_directory,
+        "artifact root": config.artifact_root,
+        "content root": config.content_root,
+        "content inspection lock": config.content_inspection_lock_directory,
+        "workflow lock": config.workflow_lock_directory,
+    }
+    for label, path in mutable_paths.items():
+        validate_environment_path(path, settings=settings, label=label)
+    if settings.environment is not ManagerEnvironment.PRODUCTION:
+        legacy_production_paths = {
+            Path.home() / "redroid-test",
+            Path(f"/run/user/{os.getuid()}/tiktok-manager-network"),
+            Path("/tmp/tiktok-manager-network-locks"),
+            Path("/tmp/tiktok-manager-content-locks"),
+            Path("/tmp/tiktok-manager-workflow-locks"),
+        }
+        for label, path in mutable_paths.items():
+            resolved = path.expanduser().resolve()
+            if resolved in {
+                item.expanduser().resolve() for item in legacy_production_paths
+            }:
+                raise EnvironmentConfigurationError(
+                    f"{label} for {settings.environment.value} must not use "
+                    f"legacy production state {resolved}"
+                )
+    return config
 
 
 def _environment_bool(name: str, default: bool) -> bool:

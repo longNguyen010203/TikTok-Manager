@@ -31,6 +31,8 @@ from app.services.database_startup import DatabaseStartupError, DatabaseStartupV
 def clean_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     for name in (
         "DATABASE_URL",
+        "TIKTOK_MANAGER_ENV",
+        "TIKTOK_MANAGER_TEST_ROOT",
         "TIKTOK_MANAGER_RUNTIME_MODE",
         "TIKTOK_MANAGER_CONFIG",
         "TIKTOK_MANAGER_CREDENTIAL_KEY_PATH",
@@ -39,8 +41,8 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("TIKTOK_MANAGER_ENV", "test")
+    monkeypatch.setenv("TIKTOK_MANAGER_TEST_ROOT", str(tmp_path / "data"))
 
 
 def test_default_database_is_authoritative_per_user_path(
@@ -50,8 +52,8 @@ def test_default_database_is_authoritative_per_user_path(
 
     settings = resolve_database_settings()
 
-    assert settings.mode == "operational"
-    assert settings.sqlite_path == tmp_path / "data/tiktok-manager/tiktok_manager.db"
+    assert settings.mode == "test"
+    assert settings.sqlite_path == tmp_path / "data/tiktok_manager.db"
     assert "backend/tiktok_manager.db" not in settings.url
 
 
@@ -64,7 +66,7 @@ def test_explicit_development_database_override(
 
     settings = resolve_database_settings()
 
-    assert settings.mode == "development-override"
+    assert settings.mode == "test-override"
     assert settings.sqlite_path == override
 
 
@@ -72,7 +74,7 @@ def test_production_rejects_repository_local_database(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repository_database = Path(__file__).parents[2] / "backend/tiktok_manager.db"
-    monkeypatch.setenv("TIKTOK_MANAGER_RUNTIME_MODE", "production")
+    monkeypatch.setenv("TIKTOK_MANAGER_ENV", "production")
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{repository_database}")
 
     with pytest.raises(DatabaseConfigurationError, match="inside the repository"):
@@ -83,6 +85,7 @@ def test_operational_config_cannot_redirect_canonical_database(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     clean_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("TIKTOK_MANAGER_ENV", "development")
     config = bootstrap_application_config()
     text = config.config_path.read_text(encoding="utf-8").replace(
         str(config.database_path), str(tmp_path / "alternate.db")
@@ -136,16 +139,16 @@ def test_config_bootstrap_is_private_persistent_and_loadable(
     second = bootstrap_application_config()
 
     assert first == second
-    assert second.database_path == tmp_path / "data/tiktok-manager/tiktok_manager.db"
-    assert second.redroid_base_adb_port == 5554
+    assert second.database_path == tmp_path / "data/tiktok_manager.db"
+    assert second.redroid_base_adb_port == 6554
     assert second.bridge_systemd_scope == "user"
-    assert second.artifact_root == tmp_path / "data/tiktok-manager/artifacts"
+    assert second.artifact_root == tmp_path / "data/artifacts"
     assert second.artifact_max_size_bytes == 100 * 1024 * 1024
     assert second.artifact_max_total_bytes == 1024 * 1024 * 1024
     assert second.artifact_retention_days == 30
     assert second.artifact_upload_retention_days == 7
     assert second.artifact_cleanup_interval_hours == 6
-    assert second.content_root == tmp_path / "data/tiktok-manager/content"
+    assert second.content_root == tmp_path / "data/content"
     assert second.content_max_upload_bytes == 500 * 1024 * 1024
     assert second.content_max_total_bytes == 20 * 1024 * 1024 * 1024
     assert second.content_ffprobe_path == Path("/usr/bin/ffprobe")
@@ -205,7 +208,7 @@ def test_config_bootstrap_adds_new_retention_defaults_without_overwriting(
     assert upgraded.artifact_max_size_bytes == 50 * 1024 * 1024
     assert upgraded.artifact_max_total_bytes == 1024 * 1024 * 1024
     assert upgraded.artifact_retention_days == 30
-    assert upgraded.content_root == tmp_path / "data/tiktok-manager/content"
+    assert upgraded.content_root == tmp_path / "data/content"
     assert upgraded.content_max_upload_bytes == 500 * 1024 * 1024
     assert upgraded.content_max_total_bytes == 20 * 1024 * 1024 * 1024
     text = first.config_path.read_text(encoding="utf-8")
@@ -343,7 +346,7 @@ def test_user_service_uses_native_user_manager_and_contains_no_secrets() -> None
 
     assert "--host 127.0.0.1 --port 8000" in service
     assert "Restart=on-failure" in service
-    assert "TIKTOK_MANAGER_RUNTIME_MODE=production" in service
+    assert "TIKTOK_MANAGER_ENV=production" in service
     assert "XDG_RUNTIME_DIR" not in service
     assert "DBUS_SESSION_BUS_ADDRESS" not in service
     assert "TIKTOK_PROXY_" not in service
@@ -393,6 +396,7 @@ def test_worker_and_artifact_cleanup_service_assets_are_production_safe() -> Non
     assert "WorkingDirectory=@PROJECT_ROOT@/workers" in worker
     assert "@PROJECT_ROOT@/backend/.venv/bin/python -m worker" in worker
     assert "WORKER_BACKEND_URL=http://127.0.0.1:8000" in worker
+    assert "TIKTOK_MANAGER_ENV=production" in worker
     assert "PYTHONDONTWRITEBYTECODE=1" in worker
     assert "Restart=on-failure" in worker
     assert "claim_token" not in worker.lower()

@@ -52,6 +52,35 @@ Contains:
 - database schema
 - technical decisions
 
+## Production and development isolation
+
+`TIKTOK_MANAGER_ENV` is the single environment selector. Production,
+development, and test resolve database, configuration, data, runtime, and lock
+roots through `app.environment`; the database layer, Alembic, application
+configuration, and worker consume that contract. Production and development
+accept only their own canonical SQLite database and reject the other
+environment's mutable roots. Tests select a process-specific temporary root
+and explicitly reject the production database.
+
+Production code executes from an immutable tagged
+`~/Desktop/MMO/TikTok-Manager-prod` worktree on ports 8000/3000. Development
+uses a `develop` worktree, ports 8001/3001, and the `tiktok-manager-dev`
+namespace. Each worktree owns its Python environment. Workers are pinned to the
+backend port for their selected environment, so a development worker cannot
+claim production jobs.
+
+Only production application startup performs host capability checks and
+Runtime/network reconciliation. Non-production startup validates its isolated
+database but does not inspect or clean up Docker, Binder, ADB, scrcpy, or proxy
+bridge state. Development provisioning uses a separate Redroid container and
+network prefix, ADB port range, bind-data root, and lock state.
+
+Release deployment is always `develop` validation followed by approval, merge
+to `main`, immutable tag creation, SQLite online backup, reviewed migrations,
+tagged-worktree service restart, and health/smoke checks. Schema-incompatible
+rollback restores the pre-release database backup while all writers are
+stopped; Alembic downgrade is never assumed safe.
+
 ## Initial stack
 
 Frontend:

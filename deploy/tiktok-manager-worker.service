@@ -7,6 +7,7 @@ After=tiktok-manager-backend.service
 Type=simple
 WorkingDirectory=@PROJECT_ROOT@/workers
 ExecStart=@PROJECT_ROOT@/backend/.venv/bin/python -m worker
+Environment=TIKTOK_MANAGER_ENV=production
 Environment=WORKER_BACKEND_URL=http://127.0.0.1:8000
 Environment=PYTHONDONTWRITEBYTECODE=1
 Restart=on-failure

@@ -8,6 +8,13 @@ import socket
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+from app.environment import (
+    ENVIRONMENT_VARIABLE,
+    LEGACY_RUNTIME_MODE_VARIABLE,
+    ManagerEnvironment,
+    resolve_environment_settings,
+)
+
 BACKEND_URL_ENV = "WORKER_BACKEND_URL"
 POLL_INTERVAL_ENV = "WORKER_POLL_INTERVAL_SECONDS"
 RETRY_DELAY_ENV = "WORKER_RETRY_DELAY_SECONDS"
@@ -34,6 +41,7 @@ class WorkerConfig:
     backend_backoff_initial_seconds: float = DEFAULT_BACKEND_BACKOFF_INITIAL_SECONDS
     backend_backoff_max_seconds: float = DEFAULT_BACKEND_BACKOFF_MAX_SECONDS
     worker_id: str = socket.gethostname()
+    environment: ManagerEnvironment | None = None
 
     def __post_init__(self) -> None:
         normalized_url = self.backend_url.rstrip("/")
@@ -54,12 +62,34 @@ class WorkerConfig:
             raise ValueError("backend reconnect backoff is invalid")
         if not self.worker_id or len(self.worker_id) > 100:
             raise ValueError("worker ID must contain 1 to 100 characters")
+        if (
+            self.environment is ManagerEnvironment.PRODUCTION
+            and normalized_url != "http://127.0.0.1:8000"
+        ):
+            raise ValueError("production worker must use http://127.0.0.1:8000")
+        if (
+            self.environment is ManagerEnvironment.DEVELOPMENT
+            and normalized_url != "http://127.0.0.1:8001"
+        ):
+            raise ValueError("development worker must use http://127.0.0.1:8001")
         object.__setattr__(self, "backend_url", normalized_url)
 
     @classmethod
     def from_environment(cls) -> WorkerConfig:
         """Build configuration from worker environment variables."""
-        backend_url = os.getenv(BACKEND_URL_ENV, DEFAULT_BACKEND_URL)
+        values = dict(os.environ)
+        explicit_backend_url = values.get(BACKEND_URL_ENV)
+        if (
+            ENVIRONMENT_VARIABLE not in values
+            and LEGACY_RUNTIME_MODE_VARIABLE not in values
+            and explicit_backend_url is not None
+            and explicit_backend_url.rstrip("/") == "http://127.0.0.1:8000"
+        ):
+            # Compatibility for the pre-TIK-027R installed worker unit, which
+            # pins production port 8000 but did not carry a runtime-mode flag.
+            values[ENVIRONMENT_VARIABLE] = ManagerEnvironment.PRODUCTION.value
+        manager = resolve_environment_settings(values)
+        backend_url = explicit_backend_url or f"http://127.0.0.1:{manager.backend_port}"
         interval_text = os.getenv(
             POLL_INTERVAL_ENV, str(DEFAULT_POLL_INTERVAL_SECONDS)
         )
@@ -102,6 +132,7 @@ class WorkerConfig:
             backend_backoff_initial_seconds=backoff_initial,
             backend_backoff_max_seconds=backoff_max,
             worker_id=os.getenv(WORKER_ID_ENV, socket.gethostname()),
+            environment=manager.environment,
         )
 
 
@@ -146,6 +177,7 @@ def parse_config(arguments: list[str] | None = None) -> WorkerConfig:
             backend_backoff_initial_seconds=environment.backend_backoff_initial_seconds,
             backend_backoff_max_seconds=environment.backend_backoff_max_seconds,
             worker_id=environment.worker_id,
+            environment=environment.environment,
         )
     except ValueError as error:
         parser.error(str(error))

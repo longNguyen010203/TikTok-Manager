@@ -1,0 +1,16 @@
+[Unit]
+Description=TikTok Manager development backend
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=@DEVELOPMENT_ROOT@/backend
+ExecStart=@DEVELOPMENT_ROOT@/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8001
+Environment=TIKTOK_MANAGER_ENV=development
+Environment=PYTHONDONTWRITEBYTECODE=1
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

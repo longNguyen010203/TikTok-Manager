@@ -1,0 +1,16 @@
+[Unit]
+Description=TikTok Manager production backend
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Desktop/MMO/TikTok-Manager-prod/backend
+ExecStart=%h/Desktop/MMO/TikTok-Manager-prod/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+Environment=TIKTOK_MANAGER_ENV=production
+Environment=PYTHONDONTWRITEBYTECODE=1
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

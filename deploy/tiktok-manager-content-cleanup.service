@@ -6,5 +6,5 @@ After=tiktok-manager-backend.service
 Type=oneshot
 WorkingDirectory=@PROJECT_ROOT@/backend
 ExecStart=@PROJECT_ROOT@/backend/.venv/bin/python -m app.content_cleanup
-Environment=TIKTOK_MANAGER_RUNTIME_MODE=production
+Environment=TIKTOK_MANAGER_ENV=production
 NoNewPrivileges=true

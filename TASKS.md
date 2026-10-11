@@ -1126,3 +1126,20 @@ Requirements:
 - Release deployment must be tag-based.
 - Production DB backup is required before migrations.
 - Rollback procedure must be documented and tested.
+
+Phase 1 preparation implemented (status remains IN PROGRESS):
+- Central `production` / `development` / `test` environment resolution with
+  canonical DB and mutable-state guards.
+- Development backend, worker, Alembic, artifacts/content, Runtime/network
+  state, Redroid names/ports/data, and locks are isolated from production.
+- Non-production backend startup skips live host Runtime/network reconciliation.
+- Prepared (not installed or enabled) production and optional development
+  systemd definitions.
+- Added SQLite online-backup, release-check, and health-check helpers.
+- Documented worktrees, ports, virtualenv ownership, release, rollback, and the
+  exact Phase 2 cutover checklist in `docs/PRODUCTION.md`,
+  `docs/DEVELOPMENT.md`, and `docs/RELEASE_PROCESS.md`.
+
+Phase 1 explicitly did not change active services, migrate/copy production
+data, move a release tag/worktree, merge branches, or deploy. Phase 2 cutover
+and live verification remain outstanding; therefore TIK-027R is not DONE.

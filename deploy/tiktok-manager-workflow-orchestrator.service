@@ -7,7 +7,7 @@ After=tiktok-manager-backend.service
 Type=simple
 WorkingDirectory=@PROJECT_ROOT@/backend
 ExecStart=@PROJECT_ROOT@/backend/.venv/bin/python -m app.workflow_orchestrator
-Environment=TIKTOK_MANAGER_RUNTIME_MODE=production
+Environment=TIKTOK_MANAGER_ENV=production
 Environment=PYTHONDONTWRITEBYTECODE=1
 Restart=on-failure
 RestartSec=3

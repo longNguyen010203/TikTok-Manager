@@ -25,6 +25,7 @@ from app.routers.workflows import router as workflows_router, template_router as
 from app.routers.tiktok_actions import router as tiktok_actions_router
 from app.services.host_lifecycle import (
     ApplicationLifecycle,
+    DatabaseOnlyLifecycle,
     HostLifecycleManager,
     stop_managed_devices_on_shutdown_from_environment,
 )
@@ -39,6 +40,7 @@ from app.services.redroid_runtime import RedroidRuntimeAdapter
 from app.services.runtime_network_orchestration import RuntimeNetworkRecoveryCoordinator
 from app.services.systemd_proxy_bridge import SystemdHostProxyBridgeSupervisor
 from app.config import load_application_config
+from app.environment import resolve_environment_settings
 
 
 def create_app(
@@ -47,36 +49,41 @@ def create_app(
     """Create and configure the FastAPI application."""
     lifecycle = host_lifecycle
     if lifecycle is None:
-        runtime_adapter = RedroidRuntimeAdapter()
-        network_settings = RuntimeNetworkSettings.from_environment()
+        environment = resolve_environment_settings()
         application_config = load_application_config()
         key_manager = MasterKeyManager(application_config.credential_key_path)
         credential_provider = NetworkCredentialProvider(key_manager)
         account_secret_provider = AccountSecretProvider(key_manager)
-        lifecycle = HostLifecycleManager(
-            SessionLocal,
-            runtime_adapter,
-            screen_process_manager,
-            stop_managed_devices_on_shutdown=(
-                stop_managed_devices_on_shutdown_from_environment()
-            ),
-            network_reconciler=RuntimeNetworkRecoveryCoordinator(
+        database_readiness_check = DatabaseStartupValidator(
+            engine, DATABASE_SETTINGS, credential_provider, account_secret_provider
+        ).validate
+        if not environment.host_reconciliation_enabled:
+            lifecycle = DatabaseOnlyLifecycle(database_readiness_check)
+        else:
+            runtime_adapter = RedroidRuntimeAdapter()
+            network_settings = RuntimeNetworkSettings.from_environment()
+            lifecycle = HostLifecycleManager(
                 SessionLocal,
-                runtime_adapter=runtime_adapter,
-                android_adapter=AndroidNetworkAdapter(),
-                bridge_supervisor=SystemdHostProxyBridgeSupervisor(
-                    network_settings
+                runtime_adapter,
+                screen_process_manager,
+                stop_managed_devices_on_shutdown=(
+                    stop_managed_devices_on_shutdown_from_environment()
                 ),
-                secret_resolver=SecretResolver(),
-                guard=RuntimeNetworkOperationGuard(
-                    network_settings.lock_directory
+                network_reconciler=RuntimeNetworkRecoveryCoordinator(
+                    SessionLocal,
+                    runtime_adapter=runtime_adapter,
+                    android_adapter=AndroidNetworkAdapter(),
+                    bridge_supervisor=SystemdHostProxyBridgeSupervisor(
+                        network_settings
+                    ),
+                    secret_resolver=SecretResolver(),
+                    guard=RuntimeNetworkOperationGuard(
+                        network_settings.lock_directory
+                    ),
+                    credential_provider=credential_provider,
                 ),
-                credential_provider=credential_provider,
-            ),
-            database_readiness_check=DatabaseStartupValidator(
-                engine, DATABASE_SETTINGS, credential_provider, account_secret_provider
-            ).validate,
-        )
+                database_readiness_check=database_readiness_check,
+            )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):

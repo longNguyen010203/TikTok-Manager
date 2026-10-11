@@ -1,0 +1,19 @@
+[Unit]
+Description=TikTok Manager development worker
+Wants=tiktok-manager-backend-dev.service
+After=tiktok-manager-backend-dev.service
+
+[Service]
+Type=simple
+WorkingDirectory=@DEVELOPMENT_ROOT@/workers
+ExecStart=@DEVELOPMENT_ROOT@/backend/.venv/bin/python -m worker
+Environment=TIKTOK_MANAGER_ENV=development
+Environment=WORKER_BACKEND_URL=http://127.0.0.1:8001
+Environment=PYTHONDONTWRITEBYTECODE=1
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=330
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

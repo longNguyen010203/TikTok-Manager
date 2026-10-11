@@ -92,6 +92,23 @@ class ApplicationLifecycle(Protocol):
     def shutdown(self) -> None: ...
 
 
+class DatabaseOnlyLifecycle:
+    """Validate the isolated database without touching host devices or processes."""
+
+    def __init__(self, database_readiness_check: Callable[[], None]) -> None:
+        self.database_readiness_check = database_readiness_check
+
+    def startup(self) -> None:
+        self.database_readiness_check()
+        logger.info(
+            "Non-production lifecycle ready; Redroid, ADB, screen, and network "
+            "startup reconciliation is disabled"
+        )
+
+    def shutdown(self) -> None:
+        logger.info("Non-production lifecycle shutdown requires no host cleanup")
+
+
 class NetworkStartupReconciler(Protocol):
     """Optional per-Runtime network recovery invoked after lifecycle discovery."""
 

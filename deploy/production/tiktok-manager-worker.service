@@ -1,0 +1,19 @@
+[Unit]
+Description=TikTok Manager production worker
+Wants=tiktok-manager-backend.service
+After=tiktok-manager-backend.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Desktop/MMO/TikTok-Manager-prod/workers
+ExecStart=%h/Desktop/MMO/TikTok-Manager-prod/backend/.venv/bin/python -m worker
+Environment=TIKTOK_MANAGER_ENV=production
+Environment=WORKER_BACKEND_URL=http://127.0.0.1:8000
+Environment=PYTHONDONTWRITEBYTECODE=1
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=330
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
